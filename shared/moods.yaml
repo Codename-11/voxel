@@ -1,0 +1,122 @@
+# Voxel — Mood icons, state-to-mood mappings, and LED behavior
+#
+# icons:     Floating mood-effect overlays (text, color, animation type)
+# state_map: Application state -> default mood expression
+# led_map:   Application state -> RGB LED behavior
+#
+# Colors from design/src/components/VoxelCube.css and main.py _STATE_LED.
+
+icons:
+  neutral: null  # no floating icon for neutral
+  happy:
+    text: "\u2665"           # heart symbol
+    color: "#ff6b8a"
+    animation: pulse
+  curious:
+    text: "?"
+    color: "#00d4d2"         # --vx-cyan
+    animation: float
+  thinking:
+    text: "\U0001f9e0\u2699" # brain + gear
+    color: "#00d4d2"         # --vx-cyan
+    animation: float_spin
+  confused:
+    text: "???"
+    color: "#00d4d2"         # --vx-cyan
+    animation: pulse
+  excited:
+    text: "!!"
+    color: "#40fff8"         # --vx-cyan-bright
+    animation: bounce
+  sleepy:
+    text: "zzZ"
+    color: "#00d4d2"         # --vx-cyan
+    animation: float_up
+  error:
+    text: "?!"
+    color: "#ff3c3c"         # --vx-error
+    animation: pulse
+  listening:
+    text: ")))"
+    color: "#00d4d2"         # --vx-cyan
+    animation: pulse
+  sad:
+    text: "\u2565"           # double-bar down
+    color: "#8888aa"
+    animation: float
+  surprised:
+    text: "!"
+    color: "#40fff8"         # --vx-cyan-bright
+    animation: pulse
+  focused:
+    text: "\u2022\u2022\u2022"  # bullet dots
+    color: "#00d4d2"            # --vx-cyan
+    animation: pulse
+  frustrated:
+    text: "#"
+    color: "#ff6b4a"
+    animation: shake
+  working:
+    text: "\u2699"           # gear
+    color: "#00d4d2"         # --vx-cyan
+    animation: spin
+  low_battery:
+    text: null               # rendered as SVG battery icon
+    color: "#d4a020"
+    animation: pulse
+  critical_battery:
+    text: null               # rendered as SVG battery icon
+    color: "#a07818"
+    animation: pulse
+
+# Application state -> default mood expression key
+state_map:
+  IDLE: neutral
+  LISTENING: listening
+  THINKING: thinking
+  SPEAKING: neutral
+  ERROR: error
+  SLEEPING: sleepy
+  MENU: neutral
+
+# Application state -> LED behavior
+# Each entry: mode (pulse|solid), color [r, g, b], speed (for pulse; 0 for solid)
+led_map:
+  IDLE:
+    mode: pulse
+    color: [0, 180, 160]
+    speed: 0.6
+  LISTENING:
+    mode: solid
+    color: [0, 100, 255]
+    speed: 0
+  THINKING:
+    mode: pulse
+    color: [220, 180, 40]
+    speed: 1.5
+  SPEAKING:
+    mode: solid
+    color: [0, 200, 100]
+    speed: 0
+  ERROR:
+    mode: pulse
+    color: [255, 40, 40]
+    speed: 3.0
+  SLEEPING:
+    mode: pulse
+    color: [60, 60, 100]
+    speed: 0.2
+  MENU:
+    mode: solid
+    color: [160, 160, 180]
+    speed: 0
+
+# Application state -> status bar accent color [r, g, b]
+status_colors:
+  IDLE: [80, 200, 160]
+  LISTENING: [80, 160, 255]
+  THINKING: [220, 180, 60]
+  SPEAKING: [80, 220, 120]
+  ERROR: [255, 80, 80]
+  SLEEPING: [100, 100, 140]
+  MENU: [160, 160, 180]

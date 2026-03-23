@@ -72,7 +72,7 @@ def main() -> None:
     from hardware.platform import PLATFORM_NAME
     from hardware.buttons import ButtonEvent
     from states.machine import StateMachine, State
-    from face.renderer import FaceRenderer
+    from face import create_renderer
     from face.expressions import Mood
 
     boot_message()
@@ -89,11 +89,22 @@ def main() -> None:
 
     # ── State machine ────────────────────────────────────────────────────────
     sm = StateMachine()
-    face = FaceRenderer()
+    face = create_renderer(backend="pygame")
+
+    # State -> mood name mapping for the face renderer
+    _state_mood_map: dict[State, str] = {
+        State.IDLE:      "neutral",
+        State.LISTENING: "listening",
+        State.THINKING:  "thinking",
+        State.SPEAKING:  "neutral",
+        State.ERROR:     "error",
+        State.SLEEPING:  "sleepy",
+        State.MENU:      "neutral",
+    }
 
     # Wire state changes to face renderer + LED
     def _on_state_change(old: State, new: State) -> None:
-        face.on_state_change(old, new)
+        face.set_mood(_state_mood_map.get(new, "neutral"))
         mode, color, speed = _STATE_LED.get(new.name, ("pulse", (0, 180, 160), 0.6))
         if mode == "pulse":
             led.pulse(color, speed=speed)
@@ -148,13 +159,13 @@ def main() -> None:
                 elif evt == ButtonEvent.BUTTON_LEFT:
                     # Previous mood
                     mood_idx = (mood_idx - 1) % len(moods)
-                    face.set_mood(moods[mood_idx])
+                    face.set_mood(moods[mood_idx].name.lower())
                     log.info(f"Mood override: {moods[mood_idx].name}")
 
                 elif evt == ButtonEvent.BUTTON_RIGHT:
                     # Next mood
                     mood_idx = (mood_idx + 1) % len(moods)
-                    face.set_mood(moods[mood_idx])
+                    face.set_mood(moods[mood_idx].name.lower())
                     log.info(f"Mood override: {moods[mood_idx].name}")
 
             # ── Update ───────────────────────────────────────────────────────
@@ -168,7 +179,7 @@ def main() -> None:
             led.draw_indicator(surface)
 
             batt = battery.get_level()
-            draw_status_bar(surface, sm.state.name, face.character.get_mood().name,
+            draw_status_bar(surface, sm.state.name, face.get_mood(),
                             PLATFORM_NAME, batt)
 
             display.update()
@@ -177,6 +188,7 @@ def main() -> None:
         log.info("Interrupted by user.")
     finally:
         shutdown_message()
+        face.cleanup()
         led.cleanup()
         buttons.cleanup()
         if _audio_ok:
