@@ -6,10 +6,12 @@ face styles (kawaii, retro, minimal) and smooth lerp transitions between moods.
 """
 
 import math
+import os
 import time
 import random
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import pygame
@@ -296,6 +298,15 @@ class VoxelCharacter:
         # Pre-create surfaces for glow effects
         self._glow_surface = pygame.Surface((SCREEN_W, FACE_AREA_H), pygame.SRCALPHA)
 
+        # Load cube body sprite (3D isometric render from design tool)
+        self._body_sprite: Optional[pygame.Surface] = None
+        sprite_path = Path(__file__).parent / "sprites" / "cube_body.png"
+        if sprite_path.exists():
+            self._body_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+            log.info(f"Loaded cube body sprite: {self._body_sprite.get_size()}")
+        else:
+            log.warning("Cube body sprite not found — falling back to procedural body")
+
     # ── Style management ─────────────────────────────────────────────────────
 
     def set_style(self, style_name: str) -> None:
@@ -423,70 +434,39 @@ class VoxelCharacter:
     # ── Body ─────────────────────────────────────────────────────────────────
 
     def _draw_body(self, surface: pygame.Surface, cx: int, cy: int, expr: Expression) -> None:
-        """Draw the dark cube body with glowing edge accents.
-
-        Matches CSS: .cube-face.front background #1a1a2e, .edge-glow #00d4d2.
-        """
+        """Draw the cube body — uses 3D sprite if available, falls back to procedural."""
         scale = expr.body.scale
-        w = int(BODY_W * scale)
-        h = int(BODY_H * scale)
-        r = int(BODY_RADIUS * scale)
 
-        body_rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
-
-        # Body fill (dark charcoal gradient approximation)
-        # Main body color
-        pygame.draw.rect(surface, BODY_FILL, body_rect, border_radius=r)
-
-        # Subtle lighter top-left for pseudo-gradient (matches CSS linear-gradient 145deg)
-        grad_surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        for row in range(h):
-            frac = row / max(h - 1, 1)
-            # Top is lighter, bottom is darker
-            alpha = int(8 * (1.0 - frac))
-            if alpha > 0:
-                pygame.draw.line(grad_surf, (255, 255, 255, alpha), (0, row), (w, row))
-        surface.blit(grad_surf, body_rect.topleft)
-
-        # Edge glow lines (matches CSS .edge-glow with 12px inset)
-        inset = int(EDGE_INSET * scale)
-        glow_w = 2  # matches CSS height: 2px / width: 2px
-
-        # Top edge
-        pygame.draw.line(surface, EDGE_GLOW,
-                         (body_rect.left + inset, body_rect.top),
-                         (body_rect.right - inset, body_rect.top), glow_w)
-        # Bottom edge
-        pygame.draw.line(surface, EDGE_GLOW,
-                         (body_rect.left + inset, body_rect.bottom - 1),
-                         (body_rect.right - inset, body_rect.bottom - 1), glow_w)
-        # Left edge
-        pygame.draw.line(surface, EDGE_GLOW,
-                         (body_rect.left, body_rect.top + inset),
-                         (body_rect.left, body_rect.bottom - inset), glow_w)
-        # Right edge
-        pygame.draw.line(surface, EDGE_GLOW,
-                         (body_rect.right - 1, body_rect.top + inset),
-                         (body_rect.right - 1, body_rect.bottom - inset), glow_w)
-
-        # Edge glow soft bloom (wider dim line behind bright line)
-        bloom_surf = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
-        bx, by = 4, 4
-        bloom_color = (0, 212, 210, 30)
-        # Top
-        pygame.draw.line(bloom_surf, bloom_color,
-                         (bx + inset, by - 1), (bx + w - inset, by - 1), 4)
-        # Bottom
-        pygame.draw.line(bloom_surf, bloom_color,
-                         (bx + inset, by + h), (bx + w - inset, by + h), 4)
-        # Left
-        pygame.draw.line(bloom_surf, bloom_color,
-                         (bx - 1, by + inset), (bx - 1, by + h - inset), 4)
-        # Right
-        pygame.draw.line(bloom_surf, bloom_color,
-                         (bx + w, by + inset), (bx + w, by + h - inset), 4)
-        surface.blit(bloom_surf, (body_rect.left - 4, body_rect.top - 4),
-                     special_flags=pygame.BLEND_RGBA_ADD)
+        if self._body_sprite is not None:
+            # Blit the 3D isometric sprite from the design tool
+            sprite = self._body_sprite
+            if abs(scale - 1.0) > 0.01:
+                sw = int(sprite.get_width() * scale)
+                sh = int(sprite.get_height() * scale)
+                sprite = pygame.transform.smoothscale(sprite, (sw, sh))
+            rect = sprite.get_rect(center=(cx, cy))
+            surface.blit(sprite, rect)
+        else:
+            # Procedural fallback — flat rounded rect with edge glow
+            w = int(BODY_W * scale)
+            h = int(BODY_H * scale)
+            r = int(BODY_RADIUS * scale)
+            body_rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
+            pygame.draw.rect(surface, BODY_FILL, body_rect, border_radius=r)
+            # Edge glow lines
+            inset = int(EDGE_INSET * scale)
+            pygame.draw.line(surface, EDGE_GLOW,
+                             (body_rect.left + inset, body_rect.top),
+                             (body_rect.right - inset, body_rect.top), 2)
+            pygame.draw.line(surface, EDGE_GLOW,
+                             (body_rect.left + inset, body_rect.bottom - 1),
+                             (body_rect.right - inset, body_rect.bottom - 1), 2)
+            pygame.draw.line(surface, EDGE_GLOW,
+                             (body_rect.left, body_rect.top + inset),
+                             (body_rect.left, body_rect.bottom - inset), 2)
+            pygame.draw.line(surface, EDGE_GLOW,
+                             (body_rect.right - 1, body_rect.top + inset),
+                             (body_rect.right - 1, body_rect.bottom - inset), 2)
 
     # ── Eyes ─────────────────────────────────────────────────────────────────
 
