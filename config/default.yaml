@@ -1,0 +1,82 @@
+# Axiom Companion Configuration
+
+# OpenClaw Gateway
+gateway:
+  url: "http://172.16.24.250:18789"  # Docker-Server LAN IP
+  token: ""  # Set in local.yaml or env OPENCLAW_TOKEN
+  default_agent: "daemon"
+
+# Available agents
+agents:
+  - id: daemon
+    name: Daemon
+    emoji: "🖤"
+    voice: charlie  # ElevenLabs voice
+    description: Lead agent — coordinator
+  - id: soren
+    name: Soren
+    emoji: "⭐"
+    voice: adam
+    description: Senior architect
+  - id: ash
+    name: Ash
+    emoji: "🔩"
+    voice: josh
+    description: Builder/executor
+  - id: mira
+    name: Mira
+    emoji: "📈"
+    voice: rachel
+    description: Business operator
+  - id: jace
+    name: Jace
+    emoji: "🔄"
+    voice: sam
+    description: Flex agent
+  - id: pip
+    name: Pip
+    emoji: "📋"
+    voice: charlie
+    description: Intern
+
+# Display
+display:
+  width: 240
+  height: 280
+  fps: 30
+  brightness: 80  # 0-100
+  orientation: 0   # 0, 90, 180, 270
+
+# Audio
+audio:
+  stt_provider: whisper  # whisper (cloud) or local
+  tts_provider: edge     # elevenlabs, edge (free), or local
+  wake_word: null        # null = push-to-talk only
+  volume: 80             # 0-100
+
+# Speech-to-Text
+stt:
+  whisper:
+    model: whisper-1
+    language: en
+
+# Text-to-Speech
+tts:
+  elevenlabs:
+    api_key: ""  # Set in local.yaml or env ELEVENLABS_API_KEY
+    model: eleven_turbo_v2_5
+  edge:
+    voice: en-US-ChristopherNeural
+
+# Face/Character
+character:
+  idle_blink_interval: 3.5  # seconds between random blinks
+  gaze_drift_speed: 0.5     # how fast eyes wander on idle
+  mouth_sensitivity: 0.6    # audio amplitude → mouth mapping
+  breathing_speed: 0.3      # idle bounce speed
+
+# Power management
+power:
+  sleep_after_idle: 300     # seconds of no interaction → sleep mode
+  dim_after_idle: 60        # seconds → dim display
+  dim_brightness: 20        # brightness when dimmed

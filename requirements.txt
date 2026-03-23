@@ -1,0 +1,10 @@
+# Axiom Companion dependencies
+pygame>=2.5.0
+Pillow>=10.0.0
+pyyaml>=6.0
+openai>=1.0.0      # Whisper STT + gateway compat
+requests>=2.31.0   # OpenClaw gateway API
+numpy>=1.24.0      # Audio processing (RMS/amplitude)
+edge-tts>=6.1.0    # Fallback TTS (free, no API key)
+spidev>=3.6        # SPI display driver
+RPi.GPIO>=0.7.1    # GPIO for buttons/LED

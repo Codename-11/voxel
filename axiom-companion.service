@@ -1,0 +1,16 @@
+[Unit]
+Description=Axiom Companion
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/axiom-companion
+ExecStart=/home/pi/axiom-companion/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target
