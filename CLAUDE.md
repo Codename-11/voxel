@@ -8,63 +8,89 @@ Voxel is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSu
 - **Repo:** ~/voxel (local, not yet on GitHub)
 - **OpenClaw Gateway:** http://172.16.24.250:18789
 
+## Architecture
+
+**React + WebSocket + Python backend.** The React app (`app/`) is the production renderer — what you see in the browser IS what runs on the Pi via WPE/Cog. Python (`server.py`) is the backend: state machine, hardware I/O, AI pipelines. They communicate over WebSocket on port 8080.
+
+```
+  React UI (app/)              Python Backend (server.py)
+  ┌─────────────────┐          ┌──────────────────────────┐
+  │ Framer Motion    │◄──ws──►│ State Machine             │
+  │ face animation   │  :8080  │ Hardware (buttons/LED/bat)│
+  │ mood/style/mouth │         │ AI (OpenClaw, STT, TTS)   │
+  └────────┬────────┘          └──────────┬───────────────┘
+           │                              │
+     shared/*.yaml                   shared/*.yaml
+     (expressions, styles, moods)    (moods, expressions)
+```
+
+**On the Pi:** WPE WebKit renders the React app fullscreen on the LCD. Python backend runs as a systemd service. No pygame in production.
+
+**On desktop:** `npm run dev` opens a browser window. `uv run server.py` runs the backend. Both hot-reload.
+
 ## Project Structure
 
 ```
 voxel/
-├── main.py                      # Application entry point
-├── core/                        # OpenClaw gateway client, STT/TTS pipelines
-│   ├── gateway.py               # OpenClaw API integration (chat completions)
+├── server.py                    # Python WebSocket backend (state, hardware, AI)
+├── main.py                      # Legacy pygame entry point (fallback only)
+├── package.json                 # Root package.json (proxies to app/)
+├── app/                         # React production UI (Vite + React + Framer Motion)
+│   ├── src/
+│   │   ├── App.jsx              # Main app — device frame, dev panel, state
+│   │   ├── components/
+│   │   │   └── VoxelCube.jsx    # Animated cube face (eyes, mouth, body, moods)
+│   │   ├── hooks/
+│   │   │   └── useVoxelSocket.js # WebSocket client hook
+│   │   ├── expressions.js       # Re-exports from shared YAML
+│   │   ├── styles.js            # Re-exports from shared YAML
+│   │   └── load-shared.js       # YAML loader for shared data
+│   ├── vite.config.js           # Vite config (watches shared/ for HMR)
+│   └── package.json             # React dependencies
+├── shared/                      # Single source of truth (YAML data layer)
+│   ├── expressions.yaml         # 16 mood definitions (eyes, mouth, body configs)
+│   ├── styles.yaml              # 3 face styles (kawaii, retro, minimal)
+│   ├── moods.yaml               # Mood icons, state-to-mood map, LED behavior
+│   └── __init__.py              # Python loader for shared YAML
+├── core/                        # AI integration
+│   ├── gateway.py               # OpenClaw API client (chat completions)
 │   ├── stt.py                   # Speech-to-text (Whisper API)
 │   ├── tts.py                   # Text-to-speech (ElevenLabs/edge-tts)
-│   └── audio.py                 # Audio capture/playback via Whisplay HAT
-├── face/                        # Animated companion face engine
-│   ├── renderer.py              # Pygame framebuffer renderer for SPI LCD
-│   ├── character.py             # Cube mascot sprite controller
-│   ├── expressions.py           # Mood/expression definitions (9 moods)
-│   ├── mouth.py                 # Audio-reactive mouth animation (RMS amplitude)
-│   └── sprites/                 # Sprite sheets per state/expression
-├── ui/                          # Menu system and overlays
-│   ├── menu.py                  # Settings/navigation menu (button-driven)
-│   ├── statusbar.py             # Bottom status bar (state, transcript, battery)
-│   ├── screens.py               # Screen definitions (home, settings, agent select)
-│   └── transitions.py           # Screen transition animations
-├── hardware/                    # Whisplay HAT drivers and hardware abstraction
-│   ├── display.py               # SPI LCD driver (ST7789, 240x280)
-│   ├── buttons.py               # Button input handler (mouse buttons on HAT)
-│   ├── led.py                   # RGB LED control
-│   └── battery.py               # PiSugar battery monitor
+│   └── audio.py                 # Audio capture/playback
+├── face/                        # Renderer abstraction + pygame fallback
+│   ├── base.py                  # Abstract renderer interface (BaseRenderer)
+│   ├── renderer.py              # Pygame implementation of BaseRenderer
+│   ├── character.py             # Pygame sprite-based cube character
+│   ├── expressions.py           # Python mood dataclasses (mirrors shared YAML)
+│   ├── styles.py                # Python style definitions (mirrors shared YAML)
+│   └── mouth.py                 # Audio amplitude → mouth frame mapping
+├── hardware/                    # Platform abstraction (Pi vs desktop)
+│   ├── platform.py              # Auto-detect Pi vs desktop (IS_PI flag)
+│   ├── display.py               # LCD / Pygame window
+│   ├── buttons.py               # GPIO / keyboard mapping
+│   ├── led.py                   # RGB LED / visual indicator
+│   └── battery.py               # PiSugar / mock battery
 ├── states/                      # Application state machine
-│   ├── machine.py               # State machine core (7 states)
-│   ├── idle.py                  # Idle state (ambient animations)
-│   ├── listening.py             # Listening state (recording audio)
-│   ├── thinking.py              # Thinking state (waiting for AI response)
-│   ├── speaking.py              # Speaking state (TTS + mouth sync)
-│   └── error.py                 # Error state (X_X face)
-├── config/                      # Configuration
-│   ├── settings.py              # Runtime settings manager
-│   └── default.yaml             # Default configuration (agents, display, audio, etc.)
-├── assets/                      # Design assets
-│   ├── character/               # Character concept art and sprite sources
-│   ├── icons/                   # UI icons
-│   └── fonts/                   # Display fonts
-├── scripts/                     # Setup and utility scripts
-│   └── setup.sh                 # First-time setup (drivers, deps, config)
-├── requirements.txt             # Python dependencies
-└── voxel.service      # Systemd unit file for auto-start
+│   └── machine.py               # IDLE → LISTENING → THINKING → SPEAKING
+├── config/
+│   └── default.yaml             # Settings (agents, audio, power management)
+├── run_dev_windows.bat          # Windows: starts backend + frontend
+├── run.sh                       # macOS/Linux: starts backend + frontend
+├── assets/                      # Concept art, fonts, icons
+└── voxel.service                # Systemd unit file for Pi auto-start
 ```
 
 ## Hardware Constraints
 
 **CRITICAL — Design everything for these limits:**
-- **Display:** 240x280 pixels, SPI interface (ST7789 controller), 30fps target
-- **CPU:** ARM Cortex-A53 (quad-core 1GHz) — no real-time 3D, use sprite sheets
+- **Display:** 240x280 pixels, SPI interface (ST7789 controller), 60fps target via WPE
+- **CPU:** ARM Cortex-A53 (quad-core 1GHz) — WPE WebKit is GPU-accelerated on Pi
 - **RAM:** 512MB — keep memory footprint minimal
 - **Audio:** WM8960 codec, dual MEMS mics, mono speaker
 - **Input:** Mouse-style buttons (left/right click), no touch screen
 - **Power:** PiSugar 3 battery (1200mAh), sleep modes important
 
-**Rendering approach:** Pre-rendered sprite sheets, NOT real-time 3D. Pygame on framebuffer. Design sprites in external tools, export as PNG sequences.
+**Rendering approach:** React + Framer Motion via WPE/Cog on the Pi. CSS animations are GPU-accelerated. Pygame exists as a fallback renderer only.
 
 ## Character Design
 
@@ -72,25 +98,18 @@ The mascot is a **dark charcoal rounded cube** with **glowing cyan/teal accent l
 
 **Face:** Large expressive oval eyes with glossy highlights, small mouth. The face fills most of the 240x280 screen.
 
-**States and expressions:**
-| State | Eyes | Mouth | LED | Body |
-|-------|------|-------|-----|------|
-| Idle | Slow blinks, gaze drift | Gentle smile | Soft pulse | Breathing bounce |
-| Listening | Wide, focused | Slightly open | Solid blue | Lean forward |
-| Thinking | Look up/away, squint | Neutral | Spinning amber | Processing dot |
-| Speaking | Normal, blinks | Audio-synced | Green | Subtle bob |
-| Error | X_X | Flat line | Red flash | Shake |
-| Sleeping | Closed, zzz | Closed | Off | Slow breath |
-| Happy | Squint-smile | Wide smile | Warm pulse | Bouncy |
-
 ## Expression System
 
-`face/expressions.py` defines 9 moods as dataclasses:
-- Each mood has `EyeConfig` (openness, pupil size, gaze, blink rate, squint)
-- `MouthConfig` (openness, smile amount, width)
-- `BodyConfig` (bounce speed/amount, tilt, scale)
+Defined in `shared/expressions.yaml` (single source of truth). 16 moods, each with:
+- `eyes` — openness, pupil size, gaze, blink rate, squint, width/height
+- `mouth` — openness, smile amount, width
+- `body` — bounce speed/amount, tilt, scale
+- `leftEye` / `rightEye` — optional per-eye overrides for asymmetric expressions
+- `eyeColorOverride` — optional color tint (used by battery moods)
 
-Transitions between moods should be smooth (lerp over ~300ms).
+3 face styles defined in `shared/styles.yaml`: **kawaii** (default), **retro**, **minimal**.
+
+Transitions between moods are smooth (lerp via Framer Motion, ~300ms).
 
 ## State Machine
 
@@ -99,6 +118,8 @@ Transitions between moods should be smooth (lerp over ~300ms).
 Flow: IDLE → (button press) → LISTENING → (release) → THINKING → (response) → SPEAKING → IDLE
 Any state → (button) → MENU → (button) → previous state
 Long idle → SLEEPING → (button) → IDLE
+
+State-to-mood mapping defined in `shared/moods.yaml`.
 
 ## OpenClaw Integration
 
@@ -117,57 +138,100 @@ Button press → record from dual mics (WAV)
   → response text
   → ElevenLabs/edge-tts (cloud TTS)
   → playback through speaker
-  → mouth animation synced to audio amplitude (RMS)
+  → amplitude sent via WebSocket → React mouth animation
 ```
 
-## UI Architecture
+## WebSocket Protocol
 
-**Default view:** Character face fills screen, small status bar at bottom.
-**Menu:** Button-navigated (left/right buttons on Whisplay HAT). Settings: agent select, voice, WiFi, brightness, battery, about.
-**Status bar:** State text ("Listening...", "Connected to Daemon"), battery icon, connectivity dot.
+`server.py` ↔ React frontend on `ws://localhost:8080`.
+
+**Server → Client (state pushes):**
+```json
+{ "type": "state", "mood": "thinking", "style": "kawaii", "speaking": false,
+  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon" }
+```
+
+**Client → Server (commands):**
+```json
+{ "type": "set_mood", "mood": "happy" }
+{ "type": "set_style", "style": "retro" }
+{ "type": "cycle_state" }
+{ "type": "button", "button": "press" }
+```
 
 ## Key Libraries
-- **pygame** — framebuffer rendering, sprite animation
-- **Pillow** — image manipulation
+
+**Frontend (React):**
+- **React 19** + **Framer Motion 12** — animation
+- **Tailwind CSS 4** — styling
+- **Vite 8** — build/dev server
+- **js-yaml** — shared YAML loading
+
+**Backend (Python):**
+- **websockets** — WebSocket server
+- **pyyaml** — shared YAML loading
 - **openai** — Whisper STT
 - **requests** — OpenClaw gateway API
-- **numpy** — audio amplitude analysis (RMS for mouth sync)
+- **numpy** — audio amplitude analysis
 - **edge-tts** — free fallback TTS
-- **spidev** — SPI display driver
+
+**Pi-only:**
+- **spidev** — SPI display driver (for pygame fallback)
 - **RPi.GPIO** — buttons and LED
 
 ## Configuration
 
-`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), display, audio, character animation params, power management.
+`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio, power management.
+
+Shared expression/style/mood data lives in `shared/*.yaml` — read by both Python and React.
 
 ## Development Workflow
 
-Uses [uv](https://docs.astral.sh/uv/) for Python version and dependency management. Python 3.13 is pinned via `.python-version`. Dependencies defined in `pyproject.toml` (Pi-only deps are under `[project.optional-dependencies] pi`).
+Uses [uv](https://docs.astral.sh/uv/) for Python, npm for the React app. Python 3.13 pinned via `.python-version`.
 
-### Windows desktop dev:
-```cmd
-run_dev_windows.bat
-```
-Or: `uv run main.py`
+### Quick start (any platform):
 
-### macOS / Linux desktop dev:
 ```bash
+# Windows
+run_dev_windows.bat
+
+# macOS / Linux
 ./run.sh
 ```
 
-### On the Pi:
+This starts both processes:
+- **Backend:** `uv run server.py` — WebSocket server on port 8080
+- **Frontend:** `npm run dev` (proxied from root to `app/`) — Vite dev server on port 5173
+
+### Manual start:
+
 ```bash
-cd ~/voxel
-uv run main.py
+# Terminal 1 — backend
+uv run server.py
+
+# Terminal 2 — frontend
+npm run dev
 ```
 
-### Testing without hardware (desktop):
-Pygame renders to a window instead of framebuffer. All hardware modules auto-detect desktop via `IS_PI` and provide keyboard/mock fallbacks. No mocking needed.
+### Frontend only (no backend):
+
+```bash
+npm run dev
+```
+
+The React app works standalone — falls back to local state when no WebSocket connection. Dev panel auto-opens. Press backtick (`` ` ``) to toggle the dev panel.
+
+### Editing shared data:
+
+Changes to `shared/*.yaml` trigger HMR in the React app (Vite watches the directory). Python backend reads YAML at startup.
 
 ### Deploy to Pi:
+
 ```bash
 git pull origin main
-uv sync --extra pi
+uv sync
+npm run build    # Produces app/dist/
+# WPE/Cog serves app/dist/ fullscreen
 sudo systemctl restart voxel
 ```
 
@@ -177,6 +241,6 @@ sudo systemctl restart voxel
 - Logging via stdlib `logging` module
 - Config loaded from YAML, not hardcoded
 - All hardware access behind abstraction layer (hardware/ modules)
-- Sprite sheets as PNG sequences in face/sprites/
+- Shared data in `shared/*.yaml` — single source of truth for both Python and React
 - State changes logged: "State: IDLE → LISTENING"
 - Button input debounced in hardware/buttons.py

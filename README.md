@@ -18,19 +18,19 @@ Think Wall-E meets a modern AI assistant, running on $30 of hardware.
 
 ## What It Does
 
-- 🎭 **Animated character** — expressive cube mascot with eyes, mouth, and body language. 9 mood states that react to conversation.
-- 🎤 **Voice interaction** — push-to-talk or wake word ("Hey Voxel"). Whisper for speech-to-text, ElevenLabs for voice.
-- 🤖 **Agent switching** — talk to any agent on your team (Daemon, Soren, Ash, Mira, Jace, Pip) by selecting from the menu.
-- 💬 **Mouth sync** — mouth animation driven by audio amplitude in real-time.
-- 😴 **Idle behaviors** — slow blinks, gaze drift, gentle breathing animation. Voxel feels alive even when idle.
-- ⚙️ **Settings UI** — agent selection, voice config, brightness, battery status. Button-navigated menus.
+- **Animated character** — expressive cube mascot with eyes, mouth, and body language. 16 mood states across 3 visual styles.
+- **Voice interaction** — push-to-talk or wake word ("Hey Voxel"). Whisper for speech-to-text, ElevenLabs for voice.
+- **Agent switching** — talk to any agent on your team (Daemon, Soren, Ash, Mira, Jace, Pip) by selecting from the menu.
+- **Mouth sync** — mouth animation driven by audio amplitude in real-time via WebSocket.
+- **Idle behaviors** — slow blinks, gaze drift, gentle breathing animation. Voxel feels alive even when idle.
+- **Live design** — edit expressions and styles in shared YAML, see changes instantly in the browser.
 
 ## Hardware (The Relay)
 
 | Component | Details |
 |-----------|---------|
 | **Brain** | Raspberry Pi Zero 2W |
-| **Display** | 1.69" IPS LCD, 240×280px (PiSugar Whisplay HAT) |
+| **Display** | 1.69" IPS LCD, 240x280px (PiSugar Whisplay HAT) |
 | **Audio** | Dual MEMS microphones + mono speaker |
 | **Input** | Mouse-style buttons (left/right click) |
 | **Feedback** | RGB LED indicator |
@@ -40,117 +40,158 @@ Total hardware cost: ~$50-60
 
 ## Current Status
 
-🟢 **Foundation complete** — platform abstraction layer, expression system, state machine, OpenClaw gateway client, local desktop preview.
-
 | Component | Status |
 |-----------|--------|
-| Platform abstraction (desktop/Pi) | ✅ Done |
-| Display, buttons, LED, audio, battery | ✅ Abstracted |
-| Expression system (9 moods) | ✅ Defined |
-| State machine (7 states) | ✅ Built |
-| OpenClaw gateway client | ✅ Built |
-| Local dev preview (Pygame window) | ✅ Working |
-| Character sprite sheets | 🔲 Next |
-| Face renderer (sprite animation) | 🔲 Next |
-| Mouth audio sync | 🔲 Next |
-| STT pipeline (Whisper) | 🔲 Planned |
-| TTS pipeline (ElevenLabs/edge) | 🔲 Planned |
-| Settings/menu UI | 🔲 Planned |
-| Wake word detection | 🔲 Planned |
-| Pi deployment + testing | 🔲 Planned |
+| React face renderer (Framer Motion) | Done |
+| 16 moods, 3 styles (kawaii/retro/minimal) | Done |
+| Shared YAML data layer (expressions/styles/moods) | Done |
+| Python WebSocket backend (server.py) | Done |
+| State machine (7 states) | Done |
+| WebSocket frontend hook (useVoxelSocket) | Done |
+| Platform abstraction (desktop/Pi) | Done |
+| OpenClaw gateway client | Done |
+| Dev workflow (backend + frontend HMR) | Done |
+| Voice pipeline (STT + TTS wired to WebSocket) | Planned |
+| WPE/Cog deployment on Pi | Planned |
+| Settings/menu UI | Planned |
+| Wake word detection | Planned |
+
+## Architecture
+
+React frontend + Python WebSocket backend. The React app IS the production UI — it runs on the Pi via WPE/Cog (embedded WebKit), not just as a design tool.
+
+```
+  React UI (app/)              Python Backend (server.py)
+  ┌─────────────────┐          ┌──────────────────────────┐
+  │ Framer Motion    │◄──ws──►│ State Machine             │
+  │ face animation   │  :8080  │ Hardware (buttons/LED/bat)│
+  │ mood/style/mouth │         │ AI (OpenClaw, STT, TTS)   │
+  └────────┬────────┘          └──────────┬───────────────┘
+           │                              │
+     shared/*.yaml                   shared/*.yaml
+     (expressions, styles, moods)    (moods, expressions)
+```
+
+```
+voxel/
+├── server.py              # Python WebSocket backend
+├── app/                   # React production UI
+│   ├── src/
+│   │   ├── App.jsx        # Main app + dev panel
+│   │   ├── components/
+│   │   │   └── VoxelCube.jsx  # Animated cube face
+│   │   ├── hooks/
+│   │   │   └── useVoxelSocket.js  # WebSocket client
+│   │   ├── expressions.js # Re-exports from shared YAML
+│   │   └── styles.js      # Re-exports from shared YAML
+│   └── vite.config.js     # Watches shared/ for HMR
+├── shared/                # Single source of truth (YAML)
+│   ├── expressions.yaml   # 16 mood definitions
+│   ├── styles.yaml        # 3 face styles
+│   └── moods.yaml         # Icons, state map, LED behavior
+├── core/                  # AI integration (Python)
+│   ├── gateway.py         # OpenClaw API client
+│   ├── stt.py             # Speech-to-text (Whisper)
+│   ├── tts.py             # Text-to-speech
+│   └── audio.py           # Audio capture/playback
+├── face/                  # Renderer abstraction + pygame fallback
+│   ├── base.py            # Abstract renderer interface
+│   └── renderer.py        # Pygame implementation (fallback)
+├── hardware/              # Platform abstraction
+│   ├── platform.py        # Pi vs desktop detection
+│   ├── buttons.py         # GPIO / keyboard
+│   ├── led.py             # RGB LED / mock
+│   └── battery.py         # PiSugar / mock
+├── states/
+│   └── machine.py         # State machine (7 states)
+├── config/
+│   └── default.yaml       # Settings (agents, audio, power)
+└── assets/                # Concept art, fonts, icons
+```
 
 ## Local Development
 
-Develop and preview Voxel on your desktop — no Pi hardware needed. The same code runs on both. Uses [uv](https://docs.astral.sh/uv/) for Python and dependency management.
+Develop and preview Voxel on your desktop — no Pi hardware needed. Uses [uv](https://docs.astral.sh/uv/) for Python, npm for the React frontend.
 
-**Prerequisites:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+**Prerequisites:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [Node.js](https://nodejs.org/) (18+).
 
-### Windows
-
-```cmd
-git clone https://github.com/Codename-11/voxel.git
-cd voxel
-run_dev_windows.bat
-```
-
-Or directly:
-```cmd
-uv run main.py
-```
-
-### macOS / Linux
+### Quick Start
 
 ```bash
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
+
+# Windows
+run_dev_windows.bat
+
+# macOS / Linux
 ./run.sh
 ```
 
-`uv run` auto-creates a `.venv`, installs the pinned Python version (3.13) and all dependencies on first run.
+This starts both processes:
+- **Backend:** WebSocket server on `ws://localhost:8080`
+- **Frontend:** Vite dev server at `http://localhost:5173`
 
-This opens a 240×280 pixel window — exact match of the Relay's LCD. Keyboard simulates hardware buttons:
+### Manual Start
 
-| Key | Action |
-|-----|--------|
-| Space | Push-to-talk |
-| Z | Left button |
-| X | Right button |
-| Escape | Menu / Quit |
+```bash
+# Terminal 1 — Python backend
+uv run server.py
 
-## Architecture
-
-```
-voxel/
-├── main.py              # Entry point + main loop (30fps)
-├── core/                # AI integration
-│   ├── gateway.py       # OpenClaw API client
-│   ├── stt.py           # Speech-to-text (Whisper)
-│   ├── tts.py           # Text-to-speech (ElevenLabs/edge)
-│   └── audio.py         # Audio capture/playback
-├── face/                # Character animation
-│   ├── renderer.py      # Pygame sprite renderer
-│   ├── character.py     # Cube mascot controller
-│   ├── expressions.py   # 9 mood definitions (dataclass-based)
-│   ├── mouth.py         # Audio-reactive mouth sync
-│   └── sprites/         # Pre-rendered sprite sheets
-├── ui/                  # Menu system
-│   ├── menu.py          # Button-navigated settings
-│   ├── statusbar.py     # Bottom bar (state, battery, connectivity)
-│   ├── screens.py       # Screen definitions
-│   └── transitions.py   # Transition animations
-├── hardware/            # Platform abstraction
-│   ├── platform.py      # Auto-detect Pi vs desktop
-│   ├── display.py       # LCD / Pygame window
-│   ├── buttons.py       # GPIO / keyboard mapping
-│   ├── led.py           # RGB LED / visual indicator
-│   └── battery.py       # PiSugar / mock battery
-├── states/              # State machine
-│   └── machine.py       # IDLE → LISTENING → THINKING → SPEAKING
-├── config/
-│   └── default.yaml     # All settings (agents, display, audio, character)
-└── assets/              # Sprites, fonts, icons, concept art
+# Terminal 2 — React frontend
+npm run dev
 ```
 
-## Expression States
+### Frontend Only
 
-| State | Eyes | Mouth | LED | Body |
-|-------|------|-------|-----|------|
-| Idle | Slow blinks, gaze drift | Gentle smile | Soft cyan pulse | Breathing bounce |
-| Listening | Wide, focused | Slightly open | Solid blue | Lean forward |
-| Thinking | Look up/away | Neutral | Spinning amber | Processing dot |
-| Speaking | Normal blinks | Audio-synced | Green | Subtle bob |
-| Error | X_X | Flat line | Red flash | Shake |
-| Sleeping | Closed | Closed | Off | Slow breath |
-| Happy | Squint-smile | Wide grin | Warm pulse | Bouncy |
+```bash
+npm run dev
+```
+
+Works standalone without the backend. Falls back to local state with a dev panel for mood/style/speaking controls. Press backtick (`` ` ``) to toggle the dev panel.
+
+The browser shows a 240x280 pixel device frame — exact match of the Relay's LCD.
+
+## Expression States (16 Moods)
+
+| Mood | Eyes | Mouth | Body | Icon |
+|------|------|-------|------|------|
+| Neutral | Calm, slow blinks | Gentle smile | Breathing bounce | -- |
+| Happy | Squint-smile | Wide grin | Bouncy | heart |
+| Curious | Wide, head tilt | Slightly open | Lean forward | ? |
+| Thinking | Asymmetric brow raise | Neutral | Slight tilt | brain + cog |
+| Confused | Asymmetric sizes | Rapid blinks | Head tilt | ??? |
+| Excited | Wide-open | Big smile | Fast bounce | !! |
+| Sleepy | Half-closed | Closed | Slow sway | z z Z |
+| Error | X_X | Flat line | Still | ?! |
+| Listening | Wide, focused | Slightly open | Lean forward | ))) |
+| Sad | Droopy tilted brows | Frown | Shrunk | tear |
+| Surprised | Very wide | O-mouth | Scale up | ! |
+| Focused | Narrowed, squinting | Neutral | Still | dots |
+| Frustrated | Angry V-brows | Frown | Tense | # |
+| Working | Slightly narrowed | Neutral | Calm | cog |
+| Low Battery | Droopy amber eyes | Slight frown | Leaning | battery |
+| Critical Battery | Very droopy dim eyes | Deep frown | Leaning | battery |
+
+3 visual styles: **Kawaii** (default, rounded rectangles), **Retro** (iris + teeth, Fallout-inspired), **Minimal** (dots + arcs, lo-fi).
 
 ## Tech Stack
 
-- **Python 3.11–3.13** with type hints (managed by [uv](https://docs.astral.sh/uv/))
-- **Pygame** for rendering (sprite sheets, not real-time 3D)
-- **OpenClaw** gateway API for AI agent communication
+**Frontend:**
+- **React 19** + **Framer Motion 12** for animation
+- **Tailwind CSS 4** for styling
+- **Vite 8** for dev/build
+- **js-yaml** for shared YAML loading
+
+**Backend:**
+- **Python 3.11-3.13** (managed by [uv](https://docs.astral.sh/uv/))
+- **websockets** for real-time communication
+- **OpenClaw** gateway API for AI agent access
 - **Whisper** (OpenAI) for speech-to-text
 - **ElevenLabs / edge-tts** for text-to-speech
-- **YAML** for configuration
+
+**Shared:**
+- **YAML** data layer (`shared/`) — single source of truth for both frontend and backend
 
 ## Pi Setup
 
@@ -158,14 +199,19 @@ voxel/
 # On the Raspberry Pi Zero 2W:
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
-./scripts/setup.sh    # Installs uv, system deps, and Python packages (including Pi extras)
+
+# Install dependencies
+./scripts/setup.sh   # System deps, uv, Node.js
+npm install           # React app deps
+npm run build         # Build React app to app/dist/
 
 # Configure
 cp config/default.yaml config/local.yaml
 # Edit config/local.yaml with your OpenClaw gateway URL and API keys
 
-# Run
-uv run main.py
+# Test
+uv run server.py     # Backend — serves WebSocket on :8080
+# Open app/dist/index.html in WPE/Cog to verify face renders
 
 # Auto-start on boot
 sudo cp voxel.service /etc/systemd/system/

@@ -1,6 +1,6 @@
 # Character Design — Voxel
 
-> For the interactive design workspace, face styles, and the design-to-pygame pipeline, see [Design System](design-system.md).
+> For the React face renderer, face styles, shared YAML data layer, and instructions on adding moods/styles, see [Design System](design-system.md).
 
 ## Identity
 
@@ -33,7 +33,7 @@ The character should fill most of the 240×280 screen, with ~20px padding on sid
 
 ## Expression System
 
-Each expression is defined by three config objects. Per-eye overrides (`leftEye`/`rightEye`) and `eyeColorOverride` are also supported for asymmetric or tinted expressions. See [Design System](design-system.md) for full details on config properties, styles, and the design-to-pygame pipeline.
+Each expression is defined by three config objects in `shared/expressions.yaml`. Per-eye overrides (`leftEye`/`rightEye`) and `eyeColorOverride` are also supported for asymmetric or tinted expressions. See [Design System](design-system.md) for full details on config properties, styles, and how to add new moods.
 
 ### EyeConfig
 - `openness` (0.0 closed -> 1.0 fully open)
@@ -86,14 +86,13 @@ Each expression is defined by three config objects. Per-eye overrides (`leftEye`
 
 5. **Audio-reactive mouth** — during speech, mouth openness maps to audio RMS amplitude. 4-6 distinct mouth shapes is enough (closed, slightly open, medium, wide, O-shape).
 
-## Sprite Sheet Approach
+## Rendering Approach
 
-Each mood state gets a sprite sheet:
-- **Idle loop:** 24 frames at 30fps = 0.8 second loop
-- **Transition frames:** 8 frames between moods
-- **Mouth overlay:** 6 mouth shapes rendered separately, composited at runtime based on audio amplitude
+The production renderer is **React + Framer Motion** (`app/`). All face elements (eyes, mouth, body, mood icons) are rendered as animated SVG/HTML elements with CSS transforms. Framer Motion handles smooth transitions between mood states (~300ms lerp).
 
-Sprites are pre-rendered in an external tool (Blender, Figma, or After Effects) and exported as PNG sequences to `face/sprites/`.
+On the Pi, **WPE/Cog** (embedded WebKit) renders the React app fullscreen on the LCD. CSS animations are GPU-accelerated.
+
+**Pygame fallback** (`face/`) exists for headless or legacy use. It uses a sprite-based approach with pre-rendered PNG sequences in `face/sprites/`.
 
 ## Concept Art Reference
 

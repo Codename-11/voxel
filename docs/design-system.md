@@ -1,30 +1,35 @@
 # Design System
 
-The Voxel design system has two layers:
+The Voxel design system uses a **shared YAML data layer** with a **React + Framer Motion renderer** as the production UI.
 
-1. **Design workspace** (`design/`) -- A React + Tailwind + Framer Motion app for rapid visual prototyping on desktop. Runs in-browser at 240x280 to match the physical display.
-2. **Pygame renderer** (`face/`) -- The production renderer that runs on the Raspberry Pi, reading from the same expression data translated into Python dataclasses.
+1. **Shared data** (`shared/`) — YAML files defining expressions, styles, and mood metadata. Single source of truth for both Python and React.
+2. **React renderer** (`app/`) — The production face engine. Runs in-browser during development, on the Pi via WPE/Cog in production. What you see in the browser IS what runs on the device.
+3. **Pygame renderer** (`face/`) — Fallback only. Implements the same `BaseRenderer` interface for headless/legacy use.
 
-Both layers share the same expression/mood model: eyes, mouth, and body configs per mood. The design workspace is where you iterate on expressions and styles visually; the pygame renderer is what ships on hardware.
-
-## Running the Design Workspace
+## Running the App
 
 ```bash
-cd design && npm install && npm run dev
+# Full stack (backend + frontend)
+run_dev_windows.bat   # Windows
+./run.sh              # macOS / Linux
+
+# Frontend only (standalone, no backend needed)
+cd app && npm install && npm run dev
 ```
 
 Opens at http://localhost:5173. The UI shows:
 
 - A **device frame** (240x280, actual pixel size) with the animated cube
-- **Style buttons** to switch between face styles
-- **Mood buttons** to cycle through all 16 moods
-- A **speaking toggle** to simulate mouth animation
+- A **status bar** at the bottom with version, state, and connectivity
+- A **dev panel** (toggle with backtick key) for style/mood/speaking controls
+
+When the Python backend is running (`uv run server.py`), the app connects via WebSocket and uses server-driven state. Without the backend, it falls back to local state with the dev panel auto-shown.
 
 Tech stack: React 19, Framer Motion 12, Tailwind CSS 4, Vite 8.
 
 ## Expression System
 
-Defined in `design/src/expressions.js`. Each mood is an object with three required config blocks:
+Defined in `shared/expressions.yaml`. Each mood is an object with three required config blocks.
 
 ### EyeConfig (`eyes`)
 
@@ -60,13 +65,11 @@ Defined in `design/src/expressions.js`. Each mood is an object with three requir
 
 Any mood can include `leftEye` and/or `rightEye` objects that override specific base `eyes` properties for that eye only. This creates asymmetric expressions.
 
-```js
-thinking: {
-  eyes: { openness: 0.75, gazeX: 0.4, gazeY: -0.2, ... },
-  leftEye: { openness: 0.9, height: 1.05 },   // raised eyebrow
-  rightEye: { openness: 0.45, height: 0.65 },  // squinting
-  ...
-}
+```yaml
+thinking:
+  eyes: { openness: 0.75, gazeX: 0.4, gazeY: -0.2, ... }
+  leftEye: { openness: 0.9, height: 1.05 }   # raised eyebrow
+  rightEye: { openness: 0.45, height: 0.65 }  # squinting
 ```
 
 Used by: `thinking` (raised eyebrow), `confused` (asymmetric sizing), `sad` (tilted brows), `frustrated` (angry V-brows).
@@ -75,18 +78,16 @@ Used by: `thinking` (raised eyebrow), `confused` (asymmetric sizing), `sad` (til
 
 A mood can set `eyeColorOverride` to change eye fill color. The override replaces the style's default `fillColor` and derives a matching glow.
 
-```js
-lowBattery: {
-  ...
-  eyeColorOverride: "#d4a020",  // amber/yellow
-}
+```yaml
+lowBattery:
+  eyeColorOverride: "#d4a020"  # amber/yellow
 ```
 
 Used by: `lowBattery` (amber), `criticalBattery` (dim amber).
 
 ## Style System
 
-Defined in `design/src/styles.js`. Three face styles, each defining how eyes and mouth render:
+Defined in `shared/styles.yaml`. Three face styles, each defining how eyes and mouth render.
 
 ### Kawaii (default)
 
@@ -108,7 +109,7 @@ Defined in `design/src/styles.js`. Three face styles, each defining how eyes and
 
 ### Style config shape
 
-Each style defines:
+Each style defines (in `shared/styles.yaml`):
 
 ```
 eye:   { type, baseWidth, baseHeight, fillColor, glowColor, borderRadius, closedRadius, ... }
@@ -118,7 +119,7 @@ xEye:  { color, thickness, size }   // X_X error state rendering
 
 ## Mood Icons
 
-Floating icons appear beside the cube to reinforce certain moods. Defined in the `MoodEffects` component in `VoxelCube.jsx`.
+Floating icons appear beside the cube to reinforce certain moods. Defined in `shared/moods.yaml` (icon metadata) and rendered by `MoodEffects` in `app/src/components/VoxelCube.jsx`.
 
 | Mood             | Icon     | Description                                |
 |------------------|----------|--------------------------------------------|
@@ -161,69 +162,89 @@ Floating icons appear beside the cube to reinforce certain moods. Defined in the
 | **lowBattery**    | Droopy amber eyes, slight frown, leaning, shrunk          | battery     | Battery below warning threshold        |
 | **criticalBattery** | Very droopy dim-amber eyes, strong lean, deep frown     | battery     | Battery critically low                 |
 
-## Design to Pygame Pipeline
-
-The JS expression data in `design/src/expressions.js` maps to Python dataclasses in `face/expressions.py`:
-
-| JS (design workspace)         | Python (pygame renderer)           |
-|-------------------------------|------------------------------------|
-| `EXPRESSIONS.neutral`         | `EXPRESSIONS[Mood.NEUTRAL]`        |
-| `eyes.pupilSize`              | `EyeConfig.pupil_size`             |
-| `eyes.gazeX` / `gazeY`       | `EyeConfig.gaze_x` / `gaze_y`     |
-| `eyes.blinkRate`              | `EyeConfig.blink_rate`             |
-| `mouth.openness`              | `MouthConfig.openness`             |
-| `body.bounceSpeed`            | `BodyConfig.bounce_speed`          |
-| `body.bounceAmount`           | `BodyConfig.bounce_amount`         |
-| `leftEye` / `rightEye`       | Not yet in Python (planned)        |
-| `eyeColorOverride`           | Not yet in Python (planned)        |
-
-The design workspace currently has 16 moods; the Python side has 9. When adding moods in the design workspace, port them to `face/expressions.py` once finalized.
-
-**Workflow:** Iterate in the browser (hot reload, visual feedback) then translate final values to the Python dataclasses. The numbers are the same -- just camelCase to snake_case.
-
 ## Adding Content
 
 ### Adding a new mood
 
-1. **Define the expression** in `design/src/expressions.js`:
-   ```js
-   myMood: {
-     eyes: { width: 1.0, height: 1.0, openness: 0.9, pupilSize: 0.4, gazeX: 0, gazeY: 0, blinkRate: 3.0, squint: 0 },
-     mouth: { openness: 0, smile: 0.3, width: 1.0 },
-     body: { bounceSpeed: 0.3, bounceAmount: 2, tilt: 0, scale: 1.0 },
-   },
+1. **Define the expression** in `shared/expressions.yaml`:
+   ```yaml
+   myMood:
+     eyes:
+       width: 1.0
+       height: 1.0
+       openness: 0.9
+       pupilSize: 0.4
+       gazeX: 0
+       gazeY: 0
+       blinkRate: 3.0
+       squint: 0
+     mouth:
+       openness: 0
+       smile: 0.3
+       width: 1.0
+     body:
+       bounceSpeed: 0.3
+       bounceAmount: 2
+       tilt: 0
+       scale: 1.0
    ```
    Add `leftEye`/`rightEye` overrides if you need asymmetric eyes. Add `eyeColorOverride` if you need a different eye color.
 
-2. **Add a mood icon** (optional) in the `MoodEffects` component in `design/src/components/VoxelCube.jsx`. Style it in `VoxelCube.css`.
+2. **Add a mood icon** (optional) in `shared/moods.yaml` under `icons:`. Also add the rendering animation in `MoodEffects` in `app/src/components/VoxelCube.jsx` and style it in `VoxelCube.css`.
 
-3. **Test in browser** -- `npm run dev`, click through all styles to verify the mood looks correct in kawaii, retro, and minimal.
+3. **Test in browser** — `npm run dev`, click through all styles to verify the mood looks correct in kawaii, retro, and minimal.
 
-4. **Port to Python** -- Add the mood to the `Mood` enum and `EXPRESSIONS` dict in `face/expressions.py`:
-   ```python
-   Mood.MY_MOOD: Expression(
-       mood=Mood.MY_MOOD,
-       eyes=EyeConfig(openness=0.9, blink_rate=3.0),
-       mouth=MouthConfig(smile=0.3),
-       body=BodyConfig(bounce_speed=0.3, bounce_amount=2.0),
-   ),
-   ```
+4. **Port to Python** (if using pygame fallback) — Add the mood to the `Mood` enum and `EXPRESSIONS` dict in `face/expressions.py`.
 
 ### Adding a new face style
 
-1. **Define the style** in `design/src/styles.js`:
-   ```js
-   myStyle: {
-     name: "My Style",
-     description: "Short description of the visual style",
-     eye: { type: "roundrect", baseWidth: 30, baseHeight: 38, fillColor: "#f0f0f0", ... },
-     mouth: { type: "offset", baseWidth: 30, strokeWidth: 3, color: "#f0f0f0" },
-     xEye: { color: "var(--vx-error)", thickness: 3, size: 22 },
-   },
+1. **Define the style** in `shared/styles.yaml`:
+   ```yaml
+   myStyle:
+     name: "My Style"
+     description: "Short description of the visual style"
+     eye:
+       type: roundrect
+       baseWidth: 30
+       baseHeight: 38
+       fillColor: "#f0f0f0"
+       # ... other eye properties
+     mouth:
+       type: offset
+       baseWidth: 30
+       strokeWidth: 3
+       color: "#f0f0f0"
+     xEye:
+       color: "var(--vx-error)"
+       thickness: 3
+       size: 22
    ```
 
-2. **If using a new eye/mouth type**, add rendering logic in the `Eye` or `Mouth` components in `VoxelCube.jsx`.
+2. **If using a new eye/mouth type**, add rendering logic in the `Eye` or `Mouth` components in `app/src/components/VoxelCube.jsx`.
 
 3. **Test** across all 16 moods in the browser to make sure every expression renders correctly with the new style.
 
 Available eye types: `roundrect`, `iris`, `dot`. Available mouth types: `offset`, `teeth`, `arc`.
+
+## Shared YAML → React Pipeline
+
+React loads shared YAML at build/dev time via Vite raw imports:
+
+```
+shared/expressions.yaml  →  app/src/load-shared.js  →  app/src/expressions.js
+shared/styles.yaml       →  app/src/load-shared.js  →  app/src/styles.js
+```
+
+Vite watches `shared/` and triggers HMR on changes, so edits to YAML files are reflected in the browser instantly.
+
+## Shared YAML → Python Pipeline
+
+Python loads shared YAML at startup via `shared/__init__.py`:
+
+```
+shared/expressions.yaml  →  shared/__init__.py  →  load_expressions()
+shared/styles.yaml       →  shared/__init__.py  →  load_styles()
+shared/moods.yaml        →  shared/__init__.py  →  load_moods()
+```
+
+The Python `face/expressions.py` dataclasses mirror the YAML structure for the pygame fallback renderer. `server.py` reads `moods.yaml` for state-to-mood mapping and LED behavior.

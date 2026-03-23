@@ -2,74 +2,101 @@
 
 ## Overview
 
-Voxel is a real-time interactive application running on a Raspberry Pi Zero 2W. It combines sprite-based animation, voice I/O, and cloud AI into a cohesive companion experience.
+Voxel uses a **React + WebSocket + Python** architecture. The React app (`app/`) renders the animated companion face. The Python backend (`server.py`) manages state, hardware, and AI pipelines. They communicate over WebSocket.
+
+On the Pi, WPE/Cog (embedded WebKit) renders the React app fullscreen on the LCD. On desktop, Vite's dev server runs in a browser window.
 
 ```
-┌─────────────────────────────────────────┐
-│              Main Loop (30fps)           │
-│                                         │
-│  ┌──────────┐  ┌──────────┐  ┌───────┐ │
-│  │  States   │  │   Face   │  │  UI   │ │
-│  │ Machine   │──│ Renderer │──│ Layer │ │
-│  └────┬─────┘  └────┬─────┘  └───┬───┘ │
-│       │              │            │      │
-│  ┌────┴─────┐  ┌────┴─────┐  ┌──┴────┐ │
-│  │  Core    │  │ Hardware │  │Config │  │
-│  │ (AI/STT/ │  │ (Display/│  │(YAML) │  │
-│  │  TTS)    │  │ Buttons/ │  │       │  │
-│  │          │  │ LED/Bat) │  │       │  │
-│  └────┬─────┘  └────┬─────┘  └───────┘ │
-│       │              │                   │
-└───────┼──────────────┼───────────────────┘
-        │              │
-   ┌────┴────┐    ┌────┴─────┐
-   │ OpenClaw│    │ Whisplay │
-   │ Gateway │    │   HAT    │
-   │ (cloud) │    │(hardware)│
-   └─────────┘    └──────────┘
+  React UI (app/)              Python Backend (server.py)
+  ┌─────────────────┐          ┌──────────────────────────┐
+  │ Framer Motion    │◄──ws──►│ State Machine             │
+  │ face animation   │  :8080  │ Hardware (buttons/LED/bat)│
+  │ mood/style/mouth │         │ AI (OpenClaw, STT, TTS)   │
+  └────────┬────────┘          └──────────┬───────────────┘
+           │                              │
+     shared/*.yaml                   shared/*.yaml
+     (expressions, styles, moods)    (moods, expressions)
 ```
 
 ## Layers
 
-### 1. Hardware Abstraction (`hardware/`)
+### 1. React Frontend (`app/`)
 
-Platform-detected at startup. Same interface on desktop and Pi.
+The production face renderer. Built with React 19, Framer Motion 12, Tailwind CSS 4, Vite 8.
 
-| Module | Desktop | Pi |
-|--------|---------|-----|
-| `platform.py` | Sets `IS_PI=False` | Sets `IS_PI=True` |
-| `display.py` | Pygame window 240×280 | Pygame framebuffer → SPI LCD |
-| `buttons.py` | Z/X/Space/Esc keyboard | GPIO active-low polling |
-| `led.py` | Drawn circle indicator | GPIO PWM RGB LED |
-| `battery.py` | Returns 100% always | PiSugar HTTP API |
+| File | Purpose |
+|------|---------|
+| `App.jsx` | Main app — device frame, status bar, dev panel overlay |
+| `components/VoxelCube.jsx` | Animated cube face — eyes, mouth, body, mood icons. All 16 moods, 3 styles. |
+| `hooks/useVoxelSocket.js` | WebSocket client — auto-reconnect, state sync, command methods |
+| `expressions.js` / `styles.js` | Re-export expression and style data from shared YAML |
+| `load-shared.js` | YAML import helper (loads `shared/*.yaml` via Vite raw imports + js-yaml) |
 
-### 2. Core (`core/`)
+**Standalone mode:** When the backend isn't connected, the app runs entirely client-side with local state and a dev panel for testing moods, styles, and speaking animation.
 
-AI and audio pipelines. All cloud calls are async-safe with timeouts.
+### 2. Python WebSocket Backend (`server.py`)
+
+Manages application state and bridges hardware/AI to the frontend.
+
+| Concern | Implementation |
+|---------|---------------|
+| WebSocket server | `websockets` library, port 8080 |
+| State machine | `states/machine.py` (7 states) |
+| State broadcasting | Push full UI state to all connected clients on change |
+| Hardware polling | 20Hz loop — buttons, battery, LED (on Pi only) |
+| Mood mapping | `shared/moods.yaml` defines state-to-mood map |
+
+### 3. Shared YAML Data Layer (`shared/`)
+
+Single source of truth for expression, style, and mood data. Both Python and React read from these files.
+
+| File | Contents |
+|------|----------|
+| `expressions.yaml` | 16 mood definitions (eyes, mouth, body, per-eye overrides, color overrides) |
+| `styles.yaml` | 3 face styles (kawaii, retro, minimal) with eye/mouth rendering config |
+| `moods.yaml` | Mood icons, state-to-mood map, LED behavior per state, status bar colors |
+| `__init__.py` | Python loader functions (`load_expressions()`, `load_styles()`, `load_moods()`) |
+
+**React reads YAML** via Vite raw imports + js-yaml parsing at build time. **Python reads YAML** via PyYAML at startup.
+
+Vite watches `shared/` and triggers HMR on YAML changes, so edits to expressions or styles are reflected instantly in the browser.
+
+### 4. Core — AI Pipelines (`core/`)
 
 | Module | Purpose |
 |--------|---------|
 | `gateway.py` | OpenClaw chat completions (non-streaming). Session: `agent:{id}:companion` |
 | `stt.py` | Whisper API. Records WAV → uploads → returns transcript |
 | `tts.py` | ElevenLabs (primary) / edge-tts (fallback). Text → audio bytes |
-| `audio.py` | PyAudio capture/playback. `get_amplitude()` for mouth sync |
+| `audio.py` | Audio capture/playback. `get_amplitude()` for mouth sync |
 
-### 3. Face (`face/`)
-
-Sprite-based character rendering.
+### 5. Face — Renderer Abstraction (`face/`)
 
 | Module | Purpose |
 |--------|---------|
-| `expressions.py` | 9 mood dataclasses (eye config, mouth config, body config) |
-| `character.py` | Loads sprite sheets, selects frames, handles transitions |
-| `renderer.py` | Composites character + overlays onto display surface |
-| `mouth.py` | Maps audio amplitude (0.0-1.0) to mouth frame index |
+| `base.py` | `BaseRenderer` abstract class — defines mood/style/audio/frame interface |
+| `renderer.py` | `FaceRenderer` — pygame implementation of BaseRenderer (fallback only) |
+| `character.py` | `VoxelCharacter` — pygame sprite-based cube with all animation logic |
+| `expressions.py` | Python mood dataclasses (mirrors `shared/expressions.yaml`) |
+| `styles.py` | Python style definitions (mirrors `shared/styles.yaml`) |
+| `mouth.py` | Audio amplitude → mouth frame mapping |
 
-**Rendering approach:** Pre-rendered sprite sheets (PNG sequences), not real-time 3D. The Pi Zero 2W cannot do live 3D rendering at acceptable framerates on an SPI display.
+**React is the primary renderer.** Pygame exists as a fallback for headless/legacy use. The `BaseRenderer` interface ensures any backend can be swapped in.
 
-**Mood transitions:** Lerp between expression configs over ~300ms for smooth state changes.
+### 6. Hardware Abstraction (`hardware/`)
 
-### 4. States (`states/`)
+Platform-detected at startup. Same interface on desktop and Pi.
+
+| Module | Desktop | Pi |
+|--------|---------|-----|
+| `platform.py` | Sets `IS_PI=False` | Sets `IS_PI=True` |
+| `buttons.py` | Keyboard mapping (Z/X/Space/Esc) | GPIO active-low polling |
+| `led.py` | Visual indicator (logged) | GPIO PWM RGB LED |
+| `battery.py` | Returns 100% always | PiSugar HTTP API |
+
+On the Pi, `server.py` polls hardware at 20Hz and broadcasts state changes to the React frontend via WebSocket.
+
+### 7. States (`states/`)
 
 Finite state machine driving application behavior.
 
@@ -94,34 +121,38 @@ Any state ──── long idle ──► SLEEPING
 Any state ──── menu button ──► MENU ──► previous state
 ```
 
-### 5. UI (`ui/`)
+State transitions trigger mood changes (via `shared/moods.yaml` state_map) and WebSocket broadcasts to the frontend.
 
-Overlay system on top of the face renderer.
+## WebSocket Protocol
 
-- **Status bar:** Always visible at bottom. State text, agent name, battery, connectivity.
-- **Menu screens:** Full-screen replacement of face view. Button-navigated.
-- **Transitions:** Slide/fade between face view and menu screens.
+**Server → Client:**
+```json
+{ "type": "state", "mood": "thinking", "style": "kawaii", "speaking": false,
+  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon", "connected": false }
+```
 
-### 6. Config (`config/`)
-
-YAML-based. `default.yaml` ships with the repo, `local.yaml` (gitignored) for user overrides.
-
-Key sections: gateway connection, agent definitions (6 agents with voice assignments), display settings, audio settings, character animation parameters, power management timers.
+**Client → Server:**
+```json
+{ "type": "set_mood", "mood": "happy" }
+{ "type": "set_style", "style": "retro" }
+{ "type": "cycle_state" }
+{ "type": "button", "button": "press|release|menu" }
+{ "type": "ping" }
+```
 
 ## Data Flow: Voice Interaction
 
 ```
-1. User presses button
-   → State: IDLE → LISTENING
-   → Eyes: wide, focused
-   → LED: solid blue
-   → Audio: start recording
+1. User presses button (hardware GPIO or WebSocket "button" event)
+   → server.py: State IDLE → LISTENING
+   → WebSocket push: { mood: "listening", state: "LISTENING" }
+   → React: eyes widen, lean forward, sound wave icon
 
 2. User releases button
-   → State: LISTENING → THINKING
-   → Eyes: look up/away
-   → LED: spinning amber
+   → server.py: State LISTENING → THINKING
    → Audio: stop recording → WAV bytes
+   → WebSocket push: { mood: "thinking", state: "THINKING" }
+   → React: asymmetric brow raise, gaze up, brain+cog icon
 
 3. STT (Whisper API)
    → WAV bytes → HTTP POST → transcript text
@@ -131,35 +162,44 @@ Key sections: gateway connection, agent definitions (6 agents with voice assignm
 
 5. TTS (ElevenLabs)
    → response text → HTTP POST → audio bytes
-   → State: THINKING → SPEAKING
+   → server.py: State THINKING → SPEAKING
+   → WebSocket push: { mood: "neutral", state: "SPEAKING", speaking: true }
 
 6. Playback
    → Audio: play through speaker
-   → Mouth: amplitude → frame mapping (real-time)
-   → Eyes: normal, occasional blink
-   → LED: green
+   → server.py: stream amplitude via WebSocket
+   → React: mouth animation synced to amplitude
 
 7. Complete
-   → State: SPEAKING → IDLE
-   → Eyes: gentle smile
-   → LED: soft pulse
+   → server.py: State SPEAKING → IDLE
+   → WebSocket push: { mood: "neutral", state: "IDLE", speaking: false }
 ```
+
+## Pi Deployment
+
+On the Raspberry Pi, the stack is:
+
+1. **WPE/Cog** — lightweight embedded WebKit browser, renders `app/dist/` fullscreen on the LCD
+2. **server.py** — Python WebSocket backend as a systemd service
+3. **Hardware drivers** — Whisplay HAT (display, audio, buttons, LED), PiSugar (battery)
+
+WPE is GPU-accelerated on the Pi, so CSS/Framer Motion animations perform well even on the Zero 2W.
 
 ## Performance Budget
 
 | Resource | Budget |
 |----------|--------|
-| RAM | < 100MB (of 512MB total) |
-| CPU (idle) | < 10% |
-| CPU (rendering) | < 30% |
-| Display FPS | 30fps |
-| Sprite sheet total size | < 20MB |
+| RAM (total) | < 200MB (of 512MB) |
+| CPU (idle) | < 15% |
+| CPU (animating) | < 40% |
+| WebSocket latency | < 50ms |
 | Audio latency | < 200ms |
 
 ## File Conventions
 
 - All hardware access through `hardware/` abstraction — never import RPi.GPIO directly
 - Config values from YAML — no magic numbers in code
-- Type hints on all public functions
+- Shared data in `shared/*.yaml` — never duplicate expression/style/mood definitions
+- Type hints on all public Python functions
 - Logging via `logging.getLogger("voxel.{module}")`
 - State changes always go through `StateMachine.transition()`
