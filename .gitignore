@@ -7,4 +7,5 @@ config/local.yaml
 dist/
 build/
 uv.lock
-design/node_modules/
+app/node_modules/
+app/dist/

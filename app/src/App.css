@@ -1,10 +1,28 @@
-/* Voxel Character Design Workspace */
+/* Voxel App */
 
 .workspace {
   display: flex;
   gap: 32px;
   align-items: flex-start;
   padding: 24px;
+}
+
+/* Production mode: fullscreen, no controls, no border */
+.workspace.production {
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+  width: 100vw;
+  height: 100vh;
+}
+
+.workspace.production .device-frame {
+  border: none;
+  border-radius: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: 240px;
+  max-height: 280px;
 }
 
 /* ── Device frame: exact 240x280 preview ─────────────────── */
@@ -18,6 +36,46 @@
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
+}
+
+/* ── Status bar ──────────────────────────────────────────── */
+
+.status-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: #14141c;
+  border-top: 1px solid #28283a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #a0a0b4;
+}
+
+.ws-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  background: #ff4444;
+}
+
+.ws-dot.connected {
+  background: #44cc66;
+}
+
+.offline-badge {
+  margin-left: 8px;
+  font-size: 9px;
+  color: #ff8844;
+  font-weight: normal;
+  text-transform: none;
 }
 
 /* ── Controls panel ──────────────────────────────────────── */
