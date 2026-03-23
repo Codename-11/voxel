@@ -1,0 +1,13 @@
+{
+  "name": "voxel",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix app",
+    "build": "npm run build --prefix app",
+    "preview": "npm run preview --prefix app",
+    "server": "uv run server.py",
+    "install:app": "npm install --prefix app",
+    "start": "concurrently \"npm run server\" \"npm run dev\"",
+    "postinstall": "cd app && npm install"
+  }
+}
