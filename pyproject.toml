@@ -1,0 +1,25 @@
+[project]
+name = "voxel"
+version = "0.1.0"
+description = "Pocket AI companion device — animated cube mascot with voice interaction"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pygame>=2.5.0",
+    "Pillow>=10.0.0",
+    "pyyaml>=6.0",
+    "openai>=1.0.0",
+    "requests>=2.31.0",
+    "numpy>=1.24.0",
+    "edge-tts>=6.1.0",
+]
+
+[project.optional-dependencies]
+pi = [
+    "spidev>=3.6",
+    "RPi.GPIO>=0.7.1",
+]
+
+[project.scripts]
+voxel = "main:main"

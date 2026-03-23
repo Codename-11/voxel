@@ -6,3 +6,5 @@ config/local.yaml
 *.egg-info/
 dist/
 build/
+uv.lock
+design/node_modules/

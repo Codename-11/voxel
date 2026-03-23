@@ -1,10 +1,12 @@
-# Axiom Companion dependencies
+# Dependencies are managed in pyproject.toml — use `uv run` or `uv sync`
+# This file exists for compatibility with tools that expect requirements.txt
+#
+# Desktop (cross-platform):  uv sync
+# Pi (with hardware extras): uv sync --extra pi
 pygame>=2.5.0
 Pillow>=10.0.0
 pyyaml>=6.0
-openai>=1.0.0      # Whisper STT + gateway compat
-requests>=2.31.0   # OpenClaw gateway API
-numpy>=1.24.0      # Audio processing (RMS/amplitude)
-edge-tts>=6.1.0    # Fallback TTS (free, no API key)
-spidev>=3.6        # SPI display driver
-RPi.GPIO>=0.7.1    # GPIO for buttons/LED
+openai>=1.0.0
+requests>=2.31.0
+numpy>=1.24.0
+edge-tts>=6.1.0

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from hardware.platform import IS_PI
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(f"voxel.{__name__}")
 
 _PISUGAR_API = "http://localhost:8421"
 

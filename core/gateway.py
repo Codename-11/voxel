@@ -1,10 +1,10 @@
-"""OpenClaw gateway client for Axiom Companion."""
+"""OpenClaw gateway client for Voxel."""
 
 import logging
 from typing import Optional
 import requests
 
-log = logging.getLogger("axiom.gateway")
+log = logging.getLogger("voxel.core.gateway")
 
 
 class OpenClawClient:

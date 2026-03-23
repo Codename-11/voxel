@@ -142,21 +142,32 @@ Button press → record from dual mics (WAV)
 
 ## Development Workflow
 
+Uses [uv](https://docs.astral.sh/uv/) for Python version and dependency management. Python 3.13 is pinned via `.python-version`. Dependencies defined in `pyproject.toml` (Pi-only deps are under `[project.optional-dependencies] pi`).
+
+### Windows desktop dev:
+```cmd
+run_dev_windows.bat
+```
+Or: `uv run main.py`
+
+### macOS / Linux desktop dev:
+```bash
+./run.sh
+```
+
 ### On the Pi:
 ```bash
 cd ~/voxel
-source .venv/bin/activate
-python main.py
+uv run main.py
 ```
 
 ### Testing without hardware (desktop):
-Pygame can render to a window instead of framebuffer. Use `SDL_VIDEODRIVER=x11` or mock the hardware modules.
+Pygame renders to a window instead of framebuffer. All hardware modules auto-detect desktop via `IS_PI` and provide keyboard/mock fallbacks. No mocking needed.
 
-### Deploy:
+### Deploy to Pi:
 ```bash
 git pull origin main
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --extra pi
 sudo systemctl restart voxel
 ```
 

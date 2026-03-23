@@ -11,7 +11,7 @@ from typing import Tuple
 import pygame
 from hardware.platform import IS_PI
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(f"voxel.{__name__}")
 
 Color = Tuple[int, int, int]
 

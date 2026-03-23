@@ -61,13 +61,32 @@ Total hardware cost: ~$50-60
 
 ## Local Development
 
-Develop and preview Voxel on your desktop — no Pi hardware needed. The same code runs on both.
+Develop and preview Voxel on your desktop — no Pi hardware needed. The same code runs on both. Uses [uv](https://docs.astral.sh/uv/) for Python and dependency management.
+
+**Prerequisites:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+
+### Windows
+
+```cmd
+git clone https://github.com/Codename-11/voxel.git
+cd voxel
+run_dev_windows.bat
+```
+
+Or directly:
+```cmd
+uv run main.py
+```
+
+### macOS / Linux
 
 ```bash
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
 ./run.sh
 ```
+
+`uv run` auto-creates a `.venv`, installs the pinned Python version (3.13) and all dependencies on first run.
 
 This opens a 240×280 pixel window — exact match of the Relay's LCD. Keyboard simulates hardware buttons:
 
@@ -126,7 +145,7 @@ voxel/
 
 ## Tech Stack
 
-- **Python 3.11+** with type hints
+- **Python 3.11–3.13** with type hints (managed by [uv](https://docs.astral.sh/uv/))
 - **Pygame** for rendering (sprite sheets, not real-time 3D)
 - **OpenClaw** gateway API for AI agent communication
 - **Whisper** (OpenAI) for speech-to-text
@@ -139,14 +158,14 @@ voxel/
 # On the Raspberry Pi Zero 2W:
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
-./scripts/setup.sh
+./scripts/setup.sh    # Installs uv, system deps, and Python packages (including Pi extras)
 
 # Configure
 cp config/default.yaml config/local.yaml
 # Edit config/local.yaml with your OpenClaw gateway URL and API keys
 
 # Run
-python main.py
+uv run main.py
 
 # Auto-start on boot
 sudo cp voxel.service /etc/systemd/system/

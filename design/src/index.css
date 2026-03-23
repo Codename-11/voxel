@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Voxel design tokens */
+:root {
+  --vx-bg: #0a0a0f;
+  --vx-body: #1a1a2e;
+  --vx-body-dark: #12121f;
+  --vx-body-light: #2d2d44;
+  --vx-cyan: #00d4d2;
+  --vx-cyan-bright: #00fff7;
+  --vx-cyan-dim: #006460;
+  --vx-eye: #00d2c8;
+  --vx-eye-bright: #8cfffa;
+  --vx-highlight: #c8fffc;
+  --vx-mouth: #00c8be;
+  --vx-error: #ff3c3c;
+}
+
+body {
+  margin: 0;
+  background: var(--vx-bg);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

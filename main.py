@@ -2,115 +2,131 @@
 """Voxel — Pocket AI companion device."""
 
 import sys
+import os
 import signal
 import logging
 
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-)
+from core.log import setup as setup_logging, boot_message, ready_message, shutdown_message
+
+setup_logging(level=logging.INFO)
 log = logging.getLogger("voxel")
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-BG_COLOR        = (10, 10, 15)       # #0a0a0f
-CYAN            = (0, 220, 210)
-EYE_HIGHLIGHT   = (180, 255, 252)
-MOUTH_COLOR     = (0, 200, 190)
-STATUS_BG       = (20, 20, 28)
-STATUS_FG       = (160, 160, 180)
-STATE_IDLE_FG   = (80, 200, 160)
-STATE_LISTEN_FG = (80, 160, 255)
+# ── Constants ────────────────────────────────────────────────────────────────
+
+BG_COLOR   = (10, 10, 15)
+STATUS_BG  = (20, 20, 28)
+STATUS_FG  = (160, 160, 180)
+
+# State → status bar color
+_STATE_COLORS = {
+    "IDLE":      (80, 200, 160),
+    "LISTENING": (80, 160, 255),
+    "THINKING":  (220, 180, 60),
+    "SPEAKING":  (80, 220, 120),
+    "ERROR":     (255, 80, 80),
+    "SLEEPING":  (100, 100, 140),
+    "MENU":      (160, 160, 180),
+}
+
+# State → LED behavior
+_STATE_LED = {
+    "IDLE":      ("pulse", (0, 180, 160), 0.6),
+    "LISTENING": ("solid", (0, 100, 255), 0),
+    "THINKING":  ("pulse", (220, 180, 40), 1.5),
+    "SPEAKING":  ("solid", (0, 200, 100), 0),
+    "ERROR":     ("pulse", (255, 40, 40), 3.0),
+    "SLEEPING":  ("pulse", (60, 60, 100), 0.2),
+    "MENU":      ("solid", (160, 160, 180), 0),
+}
 
 WIDTH, HEIGHT = 240, 280
 FPS = 30
 STATUS_H = 24
 
 
-def draw_face(surface: pygame.Surface, state_text: str) -> None:
-    """Draw a simple placeholder face: two oval eyes and a small arc mouth."""
-    cx = WIDTH // 2
-
-    # ── Eyes ──────────────────────────────────────────────────────────────────
-    eye_y = 120
-    eye_w, eye_h = 44, 32
-    left_eye_rect  = pygame.Rect(cx - 60 - eye_w // 2, eye_y - eye_h // 2, eye_w, eye_h)
-    right_eye_rect = pygame.Rect(cx + 60 - eye_w // 2, eye_y - eye_h // 2, eye_w, eye_h)
-
-    pygame.draw.ellipse(surface, CYAN, left_eye_rect)
-    pygame.draw.ellipse(surface, CYAN, right_eye_rect)
-
-    # Highlight dot on each eye
-    hl_size = 8
-    pygame.draw.ellipse(surface, EYE_HIGHLIGHT,
-                        (left_eye_rect.x + 8, left_eye_rect.y + 6, hl_size, hl_size))
-    pygame.draw.ellipse(surface, EYE_HIGHLIGHT,
-                        (right_eye_rect.x + 8, right_eye_rect.y + 6, hl_size, hl_size))
-
-    # ── Mouth ─────────────────────────────────────────────────────────────────
-    mouth_rect = pygame.Rect(cx - 28, 168, 56, 30)
-    # Draw arc as a series of points (pygame.draw.arc draws outline only)
-    pygame.draw.arc(surface, MOUTH_COLOR, mouth_rect,
-                    -2.4, -0.74, 3)  # roughly bottom half of ellipse = smile
-
-
-def draw_status_bar(surface: pygame.Surface, state_text: str, platform_name: str,
-                    battery_level: int, led_color: tuple) -> None:
+def draw_status_bar(surface: pygame.Surface, state_name: str, mood_name: str,
+                    platform_name: str, battery_level: int) -> None:
     """Draw status bar at bottom of screen."""
     bar_rect = pygame.Rect(0, HEIGHT - STATUS_H, WIDTH, STATUS_H)
     pygame.draw.rect(surface, STATUS_BG, bar_rect)
-    # Divider line
     pygame.draw.line(surface, (40, 40, 55), (0, HEIGHT - STATUS_H), (WIDTH, HEIGHT - STATUS_H))
 
     font = pygame.font.SysFont("monospace", 11)
 
-    label = f"Voxel v0.1 | {platform_name}"
+    # Left: version + mood
+    label = f"Voxel v0.1 | {mood_name}"
     label_surf = font.render(label, True, STATUS_FG)
     surface.blit(label_surf, (6, HEIGHT - STATUS_H + 6))
 
-    # State text (right-aligned)
-    state_color = STATE_LISTEN_FG if state_text == "Listening" else STATE_IDLE_FG
-    state_surf = font.render(state_text, True, state_color)
+    # Right: state name
+    state_color = _STATE_COLORS.get(state_name, STATUS_FG)
+    state_surf = font.render(state_name, True, state_color)
     surface.blit(state_surf, (WIDTH - state_surf.get_width() - 6, HEIGHT - STATUS_H + 6))
 
 
 def main() -> None:
     from hardware import display, buttons, led, battery
     from hardware.platform import PLATFORM_NAME
+    from hardware.buttons import ButtonEvent
+    from states.machine import StateMachine, State
+    from face.renderer import FaceRenderer
+    from face.expressions import Mood
 
-    log.info(f"Voxel starting — platform: {PLATFORM_NAME}")
+    boot_message()
+    log.info(f"Platform: {PLATFORM_NAME}")
 
-    # ── Hardware init ─────────────────────────────────────────────────────────
+    # ── Hardware init ────────────────────────────────────────────────────────
     display.init()
     buttons.init()
     led.init()
     battery.init()
 
-    # Set idle LED: soft cyan pulse
-    led.pulse((0, 180, 160), speed=0.6)
-
     surface = display.get_surface()
-    clock   = display.get_clock()
+    clock = display.get_clock()
 
-    # ── Audio init (optional — don't crash if not available) ─────────────────
+    # ── State machine ────────────────────────────────────────────────────────
+    sm = StateMachine()
+    face = FaceRenderer()
+
+    # Wire state changes to face renderer + LED
+    def _on_state_change(old: State, new: State) -> None:
+        face.on_state_change(old, new)
+        mode, color, speed = _STATE_LED.get(new.name, ("pulse", (0, 180, 160), 0.6))
+        if mode == "pulse":
+            led.pulse(color, speed=speed)
+        else:
+            led.set_color(*color)
+
+    sm.on_change(_on_state_change)
+
+    # Trigger initial state
+    _on_state_change(State.IDLE, State.IDLE)
+
+    # ── Mood cycling for dev/testing ─────────────────────────────────────────
+    moods = list(Mood)
+    mood_idx = 0
+
+    # ── Audio init (optional) ────────────────────────────────────────────────
+    _audio_ok = False
     try:
         from core import audio as audio_mod
         audio_mod.init()
         _audio_ok = True
     except Exception as e:
-        log.warning(f"Audio init failed: {e}")
-        _audio_ok = False
+        log.warning(f"Audio init skipped: {e}")
 
-    state_text = "Idle"
-    running    = True
-
-    log.info("Voxel ready. Space=toggle state, Escape=quit")
+    running = True
+    ready_message()
+    log.info("Controls: Space=cycle state, Z/X=cycle mood, Escape=quit")
 
     try:
         while running:
-            # ── Events ────────────────────────────────────────────────────────
-            # Consume all pygame events (buttons.poll reads KEYDOWN internally)
+            dt = clock.tick(FPS) / 1000.0
+
+            # ── Events ───────────────────────────────────────────────────────
             quit_events = pygame.event.get(pygame.QUIT)
             if quit_events:
                 running = False
@@ -118,36 +134,49 @@ def main() -> None:
 
             btn_events = buttons.poll()
             for evt in btn_events:
-                from hardware.buttons import ButtonEvent
                 if evt == ButtonEvent.BUTTON_MENU:
                     log.info("Quit via Escape")
                     running = False
+
                 elif evt == ButtonEvent.BUTTON_PRESS:
-                    # Toggle state
-                    state_text = "Listening" if state_text == "Idle" else "Idle"
-                    log.info(f"State toggled: {state_text}")
-                    if state_text == "Listening":
-                        led.set_color(0, 100, 255)
-                    else:
-                        led.pulse((0, 180, 160), speed=0.6)
+                    # Cycle through states: IDLE → LISTENING → THINKING → SPEAKING → IDLE
+                    cycle = [State.IDLE, State.LISTENING, State.THINKING, State.SPEAKING]
+                    cur_idx = next((i for i, s in enumerate(cycle) if s == sm.state), 0)
+                    nxt = cycle[(cur_idx + 1) % len(cycle)]
+                    sm.transition(nxt)
 
-            # ── Render ────────────────────────────────────────────────────────
+                elif evt == ButtonEvent.BUTTON_LEFT:
+                    # Previous mood
+                    mood_idx = (mood_idx - 1) % len(moods)
+                    face.set_mood(moods[mood_idx])
+                    log.info(f"Mood override: {moods[mood_idx].name}")
+
+                elif evt == ButtonEvent.BUTTON_RIGHT:
+                    # Next mood
+                    mood_idx = (mood_idx + 1) % len(moods)
+                    face.set_mood(moods[mood_idx])
+                    log.info(f"Mood override: {moods[mood_idx].name}")
+
+            # ── Update ───────────────────────────────────────────────────────
+            face.update(dt)
+
+            # ── Render ───────────────────────────────────────────────────────
             surface.fill(BG_COLOR)
-            draw_face(surface, state_text)
+            face.draw(surface)
 
-            # LED indicator (desktop only — overlays top-right corner)
+            # LED indicator (desktop overlay)
             led.draw_indicator(surface)
 
             batt = battery.get_level()
-            draw_status_bar(surface, state_text, PLATFORM_NAME, batt, led.get_color())
+            draw_status_bar(surface, sm.state.name, face.character.get_mood().name,
+                            PLATFORM_NAME, batt)
 
             display.update()
-            clock.tick(FPS)
 
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
     finally:
-        log.info("Shutting down...")
+        shutdown_message()
         led.cleanup()
         buttons.cleanup()
         if _audio_ok:
@@ -158,7 +187,6 @@ def main() -> None:
         battery.cleanup()
         display.cleanup()
         pygame.quit()
-        log.info("Voxel stopped.")
 
 
 def shutdown(signum, frame) -> None:

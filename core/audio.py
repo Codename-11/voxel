@@ -1,4 +1,4 @@
-"""Audio abstraction — laptop mic/speakers (desktop) or Whisplay HAT (Pi)."""
+"""Audio — laptop mic/speakers (desktop) or Whisplay HAT (Pi)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 from hardware.platform import IS_PI
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(f"voxel.{__name__}")
 
 # Audio config
 SAMPLE_RATE = 16000

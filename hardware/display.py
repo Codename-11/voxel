@@ -5,7 +5,7 @@ import os
 import pygame
 from hardware.platform import IS_PI
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(f"voxel.{__name__}")
 
 WIDTH = 240
 HEIGHT = 280

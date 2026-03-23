@@ -7,6 +7,7 @@
 - [ ] **Mouth audio sync** — Real-time amplitude detection (RMS) from TTS audio output → mapped to mouth openness frames. `core/audio.py` already has `get_amplitude()`.
 - [ ] **STT pipeline** — Whisper API integration. Record from mic on button press, send to Whisper, return transcript. `core/stt.py`.
 - [ ] **TTS pipeline** — ElevenLabs (primary) / edge-tts (fallback). Receive text from gateway, generate audio, play through speaker while syncing mouth. `core/tts.py`.
+- [ ] **CLI interface** — Proper CLI with argument parsing (`--verbose`, `--no-banner`, `--log-level`, `--mock-hardware`). Support `--log-file` for writing logs to disk. Add `voxel logs` subcommand for viewing/tailing log output from the settings UI or terminal.
 
 ## Priority: Medium
 

@@ -1,10 +1,10 @@
-"""Application state machine for Axiom Companion."""
+"""Application state machine for Voxel."""
 
 from enum import Enum, auto
 from typing import Callable, Optional
 import logging
 
-log = logging.getLogger("axiom.states")
+log = logging.getLogger("voxel.states")
 
 
 class State(Enum):

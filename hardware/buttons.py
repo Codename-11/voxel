@@ -10,7 +10,7 @@ from typing import Callable
 import pygame
 from hardware.platform import IS_PI
 
-log = logging.getLogger(__name__)
+log = logging.getLogger(f"voxel.{__name__}")
 
 
 class ButtonEvent(Enum):
