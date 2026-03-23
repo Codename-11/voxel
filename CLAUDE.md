@@ -1,16 +1,17 @@
-# Axiom Companion — Development Guide
+# Voxel — Development Guide
 
 ## What is this?
-Axiom Companion is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSugar Whisplay HAT. It features an animated cube mascot character with expressive eyes/mouth, voice interaction, and connects to the Axiom-Labs AI agent team via OpenClaw.
+Voxel is the character. The physical hardware is called the **Relay**.
+Voxel is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSugar Whisplay HAT. It features an animated cube mascot character with expressive eyes/mouth, voice interaction, and connects to the Axiom-Labs AI agent team via OpenClaw.
 
 - **Hardware:** Pi Zero 2W + PiSugar Whisplay HAT (240x280 IPS LCD, dual mics, speaker, buttons, RGB LED)
-- **Repo:** ~/axiom-companion (local, not yet on GitHub)
+- **Repo:** ~/voxel (local, not yet on GitHub)
 - **OpenClaw Gateway:** http://172.16.24.250:18789
 
 ## Project Structure
 
 ```
-axiom-companion/
+voxel/
 ├── main.py                      # Application entry point
 ├── core/                        # OpenClaw gateway client, STT/TTS pipelines
 │   ├── gateway.py               # OpenClaw API integration (chat completions)
@@ -50,7 +51,7 @@ axiom-companion/
 ├── scripts/                     # Setup and utility scripts
 │   └── setup.sh                 # First-time setup (drivers, deps, config)
 ├── requirements.txt             # Python dependencies
-└── axiom-companion.service      # Systemd unit file for auto-start
+└── voxel.service      # Systemd unit file for auto-start
 ```
 
 ## Hardware Constraints
@@ -143,7 +144,7 @@ Button press → record from dual mics (WAV)
 
 ### On the Pi:
 ```bash
-cd ~/axiom-companion
+cd ~/voxel
 source .venv/bin/activate
 python main.py
 ```
@@ -156,7 +157,7 @@ Pygame can render to a window instead of framebuffer. Use `SDL_VIDEODRIVER=x11` 
 git pull origin main
 source .venv/bin/activate
 pip install -r requirements.txt
-sudo systemctl restart axiom-companion
+sudo systemctl restart voxel
 ```
 
 ## Conventions

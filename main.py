@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Axiom Companion — Pocket AI companion device."""
+"""Voxel — Pocket AI companion device."""
 
 import sys
 import signal
@@ -14,7 +14,7 @@ log = logging.getLogger("axiom")
 
 
 def main():
-    log.info("Axiom Companion starting...")
+    log.info("Voxel starting...")
 
     # TODO: Initialize hardware (display, buttons, LED, audio)
     # TODO: Load configuration
@@ -23,7 +23,7 @@ def main():
     # TODO: Initialize OpenClaw gateway client
     # TODO: Start main loop
 
-    log.info("Axiom Companion ready.")
+    log.info("Voxel ready.")
 
     # Placeholder main loop
     try:

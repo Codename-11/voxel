@@ -1,10 +1,10 @@
-# Axiom Companion
+# Voxel
 
-A pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSugar Whisplay HAT.
+Pocket AI companion. Animated cube mascot on Raspberry Pi Zero 2W + PiSugar Whisplay HAT.
 
 Animated cube mascot with personality, connected to your AI agent team via OpenClaw.
 
-## Hardware
+## Hardware (The Relay)
 
 - **Raspberry Pi Zero 2W** — brain
 - **PiSugar Whisplay HAT** — 1.69" IPS LCD (240x280), dual mics, speaker, buttons, RGB LED
@@ -21,7 +21,7 @@ Animated cube mascot with personality, connected to your AI agent team via OpenC
 ## Architecture
 
 ```
-axiom-companion/
+voxel/
 ├── core/              # OpenClaw gateway client, STT/TTS pipelines
 │   ├── gateway.py     # OpenClaw API integration
 │   ├── stt.py         # Speech-to-text (Whisper API)
@@ -64,7 +64,7 @@ axiom-companion/
 │   └── service.sh     # Systemd service installer
 ├── main.py            # Application entry point
 ├── requirements.txt   # Python dependencies
-└── axiom-companion.service  # Systemd unit file
+└── voxel.service  # Systemd unit file
 ```
 
 ## Tech Stack
@@ -92,8 +92,8 @@ axiom-companion/
 
 ```bash
 # Clone and setup
-git clone https://github.com/Codename-11/axiom-companion.git
-cd axiom-companion
+git clone https://github.com/Codename-11/voxel.git
+cd voxel
 ./scripts/setup.sh
 
 # Configure

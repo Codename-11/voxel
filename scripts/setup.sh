@@ -1,8 +1,8 @@
 #!/bin/bash
-# Axiom Companion — First-time setup
+# Voxel — First-time setup
 set -e
 
-echo "=== Axiom Companion Setup ==="
+echo "=== Voxel Setup ==="
 
 # System deps
 sudo apt update
