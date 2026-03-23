@@ -411,11 +411,20 @@ class VoxelCharacter:
         tilt_rad = math.radians(expr.body.tilt)
         tilt_offset_x = int(math.sin(tilt_rad) * 4)
 
-        self._draw_ambient_glow(surface, CX + tilt_offset_x, body_cy)
-        self._draw_body(surface, CX + tilt_offset_x, body_cy, expr)
-        self._draw_eyes(surface, CX + tilt_offset_x, body_cy, expr, now, style)
-        self._draw_mouth(surface, CX + tilt_offset_x, body_cy, expr, style)
-        self._draw_mood_icon(surface, CX + tilt_offset_x, body_cy)
+        cube_cx = CX + tilt_offset_x
+        self._draw_ambient_glow(surface, cube_cx, body_cy)
+        self._draw_body(surface, cube_cx, body_cy, expr)
+
+        # Face features draw on the FRONT face, which is offset from cube center
+        scale = expr.body.scale
+        dx = int(28 * scale)
+        dy = int(22 * scale)
+        face_cx = cube_cx - dx // 3
+        face_cy = body_cy + dy // 3
+
+        self._draw_eyes(surface, face_cx, face_cy, expr, now, style)
+        self._draw_mouth(surface, face_cx, face_cy, expr, style)
+        self._draw_mood_icon(surface, cube_cx, body_cy)
 
     # ── Ambient glow ─────────────────────────────────────────────────────────
 
@@ -434,39 +443,90 @@ class VoxelCharacter:
     # ── Body ─────────────────────────────────────────────────────────────────
 
     def _draw_body(self, surface: pygame.Surface, cx: int, cy: int, expr: Expression) -> None:
-        """Draw the cube body — uses 3D sprite if available, falls back to procedural."""
-        scale = expr.body.scale
+        """Draw the cube body as a faux-isometric 3 panel cube.
 
-        if self._body_sprite is not None:
-            # Blit the 3D isometric sprite from the design tool
-            sprite = self._body_sprite
-            if abs(scale - 1.0) > 0.01:
-                sw = int(sprite.get_width() * scale)
-                sh = int(sprite.get_height() * scale)
-                sprite = pygame.transform.smoothscale(sprite, (sw, sh))
-            rect = sprite.get_rect(center=(cx, cy))
-            surface.blit(sprite, rect)
-        else:
-            # Procedural fallback — flat rounded rect with edge glow
-            w = int(BODY_W * scale)
-            h = int(BODY_H * scale)
-            r = int(BODY_RADIUS * scale)
-            body_rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
-            pygame.draw.rect(surface, BODY_FILL, body_rect, border_radius=r)
-            # Edge glow lines
-            inset = int(EDGE_INSET * scale)
-            pygame.draw.line(surface, EDGE_GLOW,
-                             (body_rect.left + inset, body_rect.top),
-                             (body_rect.right - inset, body_rect.top), 2)
-            pygame.draw.line(surface, EDGE_GLOW,
-                             (body_rect.left + inset, body_rect.bottom - 1),
-                             (body_rect.right - inset, body_rect.bottom - 1), 2)
-            pygame.draw.line(surface, EDGE_GLOW,
-                             (body_rect.left, body_rect.top + inset),
-                             (body_rect.left, body_rect.bottom - inset), 2)
-            pygame.draw.line(surface, EDGE_GLOW,
-                             (body_rect.right - 1, body_rect.top + inset),
-                             (body_rect.right - 1, body_rect.bottom - inset), 2)
+        Front face (where eyes/mouth go) is a rounded rect.
+        Top face and right face are parallelograms for 3D depth.
+        Cyan edge glow on all visible edges.
+        """
+        scale = expr.body.scale
+        fw = int(BODY_W * scale)       # front face width
+        fh = int(BODY_H * scale)       # front face height
+        r = int(BODY_RADIUS * scale)
+        dx = int(28 * scale)            # isometric X offset for depth
+        dy = int(22 * scale)            # isometric Y offset for depth
+
+        # Front face rect (shifted slightly left so cube is centered)
+        fl = cx - fw // 2 - dx // 3
+        ft = cy - fh // 2 + dy // 3
+        front_rect = pygame.Rect(fl, ft, fw, fh)
+
+        # ── Top face (parallelogram) ──
+        top_pts = [
+            (front_rect.left + r, front_rect.top),           # bottom-left
+            (front_rect.right - r, front_rect.top),          # bottom-right
+            (front_rect.right - r + dx, front_rect.top - dy),  # top-right
+            (front_rect.left + r + dx, front_rect.top - dy),   # top-left
+        ]
+        pygame.draw.polygon(surface, (28, 28, 48), top_pts)
+
+        # ── Right face (parallelogram) ──
+        right_pts = [
+            (front_rect.right, front_rect.top + r),            # top-left
+            (front_rect.right + dx, front_rect.top + r - dy),  # top-right
+            (front_rect.right + dx, front_rect.bottom - r - dy),  # bottom-right
+            (front_rect.right, front_rect.bottom - r),         # bottom-left
+        ]
+        pygame.draw.polygon(surface, (16, 16, 28), right_pts)
+
+        # ── Front face ──
+        pygame.draw.rect(surface, BODY_FILL, front_rect, border_radius=r)
+
+        # Subtle gradient on front face (lighter at top)
+        grad_surf = pygame.Surface((fw, fh), pygame.SRCALPHA)
+        for row in range(fh):
+            frac = row / max(fh - 1, 1)
+            alpha = int(6 * (1.0 - frac))
+            if alpha > 0:
+                pygame.draw.line(grad_surf, (255, 255, 255, alpha), (0, row), (fw, row))
+        surface.blit(grad_surf, front_rect.topleft)
+
+        # ── Edge glow lines ──
+        inset = int(EDGE_INSET * scale)
+        gw = 2  # glow line width
+
+        # Front face edges
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.left + inset, front_rect.top),
+                         (front_rect.right - inset, front_rect.top), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.left + inset, front_rect.bottom - 1),
+                         (front_rect.right - inset, front_rect.bottom - 1), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.left, front_rect.top + inset),
+                         (front_rect.left, front_rect.bottom - inset), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.right - 1, front_rect.top + inset),
+                         (front_rect.right - 1, front_rect.bottom - inset), gw)
+
+        # Top face edges (isometric depth lines)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.left + inset, front_rect.top),
+                         (front_rect.left + inset + dx, front_rect.top - dy), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.right - inset, front_rect.top),
+                         (front_rect.right - inset + dx, front_rect.top - dy), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.left + inset + dx, front_rect.top - dy),
+                         (front_rect.right - inset + dx, front_rect.top - dy), gw)
+
+        # Right face edges (vertical depth lines)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.right - 1, front_rect.top + inset),
+                         (front_rect.right - 1 + dx, front_rect.top + inset - dy), gw)
+        pygame.draw.line(surface, EDGE_GLOW,
+                         (front_rect.right - 1, front_rect.bottom - inset),
+                         (front_rect.right - 1 + dx, front_rect.bottom - inset - dy), gw)
 
     # ── Eyes ─────────────────────────────────────────────────────────────────
 
