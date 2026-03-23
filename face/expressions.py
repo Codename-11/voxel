@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Optional
 
 
 class Mood(Enum):
@@ -14,6 +15,13 @@ class Mood(Enum):
     SLEEPY = auto()
     ERROR = auto()
     LISTENING = auto()
+    SAD = auto()
+    SURPRISED = auto()
+    FOCUSED = auto()
+    FRUSTRATED = auto()
+    WORKING = auto()
+    LOW_BATTERY = auto()
+    CRITICAL_BATTERY = auto()
 
 
 @dataclass
@@ -47,68 +55,153 @@ class BodyConfig:
 
 
 @dataclass
+class PerEyeOverride:
+    """Optional per-eye overrides (left or right) layered on top of EyeConfig."""
+    openness: Optional[float] = None
+    height: Optional[float] = None
+    width: Optional[float] = None
+    squint: Optional[float] = None
+    tilt: Optional[float] = None
+
+
+@dataclass
 class Expression:
     """Complete expression definition."""
     mood: Mood
     eyes: EyeConfig = field(default_factory=EyeConfig)
     mouth: MouthConfig = field(default_factory=MouthConfig)
     body: BodyConfig = field(default_factory=BodyConfig)
+    left_eye: Optional[PerEyeOverride] = None
+    right_eye: Optional[PerEyeOverride] = None
+    eye_color_override: Optional[str] = None
 
 
-# Predefined expressions
+# Predefined expressions — values match design/src/expressions.js exactly
 EXPRESSIONS: dict[Mood, Expression] = {
     Mood.NEUTRAL: Expression(
         mood=Mood.NEUTRAL,
-        eyes=EyeConfig(openness=0.9, blink_rate=3.0),
-        mouth=MouthConfig(smile=0.2),
-        body=BodyConfig(bounce_speed=0.3, bounce_amount=1.5),
+        eyes=EyeConfig(width=1.0, height=1.0, openness=0.9, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0, blink_rate=3.0, squint=0),
+        mouth=MouthConfig(openness=0, smile=0.3, width=1.0),
+        body=BodyConfig(bounce_speed=0.3, bounce_amount=2, tilt=0, scale=1.0),
     ),
     Mood.HAPPY: Expression(
         mood=Mood.HAPPY,
-        eyes=EyeConfig(openness=0.85, height=0.9, squint=0.2, blink_rate=2.0),
-        mouth=MouthConfig(smile=0.8, openness=0.2),
-        body=BodyConfig(bounce_speed=0.7, bounce_amount=3.0),
+        # Happy squint — both eyes narrow, big U smile (closed mouth, high smile)
+        eyes=EyeConfig(width=1.05, height=0.75, openness=0.7, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0, blink_rate=2.0, squint=0),
+        mouth=MouthConfig(openness=0, smile=1.0, width=1.3),
+        body=BodyConfig(bounce_speed=0.7, bounce_amount=4, tilt=0, scale=1.0),
     ),
     Mood.CURIOUS: Expression(
         mood=Mood.CURIOUS,
-        eyes=EyeConfig(openness=1.0, width=1.1, height=1.1, pupil_size=0.5, blink_rate=1.5),
-        mouth=MouthConfig(smile=0.1, openness=0.15),
-        body=BodyConfig(tilt=8.0, scale=1.02),
+        eyes=EyeConfig(width=1.1, height=1.1, openness=1.0, pupil_size=0.5,
+                        gaze_x=0, gaze_y=0, blink_rate=1.5, squint=0),
+        mouth=MouthConfig(openness=0.15, smile=0.1, width=1.0),
+        body=BodyConfig(bounce_speed=0.4, bounce_amount=2, tilt=8, scale=1.02),
     ),
     Mood.THINKING: Expression(
         mood=Mood.THINKING,
-        eyes=EyeConfig(openness=0.7, gaze_x=0.6, gaze_y=-0.4, squint=0.3, blink_rate=1.0),
-        mouth=MouthConfig(smile=0.0, openness=0.05),
-        body=BodyConfig(tilt=-5.0, bounce_speed=0.2),
+        eyes=EyeConfig(width=1.0, height=1.0, openness=0.75, pupil_size=0.35,
+                        gaze_x=0.4, gaze_y=-0.2, blink_rate=1.0, squint=0),
+        # Gentle raised eyebrow — left open, right slightly narrower
+        left_eye=PerEyeOverride(openness=0.9, height=1.05),
+        right_eye=PerEyeOverride(openness=0.45, height=0.65),
+        mouth=MouthConfig(openness=0, smile=0.0, width=0.85),
+        body=BodyConfig(bounce_speed=0.2, bounce_amount=1, tilt=-4, scale=1.0),
     ),
     Mood.CONFUSED: Expression(
         mood=Mood.CONFUSED,
-        eyes=EyeConfig(openness=0.95, width=1.05, pupil_size=0.35, blink_rate=4.0),
-        mouth=MouthConfig(smile=-0.3, openness=0.1),
-        body=BodyConfig(tilt=12.0),
+        eyes=EyeConfig(width=1.0, height=1.0, openness=0.9, pupil_size=0.35,
+                        gaze_x=0, gaze_y=0, blink_rate=4.0, squint=0),
+        # Subtle asymmetry — one eye slightly bigger
+        left_eye=PerEyeOverride(openness=1.0, height=1.08),
+        right_eye=PerEyeOverride(openness=0.7, height=0.85),
+        mouth=MouthConfig(openness=0, smile=-0.15, width=0.9),
+        body=BodyConfig(bounce_speed=0.3, bounce_amount=2, tilt=8, scale=1.0),
     ),
     Mood.EXCITED: Expression(
         mood=Mood.EXCITED,
-        eyes=EyeConfig(openness=1.0, width=1.15, height=1.15, pupil_size=0.5, blink_rate=2.0),
-        mouth=MouthConfig(smile=1.0, openness=0.4),
-        body=BodyConfig(bounce_speed=1.2, bounce_amount=5.0),
+        eyes=EyeConfig(width=1.15, height=1.15, openness=1.0, pupil_size=0.5,
+                        gaze_x=0, gaze_y=0, blink_rate=2.0, squint=0),
+        mouth=MouthConfig(openness=0.4, smile=1.0, width=1.0),
+        body=BodyConfig(bounce_speed=1.2, bounce_amount=6, tilt=0, scale=1.0),
     ),
     Mood.SLEEPY: Expression(
         mood=Mood.SLEEPY,
-        eyes=EyeConfig(openness=0.25, height=0.7, blink_rate=0.5),
-        mouth=MouthConfig(smile=0.0, openness=0.0),
-        body=BodyConfig(bounce_speed=0.15, bounce_amount=1.0, tilt=3.0),
+        eyes=EyeConfig(width=1.0, height=0.7, openness=0.25, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0.2, blink_rate=0.5, squint=0),
+        mouth=MouthConfig(openness=0, smile=0.0, width=1.0),
+        body=BodyConfig(bounce_speed=0.15, bounce_amount=1, tilt=3, scale=1.0),
     ),
     Mood.ERROR: Expression(
         mood=Mood.ERROR,
-        eyes=EyeConfig(openness=1.0, pupil_size=0.0),  # X_X rendered specially
-        mouth=MouthConfig(smile=-0.5, openness=0.0),
-        body=BodyConfig(bounce_speed=0.0, bounce_amount=0.0),
+        eyes=EyeConfig(width=1.0, height=1.0, openness=1.0, pupil_size=0,
+                        gaze_x=0, gaze_y=0, blink_rate=0, squint=0),
+        mouth=MouthConfig(openness=0, smile=-0.5, width=1.0),
+        body=BodyConfig(bounce_speed=0, bounce_amount=0, tilt=0, scale=1.0),
     ),
     Mood.LISTENING: Expression(
         mood=Mood.LISTENING,
-        eyes=EyeConfig(openness=1.0, width=1.05, height=1.05, pupil_size=0.45, blink_rate=1.0),
-        mouth=MouthConfig(smile=0.15, openness=0.1),
-        body=BodyConfig(scale=1.03, tilt=2.0, bounce_speed=0.4),
+        eyes=EyeConfig(width=1.05, height=1.05, openness=1.0, pupil_size=0.45,
+                        gaze_x=0, gaze_y=0, blink_rate=1.0, squint=0),
+        mouth=MouthConfig(openness=0.1, smile=0.15, width=1.0),
+        body=BodyConfig(bounce_speed=0.4, bounce_amount=2, tilt=2, scale=1.03),
+    ),
+    Mood.SAD: Expression(
+        mood=Mood.SAD,
+        eyes=EyeConfig(width=0.95, height=0.9, openness=0.7, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0.3, blink_rate=1.0, squint=0),
+        left_eye=PerEyeOverride(tilt=-6),
+        right_eye=PerEyeOverride(tilt=6),
+        mouth=MouthConfig(openness=0, smile=-0.5, width=0.9),
+        body=BodyConfig(bounce_speed=0.1, bounce_amount=0.5, tilt=3, scale=0.98),
+    ),
+    Mood.SURPRISED: Expression(
+        mood=Mood.SURPRISED,
+        eyes=EyeConfig(width=1.2, height=1.25, openness=1.0, pupil_size=0.35,
+                        gaze_x=0, gaze_y=0, blink_rate=0.5, squint=0),
+        mouth=MouthConfig(openness=0.5, smile=0.0, width=0.7),
+        body=BodyConfig(bounce_speed=0.5, bounce_amount=3, tilt=0, scale=1.04),
+    ),
+    Mood.FOCUSED: Expression(
+        mood=Mood.FOCUSED,
+        eyes=EyeConfig(width=1.0, height=0.7, openness=0.65, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0, blink_rate=0.8, squint=0.15),
+        mouth=MouthConfig(openness=0, smile=0.0, width=0.8),
+        body=BodyConfig(bounce_speed=0.15, bounce_amount=0.5, tilt=0, scale=1.0),
+    ),
+    Mood.FRUSTRATED: Expression(
+        mood=Mood.FRUSTRATED,
+        eyes=EyeConfig(width=1.0, height=0.8, openness=0.75, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0, blink_rate=1.5, squint=0.2),
+        # Angry V-shaped — inner edges tilted down
+        left_eye=PerEyeOverride(tilt=-12),
+        right_eye=PerEyeOverride(tilt=12),
+        mouth=MouthConfig(openness=0, smile=-0.5, width=0.85),
+        body=BodyConfig(bounce_speed=0.3, bounce_amount=1, tilt=0, scale=1.0),
+    ),
+    Mood.WORKING: Expression(
+        mood=Mood.WORKING,
+        eyes=EyeConfig(width=1.0, height=0.8, openness=0.7, pupil_size=0.4,
+                        gaze_x=0, gaze_y=0.1, blink_rate=0.8, squint=0.1),
+        mouth=MouthConfig(openness=0, smile=0.1, width=0.85),
+        body=BodyConfig(bounce_speed=0.25, bounce_amount=1, tilt=0, scale=1.0),
+    ),
+    Mood.LOW_BATTERY: Expression(
+        mood=Mood.LOW_BATTERY,
+        eyes=EyeConfig(width=0.9, height=0.8, openness=0.5, pupil_size=0.35,
+                        gaze_x=0, gaze_y=0.3, blink_rate=0.8, squint=0.1),
+        mouth=MouthConfig(openness=0, smile=-0.2, width=0.8),
+        body=BodyConfig(bounce_speed=0.1, bounce_amount=0.5, tilt=8, scale=0.97),
+        eye_color_override="#d4a020",  # amber/yellow dim
+    ),
+    Mood.CRITICAL_BATTERY: Expression(
+        mood=Mood.CRITICAL_BATTERY,
+        eyes=EyeConfig(width=0.85, height=0.7, openness=0.3, pupil_size=0.3,
+                        gaze_x=0, gaze_y=0.4, blink_rate=0.3, squint=0.15),
+        mouth=MouthConfig(openness=0, smile=-0.4, width=0.7),
+        body=BodyConfig(bounce_speed=0.05, bounce_amount=0.3, tilt=14, scale=0.95),
+        eye_color_override="#a07818",  # dim amber
     ),
 }
