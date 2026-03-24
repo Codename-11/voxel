@@ -2,9 +2,14 @@
 
 .workspace {
   display: flex;
-  gap: 32px;
+  gap: 20px;
   align-items: flex-start;
-  padding: 24px;
+  padding: 16px;
+  min-height: 100vh;
+}
+
+.workspace .preview-area {
+  flex-shrink: 0;
 }
 
 /* Production mode: fullscreen, no controls, no border */
@@ -23,6 +28,11 @@
   height: 100vh;
   max-width: 240px;
   max-height: 280px;
+}
+
+/* Preview scaler — uses CSS zoom so it affects layout flow */
+.preview-scaler {
+  display: inline-block;
 }
 
 /* ── Device frame: exact 240x280 preview ─────────────────── */

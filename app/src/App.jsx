@@ -335,7 +335,7 @@ function App() {
         {splitView && devMode ? (
           /* Split view: 3 cubes side by side, one per style */
           <>
-            <div className="split-view-row" style={{ transform: `scale(${previewScale})`, transformOrigin: "top center" }}>
+            <div className="split-view-row" style={{ zoom: previewScale }}>
               {STYLE_LIST.map((s) => (
                 <div key={s} className="split-view-col">
                   <div className="split-view-frame">
@@ -369,8 +369,8 @@ function App() {
         ) : (
           /* Normal single view */
           <>
-            <div className="device-frame" id="voxel-viewport"
-              style={devMode && previewScale !== 1 ? { transform: `scale(${previewScale})`, transformOrigin: "top center" } : undefined}>
+            <div className="preview-scaler" style={devMode && previewScale !== 1 ? { zoom: previewScale } : undefined}>
+            <div className="device-frame" id="voxel-viewport">
               <div
                 className={
                   menuOpen ? "face-layer face-layer--dimmed" : "face-layer"
@@ -409,9 +409,10 @@ function App() {
                 connected={wsConnected}
               />
             </div>
+            </div>{/* close preview-scaler */}
             {devMode && (
               <div className="label">
-                240 x 280 -- {wsConnected ? "connected" : "standalone"}
+                {previewScale === 1 ? "1:1 real size" : `${previewScale}x`} — {wsConnected ? "connected" : "standalone"}
               </div>
             )}
           </>
