@@ -46,7 +46,9 @@ The Whisplay HAT integrates everything onto a single board that matches the Pi Z
 
 ```bash
 # Whisplay HAT drivers (audio codec + display)
-curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
+git clone https://github.com/PiSugar/Whisplay.git --depth 1
+cd Whisplay/Driver
+sudo bash install_wm8960_drive.sh
 ```
 
 This installs:

@@ -331,7 +331,33 @@ cmd_hw() {
 
     if needs_hw; then
         info "Installing Whisplay HAT drivers (display + audio)..."
-        curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
+        local whisplay_tmp
+        whisplay_tmp=$(mktemp -d)
+
+        cleanup_whisplay_tmp() {
+            rm -rf "$whisplay_tmp"
+        }
+
+        trap cleanup_whisplay_tmp RETURN
+
+        if ! command -v git &> /dev/null; then
+            info "Installing git (required to fetch PiSugar drivers)..."
+            sudo apt update
+            sudo apt install -y git
+        fi
+
+        info "Fetching PiSugar Whisplay driver repo..."
+        git clone --depth 1 https://github.com/PiSugar/Whisplay.git "$whisplay_tmp/Whisplay"
+
+        if [ ! -f "$whisplay_tmp/Whisplay/Driver/install_wm8960_drive.sh" ]; then
+            warn "PiSugar driver installer not found in cloned repo"
+            return 1
+        fi
+
+        (
+            cd "$whisplay_tmp/Whisplay/Driver"
+            sudo bash ./install_wm8960_drive.sh
+        )
     else
         info "Whisplay drivers already installed"
     fi
