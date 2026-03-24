@@ -48,7 +48,7 @@ function App() {
   const [localBattery, setLocalBattery] = useState(100);
   const [transitionSpeed, setTransitionSpeed] = useState(1.0);
   const [splitView, setSplitView] = useState(false);
-  const [previewScale, setPreviewScale] = useState(1.0);
+  const [previewScale, setPreviewScale] = useState(2.0);
   const [expressionOverride, setExpressionOverride] = useState({
     eyes: {},
     mouth: {},

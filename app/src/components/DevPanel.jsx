@@ -122,7 +122,7 @@ export default function DevPanel({
           <label className="dev-label">View</label>
           <div className="dev-view-row">
             <div className="dev-zoom-btns">
-              {[1, 1.5, 2, 2.5].map((s) => (
+              {[1, 1.5, 2, 2.5, 3].map((s) => (
                 <button key={s} className={`dev-chip sm ${previewScale === s ? "active" : ""}`}
                   onClick={() => onSetPreviewScale(s)}>
                   {s === 1 ? "1:1" : `${s}x`}
