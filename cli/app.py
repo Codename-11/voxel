@@ -17,6 +17,7 @@ SERVICES = ["voxel", "voxel-ui", "voxel-web"]
 
 def _run(cmd: list[str] | str, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
     """Run a shell command."""
+    kwargs.pop("shell", None)  # _run handles shell based on cmd type
     if isinstance(cmd, str):
         return subprocess.run(cmd, shell=True, check=check, **kwargs)
     return subprocess.run(cmd, check=check, **kwargs)
