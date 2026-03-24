@@ -36,15 +36,29 @@ has_tty() {
     [ -t 0 ] && [ -t 1 ] && command -v whiptail &> /dev/null
 }
 
-needs_hw() {
-    [ ! -e /dev/fb1 ] && return 0
-    ! arecord -l 2>/dev/null | grep -q "WM8960" && return 0
+boot_config_path() {
+    local config="/boot/firmware/config.txt"
+    [ -f "$config" ] || config="/boot/config.txt"
+    echo "$config"
+}
+
+whisplay_ready() {
+    [ -e /dev/fb1 ] && arecord -l 2>/dev/null | grep -q "WM8960"
+}
+
+whisplay_detected() {
+    local config
+    config=$(boot_config_path)
+
+    whisplay_ready && return 0
+    curl -sf http://localhost:8421/api/battery >/dev/null 2>&1 && return 0
+    arecord -l 2>/dev/null | grep -q "WM8960" && return 0
+    grep -Eqi 'whisplay|pisugar|wm8960' "$config" 2>/dev/null && return 0
     return 1
 }
 
 needs_reboot() {
-    CONFIG="/boot/firmware/config.txt"
-    [ -f "$CONFIG" ] || CONFIG="/boot/config.txt"
+    CONFIG=$(boot_config_path)
     UPTIME_SECS=$(awk '{print int($1)}' /proc/uptime)
     CONFIG_MOD=$(stat -c %Y "$CONFIG" 2>/dev/null || echo 0)
     BOOT_TIME=$(( $(date +%s) - UPTIME_SECS ))
@@ -118,7 +132,7 @@ tui_main() {
             --menu "  Backend: $be_state  |  UI: $ui_state" 18 56 9 \
             "install"   "Full setup (deps + build + services)" \
             "update"    "Pull latest, rebuild, restart" \
-            "hw"        "Hardware drivers + config.txt" \
+            "hw"        "Whisplay HAT drivers + Pi tuning" \
             "start"     "Start services" \
             "stop"      "Stop services" \
             "restart"   "Restart services" \
@@ -149,6 +163,9 @@ tui_pause() {
 tui_install() {
     # Confirm what will be installed
     local selections
+    local hw_default="OFF"
+    whisplay_detected && ! whisplay_ready && hw_default="ON"
+
     selections=$(whiptail --title "Install Components" \
         --checklist "Select what to install (SPACE to toggle):" 16 60 6 \
         "deps"     "System packages (apt)"        ON \
@@ -156,10 +173,12 @@ tui_install() {
         "uv"       "uv (Python package manager)"  ON \
         "app"      "Build React app"              ON \
         "services" "Configure systemd services"   ON \
-        "hw"       "Hardware drivers + config.txt" "$(needs_hw && echo ON || echo OFF)" \
+        "hw"       "Whisplay HAT drivers + Pi tuning" "$hw_default" \
         3>&1 1>&2 2>&3) || return
 
     echo ""
+    local ran_hw=1
+
     # Parse selections — whiptail returns "key1" "key2" ...
     if echo "$selections" | grep -q '"deps"'; then
         info "System dependencies..."
@@ -193,12 +212,19 @@ tui_install() {
 
     if echo "$selections" | grep -q '"hw"'; then
         cmd_hw
+        ran_hw=0
+    elif ! whisplay_detected; then
+        if whiptail --title "Whisplay Hardware" \
+            --yesno "Are you using the PiSugar Whisplay HAT for display + audio?\n\nChoose Yes to install its drivers and Pi tuning.\nChoose No if you are using custom hardware or HDMI." 12 60; then
+            cmd_hw
+            ran_hw=0
+        fi
     fi
 
     # Reboot check
-    if needs_reboot; then
+    if [ "$ran_hw" -eq 0 ] && needs_reboot; then
         if whiptail --title "Reboot Required" \
-            --yesno "Hardware drivers were installed.\nReboot now to activate them?" 10 50; then
+            --yesno "Whisplay drivers or boot config were updated.\nReboot now to activate them?" 10 50; then
             sudo reboot
         fi
     else
@@ -263,6 +289,7 @@ tui_uninstall() {
 
 cmd_install() {
     header "Voxel Relay — Install"
+    local ran_hw=1
 
     info "System dependencies..."
     sudo apt update
@@ -282,17 +309,23 @@ cmd_install() {
 
     install_services
 
-    # Auto-detect hardware needs
-    if needs_hw; then
+    # Only auto-run Whisplay setup when we have positive evidence that this Pi uses it.
+    if whisplay_detected && ! whisplay_ready; then
         echo ""
-        info "Hardware drivers not detected — running hw setup..."
+        info "Whisplay HAT detected but not fully configured — running hw setup..."
         echo ""
         cmd_hw
+        ran_hw=0
+    elif ! whisplay_detected; then
+        echo ""
+        info "Whisplay HAT not detected — skipping HAT-specific drivers."
+        info "If you are using it, run: ./scripts/setup.sh hw"
+        echo ""
     fi
 
-    if needs_reboot; then
+    if [ "$ran_hw" -eq 0 ] && needs_reboot; then
         header "Install complete — reboot needed"
-        echo "  Hardware drivers were installed. Reboot to activate:"
+        echo "  Whisplay drivers or boot config were updated. Reboot to activate:"
         echo "    sudo reboot"
         echo ""
         echo "  After reboot:"
@@ -329,7 +362,7 @@ cmd_update() {
 cmd_hw() {
     header "Hardware Setup               "
 
-    if needs_hw; then
+    if ! whisplay_ready; then
         info "Installing Whisplay HAT drivers (display + audio)..."
         local whisplay_tmp
         whisplay_tmp=$(mktemp -d)
@@ -362,8 +395,7 @@ cmd_hw() {
         info "Whisplay drivers already installed"
     fi
 
-    CONFIG="/boot/firmware/config.txt"
-    [ -f "$CONFIG" ] || CONFIG="/boot/config.txt"
+    CONFIG=$(boot_config_path)
 
     if ! grep -q "gpu_mem=128" "$CONFIG" 2>/dev/null; then
         info "Tuning $CONFIG..."
@@ -395,8 +427,8 @@ BOOT
 }
 
 cmd_start() {
-    if needs_hw; then
-        warn "Hardware drivers not detected. Run: ./scripts/setup.sh hw"
+    if whisplay_detected && ! whisplay_ready; then
+        warn "Whisplay HAT detected but not fully configured. Run: ./scripts/setup.sh hw"
         echo ""
     fi
     info "Starting Voxel..."
