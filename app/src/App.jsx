@@ -48,6 +48,7 @@ function App() {
   const [localBattery, setLocalBattery] = useState(100);
   const [transitionSpeed, setTransitionSpeed] = useState(1.0);
   const [splitView, setSplitView] = useState(false);
+  const [previewScale, setPreviewScale] = useState(1.0);
   const [expressionOverride, setExpressionOverride] = useState({
     eyes: {},
     mouth: {},
@@ -334,7 +335,7 @@ function App() {
         {splitView && devMode ? (
           /* Split view: 3 cubes side by side, one per style */
           <>
-            <div className="split-view-row">
+            <div className="split-view-row" style={{ transform: `scale(${previewScale})`, transformOrigin: "top center" }}>
               {STYLE_LIST.map((s) => (
                 <div key={s} className="split-view-col">
                   <div className="split-view-frame">
@@ -368,7 +369,8 @@ function App() {
         ) : (
           /* Normal single view */
           <>
-            <div className="device-frame" id="voxel-viewport">
+            <div className="device-frame" id="voxel-viewport"
+              style={devMode && previewScale !== 1 ? { transform: `scale(${previewScale})`, transformOrigin: "top center" } : undefined}>
               <div
                 className={
                   menuOpen ? "face-layer face-layer--dimmed" : "face-layer"
@@ -439,6 +441,8 @@ function App() {
           onSetAgent={handleSetAgent}
           onSetTransitionSpeed={setTransitionSpeed}
           onSetSplitView={setSplitView}
+          previewScale={previewScale}
+          onSetPreviewScale={setPreviewScale}
           onSetExpressionOverride={setExpressionOverride}
         />
       )}

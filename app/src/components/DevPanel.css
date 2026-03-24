@@ -213,11 +213,18 @@
 .dev-slider-val.warn { color: #d4a020; }
 .dev-slider-val.crit { color: #ff3c3c; }
 
-/* ── Actions ─────────────────────────────────────────────── */
+/* ── View controls ────────────────────────────────────────── */
 
-.dev-actions {
+.dev-view-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
+}
+
+.dev-zoom-btns {
+  display: flex;
+  gap: 2px;
+  flex: 1;
 }
 
 /* ── Keyboard hint ───────────────────────────────────────── */

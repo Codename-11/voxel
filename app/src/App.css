@@ -156,14 +156,16 @@
 
 .split-view-row {
   display: flex;
-  gap: 4px;
+  gap: 12px;
   align-items: flex-start;
+  transform-origin: top center;
 }
 
 .split-view-col {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 6px;
 }
 
 .split-view-frame {
@@ -175,14 +177,6 @@
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
-  transform: scale(0.45);
-  transform-origin: top left;
-}
-
-.split-view-col {
-  /* Compensate for the scale transform so columns sit side by side */
-  width: calc(240px * 0.45 + 4px);
-  flex-shrink: 0;
 }
 
 .split-view-label {
@@ -192,7 +186,4 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   text-align: center;
-  margin-top: calc(-280px * 0.55 + 8px);
-  position: relative;
-  z-index: 1;
 }

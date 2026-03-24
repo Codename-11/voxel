@@ -9,9 +9,9 @@ const TABS = ["controls", "tuner", "log"];
 
 export default function DevPanel({
   mood, style, stateName, speaking, amplitude, battery, agent,
-  transitionSpeed, splitView, wsConnected, expressionOverride, logs,
+  transitionSpeed, splitView, previewScale, wsConnected, expressionOverride, logs,
   onSetMood, onSetStyle, onSetState, onSetAmplitude, onSetBattery,
-  onSetAgent, onSetTransitionSpeed, onSetSplitView, onSetExpressionOverride,
+  onSetAgent, onSetTransitionSpeed, onSetSplitView, onSetPreviewScale, onSetExpressionOverride,
 }) {
   const [activeTab, setActiveTab] = useState("controls");
   const logEndRef = useRef(null);
@@ -109,10 +109,19 @@ export default function DevPanel({
               onChange={onSetTransitionSpeed} fmt={(v) => `${v.toFixed(1)}x`} />
           </div>
 
-          {/* Bottom actions */}
-          <div className="dev-actions">
-            <button className={`dev-chip wide ${splitView ? "active" : ""}`} onClick={() => onSetSplitView(!splitView)}>
-              {splitView ? "Single" : "Split (3)"}
+          {/* View controls: zoom + split */}
+          <label className="dev-label">View</label>
+          <div className="dev-view-row">
+            <div className="dev-zoom-btns">
+              {[1, 1.5, 2, 2.5].map((s) => (
+                <button key={s} className={`dev-chip sm ${previewScale === s ? "active" : ""}`}
+                  onClick={() => onSetPreviewScale(s)}>
+                  {s === 1 ? "1:1" : `${s}x`}
+                </button>
+              ))}
+            </div>
+            <button className={`dev-chip ${splitView ? "active" : ""}`} onClick={() => onSetSplitView(!splitView)}>
+              {splitView ? "Single" : "Split"}
             </button>
           </div>
 
