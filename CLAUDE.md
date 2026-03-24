@@ -77,7 +77,8 @@ voxel/
 ├── run_dev_windows.bat          # Windows: starts backend + frontend
 ├── run.sh                       # macOS/Linux: starts backend + frontend
 ├── assets/                      # Concept art, fonts, icons
-└── voxel.service                # Systemd unit file for Pi auto-start
+├── voxel.service                # Systemd: Python backend (server.py)
+└── voxel-ui.service             # Systemd: WPE/Cog browser (React UI on LCD)
 ```
 
 ## Hardware Constraints

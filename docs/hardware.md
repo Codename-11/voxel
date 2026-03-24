@@ -79,63 +79,205 @@ curl http://localhost:8421/api/battery
 
 ## Pi Zero 2W Setup
 
-### Flash OS
-1. Use Raspberry Pi Imager
-2. Select "Raspberry Pi OS Lite (64-bit)"
-3. Configure WiFi, SSH, hostname in imager settings
-4. Flash to microSD
+### 1. Flash OS
 
-### First Boot
+1. Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Select **"Raspberry Pi OS Lite (64-bit)"** (Bookworm or later)
+3. Click the gear icon and configure:
+   - Hostname: `voxel`
+   - Enable SSH (password or key)
+   - WiFi SSID and password
+   - Username: `pi`
+4. Flash to microSD, insert into Pi, power on
+
+### 2. First Boot & Drivers
+
 ```bash
 # SSH in
 ssh pi@voxel.local
 
-# Update
+# Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install Whisplay drivers
+# Install Whisplay HAT drivers (display + audio codec)
 curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
 
-# Reboot for drivers
+# Reboot to load drivers
 sudo reboot
-
-# Clone Voxel
-git clone https://github.com/Codename-11/voxel.git
-cd voxel
-./scripts/setup.sh    # Installs uv, Node.js, system deps
-
-# Build React app
-npm install
-npm run build         # Produces app/dist/
-
-# Configure
-cp config/default.yaml config/local.yaml
-nano config/local.yaml  # Add gateway URL and token
-
-# Test
-uv run server.py     # Starts WebSocket backend on :8080
-# In another terminal or via WPE/Cog, open app/dist/index.html
-
-# Install as service (backend + WPE browser)
-sudo cp voxel.service /etc/systemd/system/
-sudo systemctl enable --now voxel
 ```
 
-### WPE/Cog Setup (Planned)
-
-WPE WebKit is the embedded browser that renders the React app fullscreen on the Pi's LCD. Cog is the launcher.
+After reboot, verify drivers are working:
 
 ```bash
-# Install WPE/Cog (Raspberry Pi OS Lite)
-sudo apt install cog wpewebkit-1.1
+# Display — should show /dev/fb1 (ST7789 SPI LCD)
+ls /dev/fb*
 
-# Launch fullscreen pointing at the built React app
-cog file:///home/pi/voxel/app/dist/index.html
-# Or, if server.py serves static files:
-cog http://localhost:8080
+# Audio — should show WM8960 device
+arecord -l
+aplay -l
 ```
 
-WPE is GPU-accelerated on the Pi, so Framer Motion CSS animations perform well even on the Zero 2W.
+### 3. Install Voxel
+
+```bash
+# Clone the repo
+git clone https://github.com/Codename-11/voxel.git
+cd voxel
+
+# Run setup (installs Node.js, uv, WPE/Cog, builds React app, configures services)
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+```
+
+The setup script handles everything: system packages, Node.js, uv, Python deps, React build, and systemd service installation.
+
+### 4. Configure
+
+```bash
+nano config/local.yaml
+```
+
+At minimum, set your OpenClaw gateway URL and token. See `config/default.yaml` for all options.
+
+### 5. Test Manually
+
+```bash
+# Terminal 1 — start the backend
+uv run server.py
+
+# Terminal 2 — launch the browser on the LCD
+COG_PLATFORM=drm cog file:///home/pi/voxel/app/dist/index.html
+```
+
+You should see the Voxel face on the LCD. If not, see the display troubleshooting section below.
+
+### 6. Enable Auto-Start
+
+```bash
+sudo systemctl start voxel voxel-ui
+
+# Watch logs
+journalctl -u voxel -u voxel-ui -f
+
+# If everything works, they're already enabled on boot (setup.sh did this)
+```
+
+---
+
+## WPE/Cog — How It Works
+
+WPE WebKit is an embedded browser engine built for devices like the Pi. Cog is its minimal launcher — no window decorations, no address bar, just fullscreen content. This is what renders the React + Framer Motion UI on the LCD.
+
+### Architecture on the Pi
+
+```
+┌─────────────────────────────────────┐
+│  Cog (WPE launcher)                │
+│  └── loads app/dist/index.html     │
+│      └── React app (Framer Motion) │
+│          └── ws://localhost:8080   │
+├─────────────────────────────────────┤
+│  WPE WebKit (GPU-accelerated)      │
+│  └── CSS transforms, animations    │
+│      are hardware-accelerated via   │
+│      the VideoCore IV GPU           │
+├─────────────────────────────────────┤
+│  DRM/KMS display backend           │
+│  └── renders to the display output │
+├─────────────────────────────────────┤
+│  ST7789 SPI LCD (/dev/fb1)         │
+│  240×280 pixels                     │
+└─────────────────────────────────────┘
+```
+
+### Two systemd services
+
+| Service | Unit File | What it runs |
+|---------|-----------|-------------|
+| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
+| UI | `voxel-ui.service` | `cog file:///home/pi/voxel/app/dist/index.html` — WPE browser rendering the React app fullscreen |
+
+The UI service waits for the backend to start (`After=voxel.service`), then opens Cog loading the pre-built React app from disk. The app connects to `ws://localhost:8080` for backend state.
+
+### Display Routing
+
+The Whisplay HAT's LCD is an SPI display (ST7789 controller). How WPE gets pixels to it depends on the driver:
+
+**Scenario A — DRM connector available (preferred):**
+If the Whisplay driver registers as a DRM device, Cog's DRM platform plugin renders directly to it. This is the zero-overhead path.
+
+```bash
+# Check if DRM device exists for the LCD
+ls /dev/dri/card*
+# If you see a card device, try:
+COG_PLATFORM=drm cog file:///home/pi/voxel/app/dist/index.html
+```
+
+**Scenario B — Framebuffer only (fallback):**
+If the driver only provides `/dev/fb1`, use `fbcp` to mirror the primary DRM output to the SPI framebuffer:
+
+```bash
+# Install fbcp
+sudo apt install cmake
+git clone https://github.com/nickeltin/fbcp-ili9341.git
+cd fbcp-ili9341
+mkdir build && cd build
+cmake -DSPI_BUS_CLOCK_DIVISOR=6 -DST7789VW=ON -DGPIO_TFT_DATA_CONTROL=25 \
+      -DGPIO_TFT_RESET_PIN=27 -DSTATISTICS=0 ..
+make -j$(nproc)
+sudo cp fbcp-ili9341 /usr/local/bin/
+
+# Test — should mirror the DRM output to the LCD
+fbcp-ili9341 &
+COG_PLATFORM=drm cog file:///home/pi/voxel/app/dist/index.html
+```
+
+If using fbcp, add it as a systemd service that starts before `voxel-ui`:
+
+```bash
+# /etc/systemd/system/fbcp.service
+[Unit]
+Description=Framebuffer copy (DRM → SPI LCD)
+Before=voxel-ui.service
+
+[Service]
+ExecStart=/usr/local/bin/fbcp-ili9341
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Performance Tuning
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| GPU memory | 128MB | `gpu_mem=128` in `/boot/config.txt` — WPE needs GPU RAM for compositing |
+| Disable HDMI | Yes | `hdmi_blanking=2` — saves ~25mA power |
+| Overclock | Optional | `arm_freq=1200` (Pi Zero 2W default is 1000MHz) |
+| Swap | 256MB | `CONF_SWAPSIZE=256` in `/etc/dphys-swapfile` — safety net for 512MB RAM |
+
+Add to `/boot/config.txt`:
+
+```ini
+# Voxel display settings
+gpu_mem=128
+hdmi_blanking=2
+
+# Optional: mild overclock
+# arm_freq=1200
+# over_voltage=2
+```
+
+### Memory Budget (512MB target)
+
+| Process | ~RAM | Notes |
+|---------|------|-------|
+| Kernel + drivers | ~60MB | Pi OS Lite baseline |
+| server.py | ~40MB | Python + websockets + numpy |
+| WPE/Cog | ~120MB | WebKit renderer + React app |
+| Audio pipeline | ~30MB | STT/TTS when active |
+| **Total** | **~250MB** | ~260MB headroom + 256MB swap |
 
 ## Enclosure
 

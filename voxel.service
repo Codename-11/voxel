@@ -1,5 +1,5 @@
 [Unit]
-Description=Voxel Relay
+Description=Voxel Backend (WebSocket server, hardware I/O, AI pipelines)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,10 +7,14 @@ Wants=network-online.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/voxel
-ExecStart=/home/pi/voxel/.venv/bin/python main.py
+ExecStart=/home/pi/.local/bin/uv run server.py
 Restart=on-failure
 RestartSec=5
-Environment=DISPLAY=:0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voxel
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
