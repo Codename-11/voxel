@@ -94,7 +94,7 @@ cmd_install() {
     # System packages
     info "System dependencies..."
     sudo apt update
-    sudo apt install -y git portaudio19-dev libasound2-dev cog
+    sudo apt install -y git portaudio19-dev libasound2-dev python3-dev cog
 
     ensure_node
     ensure_uv
