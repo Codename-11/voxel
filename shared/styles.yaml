@@ -17,7 +17,7 @@ kawaii:
     highlight_color: "rgba(0, 0, 0, 0)"
     fill_color: "#f0f0f0"
     glow_color: "rgba(240, 240, 240, 0.15)"
-    border_radius: 0.28
+    border_radius: 0.40
     closed_radius: 0.35
     iris_color: "#0a0a12"
     iris_size: 0.55
