@@ -462,208 +462,78 @@ function Mouth({ expr, mood, speaking, amplitude = 0, style, transitionSpeed = 1
 
 /* ── Mood effects ─────────────────────────────────────────── */
 
+// Icon config per mood — null means no icon
+const MOOD_ICON_CONFIG = {
+  happy:     { text: "♥", cls: "heart-icon" },
+  sleepy:    { text: null, cls: "zzz", custom: true },
+  thinking:  { text: null, cls: "thinking-icons", custom: true },
+  curious:   { text: "?", cls: "question" },
+  confused:  { text: "???", cls: "confused-icon" },
+  excited:   { text: "!!", cls: "excited-icon" },
+  listening: { text: ")))", cls: "listening-icon" },
+  sad:       { text: "╥", cls: "sad-icon" },
+  surprised: { text: "!", cls: "surprised-icon" },
+  focused:   { text: "•••", cls: "focused-icon" },
+  working:   { text: "⚙", cls: "working-icon" },
+  frustrated:{ text: "#", cls: "frustrated-icon" },
+  error:     { text: "?!", cls: "error-icon" },
+  lowBattery:      { text: null, cls: "battery-icon", custom: true },
+  criticalBattery: { text: null, cls: "battery-icon", custom: true },
+};
+
 function MoodEffects({ mood }) {
+  const config = MOOD_ICON_CONFIG[mood];
+
+  // Single keyed element — AnimatePresence tracks by key, clean exit guaranteed
   return (
-    <AnimatePresence>
-      {mood === "sleepy" && (
+    <AnimatePresence mode="wait">
+      {config && (
         <motion.div
-          key="zzz"
-          className="mood-effect zzz"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          key={mood}
+          className={`mood-effect ${config.cls}`}
+          initial={{ opacity: 0, scale: 0.7 }}
+          animate={{ opacity: 0.8, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.7 }}
+          transition={{ duration: 0.2 }}
         >
-          <motion.span
-            animate={{ y: [-5, -20], opacity: [1, 0] }}
-            transition={{ duration: 2, repeat: Infinity, delay: 0 }}
-          >z</motion.span>
-          <motion.span
-            animate={{ y: [-5, -25], opacity: [1, 0] }}
-            transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
-          >z</motion.span>
-          <motion.span
-            animate={{ y: [-5, -30], opacity: [1, 0] }}
-            transition={{ duration: 2, repeat: Infinity, delay: 1.0 }}
-          >Z</motion.span>
-        </motion.div>
-      )}
-      {mood === "happy" && (
-        <motion.div
-          key="heart"
-          className="mood-effect heart-icon"
-          initial={{ opacity: 0, scale: 0.3 }}
-          animate={{ opacity: [0.6, 1, 0.6], scale: [1, 1.15, 1] }}
-          exit={{ opacity: 0, scale: 0.3 }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-        >
-          ♥
-        </motion.div>
-      )}
-      {mood === "thinking" && (
-        <motion.div
-          key="thinking"
-          className="mood-effect thinking-icons"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.8 }}
-          exit={{ opacity: 0 }}
-        >
-          <motion.span
-            className="thinking-brain"
-            animate={{ y: [0, -2, 0] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          >🧠</motion.span>
-          <motion.span
-            className="thinking-cog"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-          >⚙</motion.span>
-        </motion.div>
-      )}
-      {mood === "curious" && (
-        <motion.div
-          key="question"
-          className="mood-effect question"
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: [0, -3, 0] }}
-          exit={{ opacity: 0 }}
-          transition={{ y: { duration: 1.5, repeat: Infinity } }}
-        >
-          ?
-        </motion.div>
-      )}
-      {mood === "confused" && (
-        <motion.div
-          key="confused"
-          className="mood-effect confused-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0.4, 0.8, 0.4], y: [0, -2, 0] }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
-          ???
-        </motion.div>
-      )}
-      {mood === "excited" && (
-        <motion.div
-          key="excited"
-          className="mood-effect excited-icon"
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{ opacity: 1, scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 1, repeat: Infinity }}
-        >
-          !!
-        </motion.div>
-      )}
-      {mood === "listening" && (
-        <motion.div
-          key="listening"
-          className="mood-effect listening-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0.3, 0.8, 0.3] }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-        >
-          )))
-        </motion.div>
-      )}
-      {mood === "sad" && (
-        <motion.div
-          key="sad"
-          className="mood-effect sad-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.6, y: [0, 3, 0] }}
-          exit={{ opacity: 0 }}
-          transition={{ y: { duration: 3, repeat: Infinity } }}
-        >
-          ╥
-        </motion.div>
-      )}
-      {mood === "surprised" && (
-        <motion.div
-          key="surprised"
-          className="mood-effect surprised-icon"
-          initial={{ opacity: 0, scale: 2 }}
-          animate={{ opacity: [0.8, 1, 0.8], scale: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 1.2, repeat: Infinity }}
-        >
-          !
-        </motion.div>
-      )}
-      {mood === "focused" && (
-        <motion.div
-          key="focused"
-          className="mood-effect focused-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.7 }}
-          exit={{ opacity: 0 }}
-        >
-          <motion.div
-            className="loading-dots"
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-          >
-            •••
-          </motion.div>
-        </motion.div>
-      )}
-      {mood === "working" && (
-        <motion.div
-          key="working"
-          className="mood-effect working-icon"
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{ opacity: 0.8, scale: 1, rotate: 360 }}
-          exit={{ opacity: 0, scale: 0.5 }}
-          transition={{ rotate: { duration: 2, repeat: Infinity, ease: "linear" } }}
-        >
-          ⚙
-        </motion.div>
-      )}
-      {mood === "frustrated" && (
-        <motion.div
-          key="frustrated"
-          className="mood-effect frustrated-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0.5, 0.9, 0.5], x: [-1, 1, -1] }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.6, repeat: Infinity }}
-        >
-          #
-        </motion.div>
-      )}
-      {mood === "error" && (
-        <motion.div
-          key="error"
-          className="mood-effect error-icon"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0.6, 1, 0.6] }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.8, repeat: Infinity }}
-        >
-          ?!
-        </motion.div>
-      )}
-      {(mood === "lowBattery" || mood === "criticalBattery") && (
-        <motion.div
-          key="battery"
-          className="mood-effect battery-icon"
-          initial={{ opacity: 0 }}
-          animate={{
-            opacity: mood === "criticalBattery" ? [0.4, 0.9, 0.4] : [0.5, 0.8, 0.5],
-            y: [0, -2, 0],
-          }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: mood === "criticalBattery" ? 1.0 : 2.0, repeat: Infinity }}
-        >
-          <svg width="16" height="10" viewBox="0 0 16 10">
-            <rect x="0" y="0" width="14" height="10" rx="2" fill="none"
-              stroke={mood === "criticalBattery" ? "#a07818" : "#d4a020"} strokeWidth="1.5" />
-            <rect x="14" y="3" width="2" height="4" rx="0.5"
-              fill={mood === "criticalBattery" ? "#a07818" : "#d4a020"} />
-            <rect x="2" y="2.5" width={mood === "criticalBattery" ? 3 : 6} height="5" rx="1"
-              fill={mood === "criticalBattery" ? "#a07818" : "#d4a020"} />
-          </svg>
+          {/* Simple text icons */}
+          {config.text && <span>{config.text}</span>}
+
+          {/* Custom: Zzz */}
+          {mood === "sleepy" && (
+            <>
+              <motion.span animate={{ y: [-5, -20], opacity: [1, 0] }}
+                transition={{ duration: 2, repeat: Infinity }}>z</motion.span>
+              <motion.span animate={{ y: [-5, -25], opacity: [1, 0] }}
+                transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}>z</motion.span>
+              <motion.span animate={{ y: [-5, -30], opacity: [1, 0] }}
+                transition={{ duration: 2, repeat: Infinity, delay: 1 }}>Z</motion.span>
+            </>
+          )}
+
+          {/* Custom: Brain + cog */}
+          {mood === "thinking" && (
+            <>
+              <motion.span className="thinking-brain"
+                animate={{ y: [0, -2, 0] }}
+                transition={{ duration: 2, repeat: Infinity }}>🧠</motion.span>
+              <motion.span className="thinking-cog"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}>⚙</motion.span>
+            </>
+          )}
+
+          {/* Custom: Battery SVG */}
+          {(mood === "lowBattery" || mood === "criticalBattery") && (
+            <svg width="16" height="10" viewBox="0 0 16 10">
+              <rect x="0" y="0" width="14" height="10" rx="2" fill="none"
+                stroke={mood === "criticalBattery" ? "#a07818" : "#d4a020"} strokeWidth="1.5" />
+              <rect x="14" y="3" width="2" height="4" rx="0.5"
+                fill={mood === "criticalBattery" ? "#a07818" : "#d4a020"} />
+              <rect x="2" y="2.5" width={mood === "criticalBattery" ? 3 : 6} height="5" rx="1"
+                fill={mood === "criticalBattery" ? "#a07818" : "#d4a020"} />
+            </svg>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
