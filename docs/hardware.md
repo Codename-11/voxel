@@ -105,13 +105,13 @@ sudo apt update && sudo apt upgrade -y
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-### 3. Remote Browser Mode (before Whisplay arrives)
+### 3. Remote Browser Mode (fallback without Whisplay)
 
-The install script now chooses a UI mode automatically:
-- If Whisplay is detected, it enables local Cog rendering on the Pi
+The install script chooses a UI mode automatically:
+- If Whisplay is detected, it enables local Cog rendering on the Pi's LCD
 - If Whisplay is not detected, it enables a remote web UI on port `8081`
 
-That lets you test the real Pi runtime now:
+This lets you test the Pi runtime headlessly:
 - audio devices and routing on the Pi
 - OpenClaw connectivity
 - menu/settings persistence

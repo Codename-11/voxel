@@ -456,3 +456,19 @@
   top: 20px;
   right: 30px;
 }
+
+/* ── Speaking effects ──────────────────────────────────────── */
+
+/* #4 — Edge glow pulse overlay: subtle brightness during speech */
+.speaking-edge-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  box-shadow:
+    inset 0 0 8px rgba(0, 212, 210, 0.06),
+    0 0 4px rgba(0, 212, 210, 0.15),
+    0 0 10px rgba(0, 212, 210, 0.08);
+  pointer-events: none;
+  z-index: 10;
+}
+

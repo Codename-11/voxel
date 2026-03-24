@@ -10,12 +10,12 @@
   display: flex;
   flex-direction: column;
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 13px;
   color: #9ca3af;
-  width: 380px;
+  width: 420px;
   max-height: 90vh;
-  background: #0d0d14;
-  border: 1px solid #1e1e30;
+  background: #181822;
+  border: 1px solid #2a2a3a;
   border-radius: 10px;
   overflow: hidden;
   flex-shrink: 0;
@@ -28,8 +28,8 @@
   flex-direction: column;
   width: 280px;
   max-height: 85vh;
-  background: #08080c;
-  border: 1px solid #1a1a2a;
+  background: #131318;
+  border: 1px solid #2a2a3a;
   border-radius: 10px;
   overflow: hidden;
   flex-shrink: 0;
@@ -80,13 +80,13 @@
 
 .dev-tab {
   flex: 1;
-  padding: 10px 0;
+  padding: 12px 0;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: #6b7280;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 1.2px;
   cursor: pointer;
@@ -104,8 +104,8 @@
 
 .dev-tab.log-toggle {
   flex: none;
-  padding: 8px 10px;
-  font-size: 9px;
+  padding: 10px 12px;
+  font-size: 10px;
   border-left: 1px solid #1e1e30;
   margin-left: auto;
 }
@@ -122,11 +122,11 @@
 /* ── Tab content ─────────────────────────────────────────── */
 
 .dev-tab-content {
-  padding: 14px 16px;
+  padding: 16px 18px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   flex: 1;
 }
 
@@ -137,11 +137,11 @@
 
 .dev-label {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.2px;
   color: var(--vx-cyan-dim);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 /* ── 2-column row ────────────────────────────────────────── */
@@ -155,14 +155,14 @@
 /* ── Chip buttons ────────────────────────────────────────── */
 
 .dev-chip {
-  padding: 6px 10px;
-  background: #14142a;
-  border: 1px solid #252540;
+  padding: 7px 12px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a42;
   border-radius: 6px;
   color: #8a8aa0;
   cursor: pointer;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   transition: all 0.12s;
   white-space: nowrap;
 }
@@ -179,8 +179,8 @@
 }
 
 .dev-chip.sm {
-  padding: 4px 7px;
-  font-size: 10px;
+  padding: 5px 9px;
+  font-size: 11px;
 }
 
 .dev-chip.wide {
@@ -209,23 +209,23 @@
 .dev-sliders {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
+  gap: 8px;
+  padding: 10px 12px;
   background: rgba(10, 10, 15, 0.4);
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #1a1a2e;
 }
 
 .dev-slider-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .dev-slider-label {
-  font-size: 10px;
+  font-size: 11px;
   color: #6b7280;
-  min-width: 48px;
+  min-width: 52px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -234,7 +234,7 @@
   flex: 1;
   -webkit-appearance: none;
   appearance: none;
-  height: 3px;
+  height: 4px;
   background: #252540;
   border-radius: 2px;
   outline: none;
@@ -243,37 +243,63 @@
 
 .dev-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--vx-cyan);
   cursor: pointer;
-  border: 2px solid #0d0d14;
+  border: 2px solid #181822;
   box-shadow: 0 0 4px rgba(0, 212, 210, 0.3);
 }
 
 .dev-slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--vx-cyan);
   cursor: pointer;
-  border: 2px solid #0d0d14;
+  border: 2px solid #181822;
 }
 
 .dev-slider.inactive::-webkit-slider-thumb { background: #3a3a4a; }
 .dev-slider.inactive::-moz-range-thumb { background: #3a3a4a; }
 
 .dev-slider-val {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--vx-cyan);
-  min-width: 34px;
+  min-width: 38px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .dev-slider-val.warn { color: #d4a020; }
 .dev-slider-val.crit { color: #ff3c3c; }
+.dev-slider-val.mic-live { color: #44cc66; }
+
+/* ── Mic toggle ─────────────────────────────────────────────── */
+
+.dev-mic-btn {
+  margin-left: 6px;
+  font-size: 10px !important;
+  padding: 4px 8px !important;
+  letter-spacing: 0.5px;
+}
+
+.dev-mic-bar {
+  flex: 1;
+  height: 4px;
+  background: #252540;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.dev-mic-bar-fill {
+  height: 100%;
+  background: #44cc66;
+  border-radius: 2px;
+  transition: width 0.06s linear;
+  box-shadow: 0 0 6px rgba(68, 204, 102, 0.4);
+}
 
 /* ── View controls ────────────────────────────────────────── */
 
@@ -292,23 +318,23 @@
 /* ── Keyboard hint ───────────────────────────────────────── */
 
 .dev-hint {
-  font-size: 9px;
+  font-size: 10px;
   color: #4a4a5a;
   line-height: 1.8;
-  padding-top: 4px;
+  padding-top: 6px;
   border-top: 1px solid #1a1a2e;
 }
 
 .dev-hint kbd {
   display: inline-block;
-  padding: 1px 4px;
-  background: #14142a;
-  border: 1px solid #252540;
+  padding: 2px 5px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a42;
   border-radius: 3px;
   font-family: inherit;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--vx-cyan-dim);
-  margin: 0 1px;
+  margin: 0 2px;
 }
 
 /* ── Tuner ────────────────────────────────────────────────── */
@@ -326,7 +352,7 @@
 }
 
 .tuner-label {
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--vx-cyan-dim);
@@ -335,20 +361,20 @@
 .tuner-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .tuner-key {
-  font-size: 9px;
+  font-size: 10px;
   color: #5a5a6a;
-  min-width: 68px;
+  min-width: 72px;
   text-align: right;
 }
 
 .tuner-val {
-  font-size: 9px;
+  font-size: 10px;
   color: #9ca3af;
-  min-width: 32px;
+  min-width: 36px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -372,7 +398,7 @@
   flex: 1;
   min-height: 200px;
   overflow-y: auto;
-  background: #08080c;
+  background: #131318;
   border: 1px solid #1a1a2a;
   border-radius: 6px;
   padding: 8px;

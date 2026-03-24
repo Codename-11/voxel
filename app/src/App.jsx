@@ -6,9 +6,11 @@ import { MenuOverlay } from "./components/menu";
 import { useNotificationToast } from "./components/NotificationToast";
 import TranscriptOverlay from "./components/TranscriptOverlay";
 import ChatPanel from "./components/ChatPanel";
+import SpeakingPill from "./components/SpeakingPill";
 import { MOOD_LIST } from "./expressions";
 import { STYLE_LIST, STYLES, DEFAULT_STYLE } from "./styles";
 import useVoxelSocket from "./hooks/useVoxelSocket";
+import useAudioAmplitude from "./hooks/useAudioAmplitude";
 import "./App.css";
 
 // Agent definitions (from config/default.yaml)
@@ -36,6 +38,7 @@ function App() {
   const { state, wsConnected, send, setMood, setStyle, setAgent, setSetting, sendTextInput } =
     useVoxelSocket();
   const [devMode, setDevMode] = useState(false);
+  const mic = useAudioAmplitude(audioTuning);
 
   // Local overrides for when backend isn't connected (standalone dev)
   const [localMood, setLocalMood] = useState("neutral");
@@ -46,6 +49,19 @@ function App() {
 
   // Dev panel state
   const [amplitude, setAmplitude] = useState(0);
+  const [audioTuning, setAudioTuning] = useState({
+    // useAudioAmplitude (mic processing)
+    smoothing: 0.14,    // per-frame ease toward target
+    decay: 0.988,       // target decay between inputs
+    gamma: 0.7,         // power curve
+    // AudioWaveform (SVG rendering)
+    waveSmoothing: 0.25, // waveform ease speed
+    waveDecay: 0.992,    // waveform target decay
+    waveSpeed: 0.065,    // base phase step (wave scroll speed)
+    waveGain: 0.2,       // how much amplitude affects wave speed
+    minAmp: 0.03,        // wave noise floor
+    maxAmp: 1.3,         // wave ceiling
+  });
   const [localBattery, setLocalBattery] = useState(100);
   const [transitionSpeed, setTransitionSpeed] = useState(1.0);
   const [splitView, setSplitView] = useState(false);
@@ -381,11 +397,14 @@ function App() {
       Object.values(section).some((v) => v !== undefined && v !== null),
   );
 
+  // Mic overrides manual amplitude when active
+  const effectiveAmplitude = mic.isActive ? mic.amplitude : amplitude;
+
   // Common VoxelCube props
   const cubeProps = {
     mood,
-    speaking: speaking || amplitude > 0,
-    amplitude,
+    speaking: speaking || effectiveAmplitude > 0,
+    amplitude: effectiveAmplitude,
     expressionOverride: hasOverride ? expressionOverride : null,
     transitionSpeed,
   };
@@ -410,6 +429,7 @@ function App() {
                     >
                       <VoxelCube {...cubeProps} styleName={s} />
                     </div>
+                    <SpeakingPill speaking={speaking || effectiveAmplitude > 0} amplitude={effectiveAmplitude} tuning={audioTuning} />
                     <StatusBar
                       agentName={agentInfo.name}
                       agentEmoji={agentInfo.emoji}
@@ -472,6 +492,8 @@ function App() {
                 onSetMood={handleSetMood}
               />
 
+              <SpeakingPill speaking={speaking || effectiveAmplitude > 0} amplitude={effectiveAmplitude} tuning={audioTuning} />
+
               <StatusBar
                 agentName={agentInfo.name}
                 agentEmoji={agentInfo.emoji}
@@ -516,6 +538,13 @@ function App() {
           previewScale={previewScale}
           onSetPreviewScale={setPreviewScale}
           onSetExpressionOverride={setExpressionOverride}
+          micActive={mic.isActive}
+          micAmplitude={mic.amplitude}
+          onToggleMic={() => mic.isActive ? mic.stop() : mic.start()}
+          micSensitivity={mic.sensitivity}
+          onSetMicSensitivity={mic.setSensitivity}
+          audioTuning={audioTuning}
+          onSetAudioTuning={setAudioTuning}
         />
       )}
     </div>

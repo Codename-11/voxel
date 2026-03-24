@@ -12,6 +12,7 @@ export default function DevPanel({
   transitionSpeed, splitView, previewScale, wsConnected, expressionOverride, logs,
   onSetMood, onSetStyle, onSetState, onSetAmplitude, onSetBattery,
   onSetAgent, onSetTransitionSpeed, onSetSplitView, onSetPreviewScale, onSetExpressionOverride,
+  micActive, micAmplitude, onToggleMic, micSensitivity, onSetMicSensitivity,
 }) {
   const [activeTab, setActiveTab] = useState("controls");
   const [logOpen, setLogOpen] = useState(false);
@@ -108,8 +109,28 @@ export default function DevPanel({
 
           {/* Sliders: amplitude, battery, speed in compact layout */}
           <div className="dev-sliders">
-            <SliderRow label="Mouth" value={amplitude} min={0} max={1} step={0.01}
-              onChange={onSetAmplitude} fmt={(v) => v.toFixed(2)} />
+            <div className="dev-slider-row">
+              <span className="dev-slider-label">Mouth</span>
+              {micActive ? (
+                <div className="dev-mic-bar">
+                  <div className="dev-mic-bar-fill" style={{ width: `${micAmplitude * 100}%` }} />
+                </div>
+              ) : (
+                <input type="range" className="dev-slider" min={0} max={1} step={0.01}
+                  value={amplitude} onChange={(e) => onSetAmplitude(parseFloat(e.target.value))} />
+              )}
+              <span className={`dev-slider-val ${micActive ? "mic-live" : ""}`}>
+                {micActive ? micAmplitude.toFixed(2) : amplitude.toFixed(2)}
+              </span>
+              <button className={`dev-chip sm dev-mic-btn ${micActive ? "active" : ""}`}
+                onClick={onToggleMic} title={micActive ? "Stop mic" : "Test with mic"}>
+                MIC
+              </button>
+            </div>
+            {micActive && (
+              <SliderRow label="Sens" value={micSensitivity} min={0} max={1} step={0.05}
+                onChange={onSetMicSensitivity} fmt={(v) => `${Math.round(v * 100)}%`} />
+            )}
             <SliderRow label="Battery" value={battery} min={0} max={100} step={1}
               onChange={onSetBattery}
               fmt={(v) => `${v}%`}

@@ -1,0 +1,44 @@
+/* ── Speaking Pill ────────────────────────────────────────── */
+
+.speaking-pill {
+  position: absolute;
+  bottom: 28px; /* 24px status bar + 4px gap */
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 5; /* below status bar (z-index 10) so it slides from behind */
+  pointer-events: none;
+}
+
+.speaking-pill-inner {
+  width: 110px;
+  height: 22px;
+  background: rgba(10, 10, 18, 0.82);
+  border: 1px solid rgba(0, 212, 210, 0.18);
+  border-radius: 12px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 0 12px rgba(0, 212, 210, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Gradient mask — fades waveform at pill edges for clean termination */
+.speaking-pill-fade {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    rgba(10, 10, 18, 0.9) 0%,
+    transparent 18%,
+    transparent 82%,
+    rgba(10, 10, 18, 0.9) 100%
+  );
+  pointer-events: none;
+}

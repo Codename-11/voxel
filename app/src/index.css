@@ -2,10 +2,10 @@
 
 /* Voxel design tokens */
 :root {
-  --vx-bg: #0a0a0f;
-  --vx-body: #1a1a2e;
-  --vx-body-dark: #12121f;
-  --vx-body-light: #2d2d44;
+  --vx-bg: #16161e;
+  --vx-body: #222238;
+  --vx-body-dark: #1a1a28;
+  --vx-body-light: #36364e;
   --vx-cyan: #00d4d2;
   --vx-cyan-bright: #00fff7;
   --vx-cyan-dim: #006460;
