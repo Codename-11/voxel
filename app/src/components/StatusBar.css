@@ -1,0 +1,76 @@
+/* ── Status Bar ──────────────────────────────────────────── */
+
+.statusbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: #14141c;
+  border-top: 1px solid #28283a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #a0a0b4;
+  z-index: 10;
+}
+
+.sb-left {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+.sb-emoji {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.sb-center {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.sb-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sb-battery-pct {
+  font-size: 9px;
+  min-width: 22px;
+  text-align: right;
+}
+
+.battery-svg {
+  display: block;
+}
+
+.sb-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.sb-dot--connected {
+  background: #44cc66;
+  box-shadow: 0 0 4px rgba(68, 204, 102, 0.5);
+}
+
+.sb-dot--disconnected {
+  background: #ff4444;
+  box-shadow: 0 0 4px rgba(255, 68, 68, 0.3);
+}

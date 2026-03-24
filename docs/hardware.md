@@ -102,19 +102,40 @@ sudo reboot
 # Clone Voxel
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
-./scripts/setup.sh
+./scripts/setup.sh    # Installs uv, Node.js, system deps
+
+# Build React app
+npm install
+npm run build         # Produces app/dist/
 
 # Configure
 cp config/default.yaml config/local.yaml
 nano config/local.yaml  # Add gateway URL and token
 
 # Test
-python main.py
+uv run server.py     # Starts WebSocket backend on :8080
+# In another terminal or via WPE/Cog, open app/dist/index.html
 
-# Install as service
+# Install as service (backend + WPE browser)
 sudo cp voxel.service /etc/systemd/system/
 sudo systemctl enable --now voxel
 ```
+
+### WPE/Cog Setup (Planned)
+
+WPE WebKit is the embedded browser that renders the React app fullscreen on the Pi's LCD. Cog is the launcher.
+
+```bash
+# Install WPE/Cog (Raspberry Pi OS Lite)
+sudo apt install cog wpewebkit-1.1
+
+# Launch fullscreen pointing at the built React app
+cog file:///home/pi/voxel/app/dist/index.html
+# Or, if server.py serves static files:
+cog http://localhost:8080
+```
+
+WPE is GPU-accelerated on the Pi, so Framer Motion CSS animations perform well even on the Zero 2W.
 
 ## Enclosure
 

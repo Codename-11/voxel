@@ -1,0 +1,120 @@
+/* ── Agent Select ────────────────────────────────────────── */
+
+.agent-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+}
+
+.agent-header {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--vx-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid rgba(0, 212, 210, 0.15);
+}
+
+.agent-empty {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #666680;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* Grid: 2 columns for 6 agents (3 rows) */
+.agent-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 194px; /* fit within 240x280 minus header/statusbar */
+}
+
+.agent-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(40, 40, 58, 0.6);
+  background: rgba(20, 20, 30, 0.6);
+  cursor: pointer;
+  position: relative;
+  min-height: 40px;
+  transition: background 0.15s;
+}
+
+.agent-card:hover {
+  background: rgba(0, 212, 210, 0.03);
+}
+
+.agent-card--hovered {
+  background: rgba(0, 212, 210, 0.05);
+}
+
+.agent-card--active {
+  background: rgba(0, 212, 210, 0.06);
+}
+
+.agent-emoji {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.agent-info {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-name {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: #c0c0d0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card--hovered .agent-name,
+.agent-card--active .agent-name {
+  color: var(--vx-cyan);
+}
+
+.agent-desc {
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  color: #666680;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.agent-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vx-cyan);
+  box-shadow: 0 0 6px var(--vx-cyan);
+}
+
+.agent-hint {
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  color: #555568;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-top: 2px;
+}

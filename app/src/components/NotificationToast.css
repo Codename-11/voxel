@@ -1,0 +1,29 @@
+/* ── Notification Toast ──────────────────────────────────── */
+
+.toast-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 8px;
+  pointer-events: none;
+  gap: 4px;
+}
+
+.toast {
+  background: rgba(10, 10, 15, 0.92);
+  border: 1px solid var(--vx-cyan-dim);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--vx-cyan);
+  text-align: center;
+  max-width: 220px;
+  line-height: 1.3;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}

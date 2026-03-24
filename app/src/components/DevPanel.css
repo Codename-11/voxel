@@ -1,0 +1,355 @@
+/* ── Dev Panel ────────────────────────────────────────────── */
+
+.dev-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: #9ca3af;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding-right: 4px;
+  min-width: 280px;
+  max-width: 340px;
+}
+
+.dev-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dev-panel::-webkit-scrollbar-thumb {
+  background: #2a2a3a;
+  border-radius: 2px;
+}
+
+.dev-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dev-panel h3 {
+  color: var(--vx-cyan);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: 10px 0 4px;
+  user-select: none;
+}
+
+.dev-panel h3:first-child {
+  margin-top: 0;
+}
+
+.dev-panel h3.collapsible {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.dev-panel h3.collapsible:hover {
+  color: var(--vx-cyan-bright);
+}
+
+/* ── State Flow Buttons ──────────────────────────────────── */
+
+.state-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.state-btn {
+  padding: 5px 8px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a3a;
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.15s;
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+
+.state-btn:hover {
+  border-color: var(--vx-cyan-dim);
+  color: var(--vx-cyan);
+}
+
+.state-btn.active {
+  border-color: var(--vx-cyan);
+  color: var(--vx-cyan-bright);
+  background: rgba(0, 212, 210, 0.08);
+}
+
+/* ── Agent Row ───────────────────────────────────────────── */
+
+.agent-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.agent-btn {
+  font-size: 11px;
+  padding: 5px 6px;
+}
+
+/* ── Sliders ─────────────────────────────────────────────── */
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dev-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #2a2a3a;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.dev-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vx-cyan);
+  cursor: pointer;
+  border: 2px solid var(--vx-bg);
+  box-shadow: 0 0 6px rgba(0, 212, 210, 0.4);
+  transition: transform 0.1s;
+}
+
+.dev-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.dev-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vx-cyan);
+  cursor: pointer;
+  border: 2px solid var(--vx-bg);
+  box-shadow: 0 0 6px rgba(0, 212, 210, 0.4);
+}
+
+.dev-slider.inactive::-webkit-slider-thumb {
+  background: #444;
+}
+
+.dev-slider.inactive::-moz-range-thumb {
+  background: #444;
+}
+
+.slider-value {
+  font-size: 11px;
+  color: var(--vx-cyan);
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-value.warn {
+  color: #d4a020;
+}
+
+.slider-value.crit {
+  color: #ff3c3c;
+}
+
+/* ── Full-width button ───────────────────────────────────── */
+
+.mood-btn.full-width {
+  width: 100%;
+}
+
+.reset-btn {
+  margin-top: 4px;
+  color: #888;
+  border-color: #333;
+}
+
+.reset-btn:hover {
+  color: #ff8844;
+  border-color: #ff8844;
+}
+
+/* ── Expression Tuner ────────────────────────────────────── */
+
+.tuner-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(10, 10, 15, 0.5);
+  border: 1px solid #1e1e30;
+  border-radius: 6px;
+}
+
+.tuner-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tuner-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--vx-cyan-dim);
+  margin-bottom: 2px;
+}
+
+.tuner-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tuner-slider-label {
+  font-size: 10px;
+  color: #6b7280;
+  min-width: 72px;
+  text-align: right;
+}
+
+.tuner-slider {
+  flex: 1;
+  height: 3px;
+}
+
+.tuner-value {
+  font-size: 10px;
+  color: #9ca3af;
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tuner-value.inactive {
+  color: #555;
+}
+
+/* ── Keyboard Shortcuts ──────────────────────────────────── */
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(10, 10, 15, 0.5);
+  border: 1px solid #1e1e30;
+  border-radius: 6px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.shortcut-row kbd {
+  display: inline-block;
+  min-width: 64px;
+  padding: 2px 6px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a3a;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--vx-cyan);
+  text-align: center;
+}
+
+.shortcut-row span {
+  color: #6b7280;
+}
+
+/* ── Log Viewer ──────────────────────────────────────────── */
+
+.log-viewer {
+  height: 120px;
+  overflow-y: auto;
+  background: #08080c;
+  border: 1px solid #1a1a2a;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.log-viewer::-webkit-scrollbar {
+  width: 3px;
+}
+
+.log-viewer::-webkit-scrollbar-thumb {
+  background: #2a2a3a;
+  border-radius: 2px;
+}
+
+.log-viewer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-entry {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.log-time {
+  color: #4a4a5a;
+  flex-shrink: 0;
+}
+
+.log-msg {
+  color: #7a8a7a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Split View ──────────────────────────────────────────── */
+
+.split-view-row {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.split-view-frame {
+  width: 240px;
+  height: 280px;
+  background: var(--vx-bg);
+  border: 2px solid #2a2a3a;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform: scale(0.45);
+  transform-origin: top left;
+}
+
+.split-view-label {
+  color: #6b7280;
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: center;
+  margin-top: -130px;
+  position: relative;
+  z-index: 1;
+}

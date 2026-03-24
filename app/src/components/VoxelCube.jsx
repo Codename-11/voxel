@@ -3,8 +3,37 @@ import { EXPRESSIONS } from "../expressions";
 import { STYLES, DEFAULT_STYLE } from "../styles";
 import "./VoxelCube.css";
 
-export default function VoxelCube({ mood = "neutral", speaking = false, styleName = DEFAULT_STYLE }) {
-  const expr = EXPRESSIONS[mood] || EXPRESSIONS.neutral;
+/**
+ * Deep-merge expression override onto a base expression.
+ * Only override keys that are explicitly set (not undefined/null).
+ */
+function mergeExpression(base, override) {
+  if (!override) return base;
+  const result = { ...base };
+  for (const section of ["eyes", "mouth", "body"]) {
+    if (override[section] && typeof override[section] === "object") {
+      const merged = { ...base[section] };
+      for (const [key, val] of Object.entries(override[section])) {
+        if (val !== undefined && val !== null) {
+          merged[key] = val;
+        }
+      }
+      result[section] = merged;
+    }
+  }
+  return result;
+}
+
+export default function VoxelCube({
+  mood = "neutral",
+  speaking = false,
+  styleName = DEFAULT_STYLE,
+  amplitude = 0,
+  expressionOverride = null,
+  transitionSpeed = 1.0,
+}) {
+  const baseExpr = EXPRESSIONS[mood] || EXPRESSIONS.neutral;
+  const expr = expressionOverride ? mergeExpression(baseExpr, expressionOverride) : baseExpr;
   const style = STYLES[styleName] || STYLES[DEFAULT_STYLE];
 
   return (
@@ -29,20 +58,20 @@ export default function VoxelCube({ mood = "neutral", speaking = false, styleNam
         }}
         transition={{
           y: {
-            duration: 1 / Math.max(expr.body.bounceSpeed, 0.1),
+            duration: (1 / Math.max(expr.body.bounceSpeed, 0.1)) / transitionSpeed,
             repeat: Infinity,
             ease: "easeInOut",
           },
-          rotateZ: { duration: 0.3, ease: "easeOut" },
-          scale: { duration: 0.3, ease: "easeOut" },
+          rotateZ: { duration: 0.3 / transitionSpeed, ease: "easeOut" },
+          scale: { duration: 0.3 / transitionSpeed, ease: "easeOut" },
         }}
       >
         <div className="cube" style={{ transform: `rotateX(-15deg) rotateY(-25deg)` }}>
           {/* Front face */}
           <div className="cube-face front">
             <div className="face-inner">
-              <Eyes expr={expr} mood={mood} style={style} />
-              <Mouth expr={expr} mood={mood} speaking={speaking} style={style} />
+              <Eyes expr={expr} mood={mood} style={style} transitionSpeed={transitionSpeed} />
+              <Mouth expr={expr} mood={mood} speaking={speaking} amplitude={amplitude} style={style} transitionSpeed={transitionSpeed} />
             </div>
             <div className="edge-glow edge-top" />
             <div className="edge-glow edge-bottom" />
@@ -81,7 +110,7 @@ export default function VoxelCube({ mood = "neutral", speaking = false, styleNam
 
 /* ── Eyes ─────────────────────────────────────────────────── */
 
-function Eyes({ expr, mood, style }) {
+function Eyes({ expr, mood, style, transitionSpeed = 1.0 }) {
   const { eyes } = expr;
   const s = style.xEye;
   const colorOverride = expr.eyeColorOverride || null;
@@ -101,13 +130,13 @@ function Eyes({ expr, mood, style }) {
 
   return (
     <div className="eyes-row">
-      <Eye eyes={leftEyes} style={style} colorOverride={colorOverride} />
-      <Eye eyes={rightEyes} style={style} colorOverride={colorOverride} />
+      <Eye eyes={leftEyes} style={style} colorOverride={colorOverride} transitionSpeed={transitionSpeed} />
+      <Eye eyes={rightEyes} style={style} colorOverride={colorOverride} transitionSpeed={transitionSpeed} />
     </div>
   );
 }
 
-function Eye({ eyes, style, colorOverride }) {
+function Eye({ eyes, style, colorOverride, transitionSpeed = 1.0 }) {
   const s = style.eye;
   const fillColor = colorOverride || s.fillColor;
   const glowColor = colorOverride ? `${colorOverride}55` : s.glowColor;
@@ -264,7 +293,7 @@ function XEye({ size = 22, color = "var(--vx-error)", thickness = 3 }) {
 
 /* ── Mouth ────────────────────────────────────────────────── */
 
-function Mouth({ expr, mood, speaking, style }) {
+function Mouth({ expr, mood, speaking, amplitude = 0, style, transitionSpeed = 1.0 }) {
   const { mouth } = expr;
   const s = style.mouth;
 
@@ -272,7 +301,18 @@ function Mouth({ expr, mood, speaking, style }) {
     return <div className="mouth-flat" />;
   }
 
-  const openness = speaking ? 0.5 : mouth.openness;
+  // Amplitude prop overrides speaking boolean for mouth openness.
+  // When amplitude > 0, it drives the mouth directly.
+  // When speaking is true but amplitude is 0, use a default speaking openness.
+  const openness = amplitude > 0
+    ? amplitude
+    : speaking
+      ? 0.5
+      : mouth.openness;
+
+  const isAnimating = speaking || amplitude > 0;
+  const fast = (isAnimating ? 0.08 : 0.3) / transitionSpeed;
+  const slow = 0.3 / transitionSpeed;
 
   // Offset mouth — centered below eyes (modern companion)
   if (s.type === "offset") {
@@ -288,7 +328,7 @@ function Mouth({ expr, mood, speaking, style }) {
             width: w * (0.6 + openness * 0.4),
             height: 14 * openness,
           }}
-          transition={{ duration: speaking ? 0.08 : 0.3 }}
+          transition={{ duration: fast }}
         >
           <div
             className="mouth-offset-open"
@@ -307,7 +347,7 @@ function Mouth({ expr, mood, speaking, style }) {
       <motion.div
         className="mouth-offset"
         animate={{ width: w, height: 14 }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: slow }}
       >
         <svg viewBox="0 0 30 14" className="mouth-svg" overflow="visible">
           <motion.path
@@ -320,7 +360,7 @@ function Mouth({ expr, mood, speaking, style }) {
             strokeWidth={s.strokeWidth}
             strokeLinecap="round"
             fill="none"
-            transition={{ duration: 0.3 }}
+            transition={{ duration: slow }}
           />
         </svg>
       </motion.div>
@@ -338,7 +378,7 @@ function Mouth({ expr, mood, speaking, style }) {
         <motion.div
           className="mouth-teeth"
           animate={{ width: w, height: h }}
-          transition={{ duration: speaking ? 0.08 : 0.3 }}
+          transition={{ duration: fast }}
         >
           {/* Mouth opening */}
           <div className="mouth-teeth-bg" />
@@ -358,7 +398,7 @@ function Mouth({ expr, mood, speaking, style }) {
       <motion.div
         className="mouth-closed"
         animate={{ width: s.baseWidth * mouth.width }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: slow }}
       >
         <svg viewBox="0 0 36 12" className="mouth-svg">
           <motion.path
@@ -371,7 +411,7 @@ function Mouth({ expr, mood, speaking, style }) {
             strokeWidth={s.strokeWidth}
             strokeLinecap="round"
             fill="none"
-            transition={{ duration: 0.3 }}
+            transition={{ duration: slow }}
           />
         </svg>
       </motion.div>
@@ -388,7 +428,7 @@ function Mouth({ expr, mood, speaking, style }) {
           height: 18 * openness,
           borderRadius: "50%",
         }}
-        transition={{ duration: speaking ? 0.08 : 0.3 }}
+        transition={{ duration: fast }}
       />
     );
   }
@@ -400,7 +440,7 @@ function Mouth({ expr, mood, speaking, style }) {
     <motion.div
       className="mouth-closed"
       animate={{ width: s.baseWidth * mouth.width }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: slow }}
     >
       <svg viewBox="0 0 28 12" className="mouth-svg">
         <motion.path
@@ -413,7 +453,7 @@ function Mouth({ expr, mood, speaking, style }) {
           strokeWidth={s.strokeWidth}
           strokeLinecap="round"
           fill="none"
-          transition={{ duration: 0.3 }}
+          transition={{ duration: slow }}
         />
       </svg>
     </motion.div>

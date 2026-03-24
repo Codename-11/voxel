@@ -1,0 +1,52 @@
+/* ── Transcript Overlay ──────────────────────────────────── */
+
+.transcript-overlay {
+  position: absolute;
+  bottom: 26px; /* just above 24px status bar */
+  left: 0;
+  right: 0;
+  background: rgba(10, 10, 15, 0.85);
+  border-top: 1px solid rgba(0, 212, 210, 0.15);
+  padding: 4px 8px;
+  z-index: 8;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.transcript-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.transcript-line:last-child {
+  margin-bottom: 0;
+}
+
+.transcript-label {
+  color: var(--vx-cyan-dim);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  min-width: 18px;
+}
+
+.transcript-text {
+  color: var(--vx-cyan);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-user .transcript-text {
+  color: #a0a0b4;
+}
+
+.transcript-voxel .transcript-text {
+  color: var(--vx-cyan);
+}

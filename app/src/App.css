@@ -38,7 +38,20 @@
   flex-shrink: 0;
 }
 
-/* ── Status bar ──────────────────────────────────────────── */
+/* ── Face layer — sits behind overlays ───────────────────── */
+
+.face-layer {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.face-layer--dimmed {
+  opacity: 0.3;
+  filter: blur(1px);
+}
+
+/* ── Legacy status bar (replaced by StatusBar component) ─── */
 
 .status-bar {
   position: absolute;
@@ -137,4 +150,49 @@
   letter-spacing: 1px;
   text-align: center;
   margin-top: 8px;
+}
+
+/* ── Split view ──────────────────────────────────────────── */
+
+.split-view-row {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.split-view-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.split-view-frame {
+  width: 240px;
+  height: 280px;
+  background: var(--vx-bg);
+  border: 2px solid #2a2a3a;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform: scale(0.45);
+  transform-origin: top left;
+}
+
+.split-view-col {
+  /* Compensate for the scale transform so columns sit side by side */
+  width: calc(240px * 0.45 + 4px);
+  flex-shrink: 0;
+}
+
+.split-view-label {
+  color: #6b7280;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: center;
+  margin-top: calc(-280px * 0.55 + 8px);
+  position: relative;
+  z-index: 1;
 }
