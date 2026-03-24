@@ -5,7 +5,7 @@ import "./DevPanel.css";
 
 const STATES = ["IDLE", "LISTENING", "THINKING", "SPEAKING", "ERROR"];
 const AGENTS = ["Daemon", "Soren", "Ash", "Mira", "Jace", "Pip"];
-const TABS = ["controls", "tuner", "log"];
+const TABS = ["controls", "tuner"];
 
 export default function DevPanel({
   mood, style, stateName, speaking, amplitude, battery, agent,
@@ -14,11 +14,12 @@ export default function DevPanel({
   onSetAgent, onSetTransitionSpeed, onSetSplitView, onSetPreviewScale, onSetExpressionOverride,
 }) {
   const [activeTab, setActiveTab] = useState("controls");
+  const [logOpen, setLogOpen] = useState(false);
   const logEndRef = useRef(null);
 
   useEffect(() => {
-    if (activeTab === "log") logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs, activeTab]);
+    if (logOpen) logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs, logOpen]);
 
   const updateOverride = useCallback(
     (section, key, value) => {
@@ -35,6 +36,7 @@ export default function DevPanel({
   }, [onSetExpressionOverride]);
 
   return (
+    <div className={`dev-panel-wrapper ${logOpen ? "log-open" : ""}`}>
     <div className="dev-panel">
       {/* Tab bar */}
       <div className="dev-tabs">
@@ -44,9 +46,16 @@ export default function DevPanel({
             className={`dev-tab ${activeTab === t ? "active" : ""}`}
             onClick={() => setActiveTab(t)}
           >
-            {t === "controls" ? "Controls" : t === "tuner" ? "Tuner" : "Log"}
+            {t === "controls" ? "Controls" : "Tuner"}
           </button>
         ))}
+        <button
+          className={`dev-tab log-toggle ${logOpen ? "active" : ""}`}
+          onClick={() => setLogOpen(!logOpen)}
+          title="Toggle log sidebar"
+        >
+          Log {logs.length > 0 ? `(${logs.length})` : ""}
+        </button>
         {!wsConnected && <span className="offline-dot" title="No backend" />}
       </div>
 
@@ -159,21 +168,27 @@ export default function DevPanel({
         </div>
       )}
 
-      {/* ── Log tab ─────────────────────────────────────────── */}
-      {activeTab === "log" && (
-        <div className="dev-tab-content">
-          <div className="log-viewer">
-            {logs.length === 0 && <div className="log-empty">No events yet</div>}
-            {logs.map((entry, i) => (
-              <div key={i} className="log-entry">
-                <span className="log-time">{entry.time}</span>
-                <span className="log-msg">{entry.msg}</span>
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
+    </div>
+
+    {/* Log sidebar — expands to the right */}
+    {logOpen && (
+      <div className="dev-log-sidebar">
+        <div className="dev-log-header">
+          <span>Log</span>
+          <button className="dev-log-close" onClick={() => setLogOpen(false)}>×</button>
         </div>
-      )}
+        <div className="log-viewer">
+          {logs.length === 0 && <div className="log-empty">No events yet</div>}
+          {logs.map((entry, i) => (
+            <div key={i} className="log-entry">
+              <span className="log-time">{entry.time}</span>
+              <span className="log-msg">{entry.msg}</span>
+            </div>
+          ))}
+          <div ref={logEndRef} />
+        </div>
+      </div>
+    )}
     </div>
   );
 }

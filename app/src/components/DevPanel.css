@@ -1,4 +1,10 @@
-/* ── Dev Panel ────────────────────────────────────────────── */
+/* ── Dev Panel Wrapper ────────────────────────────────────── */
+
+.dev-panel-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
 
 .dev-panel {
   display: flex;
@@ -12,6 +18,54 @@
   border: 1px solid #1e1e30;
   border-radius: 10px;
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* ── Log Sidebar ─────────────────────────────────────────── */
+
+.dev-log-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  max-height: 85vh;
+  background: #08080c;
+  border: 1px solid #1a1a2a;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.dev-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1a1a2a;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--vx-cyan-dim);
+}
+
+.dev-log-close {
+  background: none;
+  border: none;
+  color: #4a4a5a;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.dev-log-close:hover {
+  color: #9ca3af;
+}
+
+.dev-log-sidebar .log-viewer {
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
 }
 
 /* ── Tab bar ─────────────────────────────────────────────── */
@@ -46,6 +100,14 @@
 .dev-tab.active {
   color: var(--vx-cyan);
   border-bottom-color: var(--vx-cyan);
+}
+
+.dev-tab.log-toggle {
+  flex: none;
+  padding: 8px 10px;
+  font-size: 9px;
+  border-left: 1px solid #1e1e30;
+  margin-left: auto;
 }
 
 .offline-dot {
