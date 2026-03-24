@@ -90,7 +90,7 @@ curl http://localhost:8421/api/battery
    - Username: `pi`
 4. Flash to microSD, insert into Pi, power on
 
-### 2. First Boot & Drivers
+### 2. Install & Setup (one command)
 
 ```bash
 # SSH in
@@ -99,67 +99,59 @@ ssh pi@voxel.local
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install Whisplay HAT drivers (display + audio codec)
-curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
+# Install everything (clones repo, installs deps, builds React app, configures services)
+curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
+```
+
+### 3. Hardware Drivers
+
+```bash
+cd ~/voxel
+
+# Install Whisplay HAT drivers + tune config.txt (gpu_mem, swap, HDMI)
+./scripts/setup.sh hw
 
 # Reboot to load drivers
 sudo reboot
 ```
 
-After reboot, verify drivers are working:
+After reboot, verify:
 
 ```bash
-# Display — should show /dev/fb1 (ST7789 SPI LCD)
-ls /dev/fb*
-
-# Audio — should show WM8960 device
-arecord -l
+ls /dev/fb*    # should show /dev/fb1 (ST7789 SPI LCD)
+arecord -l     # should show WM8960 device
 aplay -l
 ```
 
-### 3. Install Voxel
+### 4. Configure & Start
 
 ```bash
-# Clone the repo
-git clone https://github.com/Codename-11/voxel.git
-cd voxel
+cd ~/voxel
 
-# Run setup (installs Node.js, uv, WPE/Cog, builds React app, configures services)
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-```
-
-The setup script handles everything: system packages, Node.js, uv, Python deps, React build, and systemd service installation.
-
-### 4. Configure
-
-```bash
+# Edit config (gateway URL, API keys)
 nano config/local.yaml
-```
 
-At minimum, set your OpenClaw gateway URL and token. See `config/default.yaml` for all options.
-
-### 5. Test Manually
-
-```bash
-# Terminal 1 — start the backend
-uv run server.py
-
-# Terminal 2 — launch the browser on the LCD
-COG_PLATFORM=drm cog file:///home/pi/voxel/app/dist/index.html
-```
-
-You should see the Voxel face on the LCD. If not, see the display troubleshooting section below.
-
-### 6. Enable Auto-Start
-
-```bash
-sudo systemctl start voxel voxel-ui
+# Start Voxel
+./scripts/setup.sh start
 
 # Watch logs
-journalctl -u voxel -u voxel-ui -f
+./scripts/setup.sh logs
 
-# If everything works, they're already enabled on boot (setup.sh did this)
+# Check status
+./scripts/setup.sh status
+```
+
+### Management Commands
+
+```bash
+./scripts/setup.sh install   # Full first-time setup (default)
+./scripts/setup.sh update    # Pull latest, rebuild, restart services
+./scripts/setup.sh hw        # Whisplay drivers + config.txt tuning
+./scripts/setup.sh start     # Start services
+./scripts/setup.sh stop      # Stop services
+./scripts/setup.sh restart   # Restart services
+./scripts/setup.sh logs      # Tail backend + UI logs
+./scripts/setup.sh status    # Service status, memory, battery, display
 ```
 
 ---
