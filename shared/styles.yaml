@@ -17,8 +17,8 @@ kawaii:
     highlight_color: "rgba(0, 0, 0, 0)"
     fill_color: "#f0f0f0"
     glow_color: "rgba(240, 240, 240, 0.15)"
-    border_radius: 0.40
-    closed_radius: 0.35
+    border_radius: "40%"
+    closed_radius: "35% / 50%"
     iris_color: "#0a0a12"
     iris_size: 0.55
   mouth:
@@ -44,8 +44,8 @@ retro:
     highlight_color: "rgba(255, 255, 255, 0.9)"
     fill_color: "#f0f0f0"
     glow_color: "rgba(255, 255, 255, 0.1)"
-    border_radius: 0.50
-    closed_radius: 0.45
+    border_radius: "50%"
+    closed_radius: "45% / 50%"
     iris_color: "#0a0a12"
     iris_size: 0.55
   mouth:
@@ -71,8 +71,8 @@ minimal:
     highlight_color: "rgba(0, 0, 0, 0)"
     fill_color: "#00d4d2"
     glow_color: "rgba(0, 212, 210, 0.4)"
-    border_radius: 0.50
-    closed_radius: 0.50
+    border_radius: "50%"
+    closed_radius: "50%"
     iris_color: "#0a0a12"
     iris_size: 0.55
   mouth:
