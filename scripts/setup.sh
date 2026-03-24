@@ -68,7 +68,13 @@ fi
 
 info "Installing Python dependencies..."
 sudo apt install -y python3-dev 2>/dev/null || true
-uv sync
+
+# Detect Pi and include extras
+if uname -m | grep -qE '^(aarch64|arm)'; then
+    uv sync --extra pi
+else
+    uv sync
+fi
 
 # ── 5. Global `voxel` command ──────────────────────────────────────────────
 
