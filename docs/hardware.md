@@ -105,13 +105,39 @@ sudo apt update && sudo apt upgrade -y
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-### 3. Hardware Drivers
+### 3. Remote Browser Mode (before Whisplay arrives)
+
+The install script now chooses a UI mode automatically:
+- If Whisplay is detected, it enables local Cog rendering on the Pi
+- If Whisplay is not detected, it enables a remote web UI on port `8081`
+
+That lets you test the real Pi runtime now:
+- audio devices and routing on the Pi
+- OpenClaw connectivity
+- menu/settings persistence
+- systemd startup and reboot behavior
 
 ```bash
-cd ~/voxel
+# Edit config (gateway URL, API keys)
+voxel config                    # show current config
+nano ~/voxel/config/local.yaml  # or edit directly
 
+# Start and check
+voxel start
+voxel status
+```
+
+Open from your laptop or phone:
+
+```text
+http://<pi-ip>:8081
+```
+
+### 4. Whisplay Hardware Drivers
+
+```bash
 # Install Whisplay HAT drivers + tune config.txt (gpu_mem, swap, HDMI)
-./scripts/setup.sh hw
+voxel hw
 
 # Reboot to load drivers
 sudo reboot
@@ -125,38 +151,68 @@ arecord -l     # should show WM8960 device
 aplay -l
 ```
 
-### 4. Configure & Start
+### 5. Configure & Start
 
 ```bash
-cd ~/voxel
-
 # Edit config (gateway URL, API keys)
-nano config/local.yaml
+nano ~/voxel/config/local.yaml
+
+# Check system health
+voxel doctor
 
 # Start Voxel
-./scripts/setup.sh start
+voxel start
 
 # Watch logs
-./scripts/setup.sh logs
+voxel logs
 
 # Check status
-./scripts/setup.sh status
+voxel status
 ```
 
-### Management Commands
+### Voxel CLI Commands
 
 ```bash
-./scripts/setup.sh install   # Full first-time setup (default)
-./scripts/setup.sh update    # Pull latest, rebuild, restart services
-./scripts/setup.sh hw        # Whisplay drivers + config.txt tuning
-./scripts/setup.sh start     # Start services
-./scripts/setup.sh stop      # Stop services
-./scripts/setup.sh restart   # Restart services
-./scripts/setup.sh logs      # Tail backend + UI logs
-./scripts/setup.sh status    # Service status, memory, battery, display
+voxel setup       # Full first-time setup (deps, build, services)
+voxel doctor      # Diagnose system health (tools, config, gateway, hardware)
+voxel update      # Pull latest, rebuild, restart services
+voxel build       # Just rebuild (Python deps + React app)
+voxel hw          # Whisplay drivers + config.txt tuning
+voxel start       # Start services
+voxel stop        # Stop services
+voxel restart     # Restart services
+voxel logs        # Tail service logs
+voxel status      # Service/system/hardware status
+voxel config      # Show config
+voxel config set gateway.token <value>  # Set a config value
+voxel config get gateway.url            # Get a config value
+voxel uninstall   # Remove services + caches
+voxel version     # Show version
 ```
 
 ---
+
+## UI Modes on the Pi
+
+### Remote browser mode
+
+When Whisplay is not attached, the Pi serves the built React app over HTTP:
+
+| Service | Unit File | What it runs |
+|---------|-----------|-------------|
+| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
+| Remote UI | `voxel-web.service` | `python3 -m http.server 8081 -d /home/pi/voxel/app/dist` — open from another device at `http://<pi-ip>:8081` |
+
+The remote browser connects back to `ws://<pi-ip>:8080` automatically because the app derives the WebSocket host from the page URL.
+
+### Whisplay local mode
+
+When Whisplay is attached, the setup script enables local Cog rendering:
+
+| Service | Unit File | What it runs |
+|---------|-----------|-------------|
+| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
+| Local UI | `voxel-ui.service` | `cog file:///home/pi/voxel/app/dist/index.html` — WPE browser rendering the React app fullscreen |
 
 ## WPE/Cog — How It Works
 
@@ -184,14 +240,7 @@ WPE WebKit is an embedded browser engine built for devices like the Pi. Cog is i
 └─────────────────────────────────────┘
 ```
 
-### Two systemd services
-
-| Service | Unit File | What it runs |
-|---------|-----------|-------------|
-| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
-| UI | `voxel-ui.service` | `cog file:///home/pi/voxel/app/dist/index.html` — WPE browser rendering the React app fullscreen |
-
-The UI service waits for the backend to start (`After=voxel.service`), then opens Cog loading the pre-built React app from disk. The app connects to `ws://localhost:8080` for backend state.
+The local UI service waits for the backend to start (`After=voxel.service`), then opens Cog loading the pre-built React app from disk. The app connects to `ws://localhost:8080` for backend state.
 
 ### Display Routing
 

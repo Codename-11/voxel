@@ -30,6 +30,11 @@ _is_recording = False
 _amplitude: float = 0.0
 _amp_lock = threading.Lock()
 
+# Playback control
+_playback_done = threading.Event()
+_stop_playback = threading.Event()
+_playback_done.set()  # Not playing initially
+
 _sounddevice_available = False
 _pyaudio_available = False
 
@@ -136,9 +141,12 @@ def stop_recording() -> bytes:
 
 
 def play_audio(data: bytes) -> None:
-    """Play WAV audio bytes through speaker."""
+    """Play WAV audio bytes through speaker. Non-blocking (runs in a thread)."""
     if not data:
         return
+
+    _playback_done.clear()
+    _stop_playback.clear()
 
     def _play():
         global _amplitude
@@ -161,7 +169,7 @@ def play_audio(data: bytes) -> None:
                     stream = _pa.open(**kwargs)
                     chunk = CHUNK
                     frame = wf.readframes(chunk)
-                    while frame:
+                    while frame and not _stop_playback.is_set():
                         _update_amplitude(frame)
                         stream.write(frame)
                         frame = wf.readframes(chunk)
@@ -176,16 +184,31 @@ def play_audio(data: bytes) -> None:
                     _update_amplitude(frames)
                     device = _PI_DEVICE if IS_PI else None
                     sd.play(arr, samplerate=rate, device=device)
-                    sd.wait()
+                    # Poll for completion with stop check
+                    while sd.get_stream().active and not _stop_playback.is_set():
+                        threading.Event().wait(0.05)
+                    if _stop_playback.is_set():
+                        sd.stop()
 
         except Exception as e:
             log.error(f"Audio playback error: {e}")
         finally:
             with _amp_lock:
                 _amplitude = 0.0
+            _playback_done.set()
 
     t = threading.Thread(target=_play, daemon=True)
     t.start()
+
+
+def is_playing() -> bool:
+    """Return True if audio is currently being played back."""
+    return not _playback_done.is_set()
+
+
+def stop_playback() -> None:
+    """Signal the playback thread to stop. Non-blocking."""
+    _stop_playback.set()
 
 
 def get_amplitude() -> float:

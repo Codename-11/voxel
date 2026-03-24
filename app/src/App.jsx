@@ -5,6 +5,7 @@ import DevPanel from "./components/DevPanel";
 import { MenuOverlay } from "./components/menu";
 import { useNotificationToast } from "./components/NotificationToast";
 import TranscriptOverlay from "./components/TranscriptOverlay";
+import ChatPanel from "./components/ChatPanel";
 import { MOOD_LIST } from "./expressions";
 import { STYLE_LIST, STYLES, DEFAULT_STYLE } from "./styles";
 import useVoxelSocket from "./hooks/useVoxelSocket";
@@ -32,7 +33,7 @@ function timestamp() {
 }
 
 function App() {
-  const { state, wsConnected, send, setMood, setStyle, cycleState, pressButton } =
+  const { state, wsConnected, send, setMood, setStyle, setAgent, setSetting, sendTextInput } =
     useVoxelSocket();
   const [devMode, setDevMode] = useState(false);
 
@@ -56,17 +57,19 @@ function App() {
   });
   const [logs, setLogs] = useState([]);
 
-  // Menu state (UI-only, not sent to backend)
+  // Menu and chat state (UI-only, not sent to backend)
   const [menuOpen, setMenuOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [brightness, setBrightness] = useState(80);
   const [volume, setVolume] = useState(80);
 
-  // Transcript state
+  // Transcript state — driven by backend when connected
   const [transcript, setTranscript] = useState({
     user: "",
     voxel: "",
     visible: false,
   });
+  const transcriptTimerRef = useRef(null);
 
   // Notification toast
   const { notify, toastElement } = useNotificationToast();
@@ -76,6 +79,9 @@ function App() {
   const style = wsConnected ? state.style : localStyle;
   const speaking = wsConnected ? state.speaking : localSpeaking;
   const battery = wsConnected ? state.battery : localBattery;
+  const agents = wsConnected && state.agents?.length ? state.agents : AGENTS;
+  const effectiveBrightness = wsConnected ? state.brightness ?? brightness : brightness;
+  const effectiveVolume = wsConnected ? state.volume ?? volume : volume;
   const stateName = menuOpen
     ? "MENU"
     : wsConnected
@@ -87,7 +93,8 @@ function App() {
 
   // Get agent info -- match by id or name
   const agentInfo =
-    AGENTS.find((a) => a.id === currentAgent || a.name === currentAgent) ||
+    agents.find((a) => a.id === currentAgent || a.name === currentAgent) ||
+    agents[0] ||
     AGENTS[0];
 
   // ── Logging utility ──────────────────────────────────────
@@ -162,27 +169,49 @@ function App() {
   }, []);
 
   const handleSetAgent = useCallback(
-    (name) => {
-      const agent = AGENTS.find((a) => a.name === name);
+    (agentIdOrName) => {
+      const agent = agents.find(
+        (a) => a.id === agentIdOrName || a.name === agentIdOrName,
+      );
       if (!agent) return;
       if (wsConnected) {
-        pressButton?.("agent:" + agent.id);
+        setAgent?.(agent.id);
       } else {
-        setLocalAgent(name);
+        setLocalAgent(agent.name);
       }
-      addLog(`Agent: ${name}`);
-      notify(`Connected to ${name}`);
+      addLog(`Agent: ${agent.name}`);
+      notify(`Connected to ${agent.name}`);
     },
-    [wsConnected, pressButton, addLog, notify],
+    [agents, wsConnected, setAgent, addLog, notify],
   );
 
   const handleSelectAgent = useCallback(
     (agentId) => {
-      const agent = AGENTS.find((a) => a.id === agentId);
+      const agent = agents.find((a) => a.id === agentId);
       if (!agent) return;
-      handleSetAgent(agent.name);
+      handleSetAgent(agent.id);
     },
-    [handleSetAgent],
+    [agents, handleSetAgent],
+  );
+
+  const handleSetBrightness = useCallback(
+    (value) => {
+      setBrightness(value);
+      if (wsConnected) {
+        setSetting("display", "brightness", value);
+      }
+    },
+    [wsConnected, setSetting],
+  );
+
+  const handleSetVolume = useCallback(
+    (value) => {
+      setVolume(value);
+      if (wsConnected) {
+        setSetting("audio", "volume", value);
+      }
+    },
+    [wsConnected, setSetting],
   );
 
   const handleMenuClose = useCallback(() => {
@@ -207,6 +236,13 @@ function App() {
       if (e.key === "m" || e.key === "M") {
         e.preventDefault();
         setMenuOpen((prev) => !prev);
+        return;
+      }
+
+      // C: toggle chat panel
+      if (e.key === "c" || e.key === "C") {
+        e.preventDefault();
+        setChatOpen((prev) => !prev);
         return;
       }
 
@@ -294,8 +330,8 @@ function App() {
 
   // Handle WebSocket button events for menu
   useEffect(() => {
-    if (wsConnected && state.buttonEvent) {
-      const btn = state.buttonEvent;
+    if (wsConnected && state.buttonEvent?.button) {
+      const btn = state.buttonEvent.button;
       addLog(`WS button: ${btn}`);
       if (btn === "menu") {
         setMenuOpen((prev) => !prev);
@@ -311,6 +347,32 @@ function App() {
   useEffect(() => {
     if (!wsConnected) setDevMode(true);
   }, [wsConnected]);
+
+  // Wire backend transcript to overlay
+  useEffect(() => {
+    if (!wsConnected || !state.transcript) return;
+    const t = state.transcript;
+    if (t.status === "error") return; // errors don't go in transcript overlay
+
+    setTranscript((prev) => ({
+      user: t.role === "user" ? t.text : prev.user,
+      voxel: t.role === "assistant" ? t.text : prev.voxel,
+      visible: true,
+    }));
+
+    // Clear auto-hide timer and set a new one
+    clearTimeout(transcriptTimerRef.current);
+  }, [wsConnected, state.transcript]);
+
+  // Auto-hide transcript after returning to IDLE
+  useEffect(() => {
+    if (stateName === "IDLE" && transcript.visible) {
+      transcriptTimerRef.current = setTimeout(() => {
+        setTranscript((prev) => ({ ...prev, visible: false }));
+      }, 5000);
+    }
+    return () => clearTimeout(transcriptTimerRef.current);
+  }, [stateName, transcript.visible]);
 
   // Check if expression override has any non-empty values
   const hasOverride = Object.values(expressionOverride).some(
@@ -384,20 +446,29 @@ function App() {
               <TranscriptOverlay
                 userText={transcript.user}
                 voxelText={transcript.voxel}
-                visible={transcript.visible && !menuOpen}
+                visible={transcript.visible && !menuOpen && !chatOpen}
+              />
+
+              <ChatPanel
+                messages={state.chatHistory || []}
+                visible={chatOpen && !menuOpen}
+                onSendText={sendTextInput}
+                onClose={() => setChatOpen(false)}
+                currentAgent={agentInfo?.name || "vxl"}
+                stateName={stateName}
               />
 
               <MenuOverlay
                 open={menuOpen}
                 onClose={handleMenuClose}
-                agents={AGENTS}
+                agents={agents}
                 currentAgent={currentAgent}
                 onSelectAgent={handleSelectAgent}
                 battery={battery}
-                brightness={brightness}
-                volume={volume}
-                onSetBrightness={setBrightness}
-                onSetVolume={setVolume}
+                brightness={effectiveBrightness}
+                volume={effectiveVolume}
+                onSetBrightness={handleSetBrightness}
+                onSetVolume={handleSetVolume}
                 onSetMood={handleSetMood}
               />
 

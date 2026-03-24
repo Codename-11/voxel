@@ -4,7 +4,11 @@
 
 Voxel uses a **React + WebSocket + Python** architecture. The React app (`app/`) renders the animated companion face. The Python backend (`server.py`) manages state, hardware, and AI pipelines. They communicate over WebSocket.
 
-On the Pi, WPE/Cog (embedded WebKit) renders the React app fullscreen on the LCD. On desktop, Vite's dev server runs in a browser window.
+On the Pi, the same React build can run in two deployment modes:
+- `remote` mode: Pi serves `app/dist` over HTTP and a remote browser is the screen
+- `cog` mode: WPE/Cog renders the app fullscreen on the Whisplay LCD
+
+On desktop, Vite's dev server runs in a browser window.
 
 ```
   React UI (app/)              Python Backend (server.py)
@@ -43,6 +47,7 @@ Manages application state and bridges hardware/AI to the frontend.
 | WebSocket server | `websockets` library, port 8080 |
 | State machine | `states/machine.py` (7 states) |
 | State broadcasting | Push full UI state to all connected clients on change |
+| Runtime settings | `config/settings.py` loads `default.yaml` + `local.yaml`, persists mutable user settings |
 | Hardware polling | 20Hz loop — buttons, battery, LED (on Pi only) |
 | Mood mapping | `shared/moods.yaml` defines state-to-mood map |
 
@@ -125,18 +130,32 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 
 ## WebSocket Protocol
 
-**Server → Client:**
+**Server → Client (state pushes):**
 ```json
 { "type": "state", "mood": "thinking", "style": "kawaii", "speaking": false,
-  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon", "connected": false }
+  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon",
+  "brightness": 80, "volume": 80, "displayMode": "auto", "inputMode": "auto",
+  "agents": [...], "connected": false }
+```
+
+**Server → Client (conversation):**
+```json
+{ "type": "transcript", "role": "user|assistant", "text": "...", "status": "transcribing|thinking|done|error", "timestamp": 1234 }
+{ "type": "chat_history", "messages": [...] }
+{ "type": "button", "button": "left|right|press|release|menu" }
 ```
 
 **Client → Server:**
 ```json
 { "type": "set_mood", "mood": "happy" }
 { "type": "set_style", "style": "retro" }
+{ "type": "set_state", "state": "THINKING" }
+{ "type": "set_agent", "agent": "soren" }
+{ "type": "set_setting", "section": "display", "key": "brightness", "value": 70 }
+{ "type": "text_input", "text": "hello voxel" }
+{ "type": "get_chat_history" }
 { "type": "cycle_state" }
-{ "type": "button", "button": "press|release|menu" }
+{ "type": "button", "button": "left|right|press|release|menu" }
 { "type": "ping" }
 ```
 
@@ -179,9 +198,11 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 
 On the Raspberry Pi, the stack is:
 
-1. **WPE/Cog** — lightweight embedded WebKit browser, renders `app/dist/` fullscreen on the LCD
-2. **server.py** — Python WebSocket backend as a systemd service
-3. **Hardware drivers** — Whisplay HAT (display, audio, buttons, LED), PiSugar (battery)
+1. **server.py** — Python WebSocket backend as a systemd service
+2. One UI transport:
+   `voxel-web.service` for remote-browser testing before hardware arrives
+   `voxel-ui.service` for local Whisplay/Cog rendering
+3. **Hardware drivers** — Whisplay HAT (display, audio, buttons, LED), PiSugar (battery) when attached
 
 WPE is GPU-accelerated on the Pi, so CSS/Framer Motion animations perform well even on the Zero 2W.
 

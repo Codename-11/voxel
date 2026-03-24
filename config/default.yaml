@@ -41,11 +41,17 @@ agents:
 
 # Display
 display:
+  mode: auto        # auto, remote, or cog
   width: 240
   height: 280
   fps: 30
   brightness: 80  # 0-100
   orientation: 0   # 0, 90, 180, 270
+  remote_port: 8081
+
+# Input
+input:
+  mode: auto        # auto, gpio, keyboard, or web
 
 # Audio
 audio:
@@ -53,12 +59,14 @@ audio:
   tts_provider: edge     # elevenlabs, edge (free), or local
   wake_word: null        # null = push-to-talk only
   volume: 80             # 0-100
+  device: default        # default, wm8960, usb, or ALSA device string
 
 # Speech-to-Text
 stt:
   whisper:
     model: whisper-1
     language: en
+    api_key: ""  # Set in local.yaml or env OPENAI_API_KEY
 
 # Text-to-Speech
 tts:
@@ -74,6 +82,13 @@ character:
   gaze_drift_speed: 0.5     # how fast eyes wander on idle
   mouth_sensitivity: 0.6    # audio amplitude → mouth mapping
   breathing_speed: 0.3      # idle bounce speed
+
+# Conversation pipeline
+pipeline:
+  error_display_seconds: 3     # How long ERROR state shows before returning to IDLE
+  max_recording_seconds: 30    # Safety cap on recording duration
+  min_recording_bytes: 1000    # Minimum WAV size to attempt STT
+  chat_history_limit: 50       # Max messages kept in memory
 
 # Power management
 power:

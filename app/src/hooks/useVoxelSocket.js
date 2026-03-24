@@ -17,7 +17,12 @@ export default function useVoxelSocket() {
     battery: 100,
     state: "IDLE",
     agent: "daemon",
+    brightness: 80,
+    volume: 80,
+    agents: [],
     connected: false,
+    transcript: null,
+    chatHistory: [],
   });
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef(null);
@@ -39,6 +44,26 @@ export default function useVoxelSocket() {
           const data = JSON.parse(event.data);
           if (data.type === "state") {
             setState((prev) => ({ ...prev, ...data }));
+          } else if (data.type === "button") {
+            setState((prev) => ({
+              ...prev,
+              buttonEvent: { id: Date.now(), button: data.button },
+            }));
+          } else if (data.type === "transcript") {
+            setState((prev) => ({
+              ...prev,
+              transcript: data,
+              // Append to local chat history for immediate display
+              chatHistory: [
+                ...prev.chatHistory,
+                { role: data.role, text: data.text, timestamp: data.timestamp },
+              ].slice(-50),
+            }));
+          } else if (data.type === "chat_history") {
+            setState((prev) => ({
+              ...prev,
+              chatHistory: data.messages || [],
+            }));
           }
         } catch (e) {
           console.warn("[voxel] Invalid message:", event.data);
@@ -81,6 +106,22 @@ export default function useVoxelSocket() {
   const setStyle = useCallback((style) => send({ type: "set_style", style }), [send]);
   const cycleState = useCallback(() => send({ type: "cycle_state" }), [send]);
   const pressButton = useCallback((button) => send({ type: "button", button }), [send]);
+  const setAgent = useCallback((agent) => send({ type: "set_agent", agent }), [send]);
+  const setSetting = useCallback((section, key, value) => (
+    send({ type: "set_setting", section, key, value })
+  ), [send]);
+  const sendTextInput = useCallback((text) => send({ type: "text_input", text }), [send]);
 
-  return { state, wsConnected, send, setMood, setStyle, cycleState, pressButton };
+  return {
+    state,
+    wsConnected,
+    send,
+    setMood,
+    setStyle,
+    cycleState,
+    pressButton,
+    setAgent,
+    setSetting,
+    sendTextInput,
+  };
 }

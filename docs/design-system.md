@@ -31,6 +31,8 @@ Tech stack: React 19, Framer Motion 12, Tailwind CSS 4, Vite 8.
 
 Defined in `shared/expressions.yaml`. Each mood is an object with three required config blocks.
 
+> **Note:** YAML source uses `snake_case` keys (`pupil_size`, `bounce_speed`). The JS YAML loader auto-converts to `camelCase` for React. Properties below are shown in camelCase (as used in components).
+
 ### EyeConfig (`eyes`)
 
 | Property    | Range         | Description                    |

@@ -51,14 +51,17 @@ Total hardware cost: ~$50-60
 | Platform abstraction (desktop/Pi) | Done |
 | OpenClaw gateway client | Done |
 | Dev workflow (backend + frontend HMR) | Done |
-| Voice pipeline (STT + TTS wired to WebSocket) | Planned |
-| WPE/Cog deployment on Pi | Planned |
-| Settings/menu UI | Planned |
+| Voice pipeline (STT → OpenClaw → TTS → mouth sync) | Done |
+| Conversation chat panel + text input fallback | Done |
+| Settings/menu UI + persisted runtime settings | Done |
+| Voxel CLI (`voxel doctor`, `voxel setup`, etc.) | Done |
+| Pi remote-appliance mode (UI on :8081) | Done |
+| WPE/Cog deployment on Pi | Ready (untested with Whisplay) |
 | Wake word detection | Planned |
 
 ## Architecture
 
-React frontend + Python WebSocket backend. The React app IS the production UI — it runs on the Pi via WPE/Cog (embedded WebKit), not just as a design tool.
+React frontend + Python WebSocket backend. The React app IS the production UI. On the assembled Relay it runs on the Pi via WPE/Cog (embedded WebKit); before the Whisplay HAT is attached, the same built UI can be served from the Pi and opened in a remote browser.
 
 ```
   React UI (app/)              Python Backend (server.py)
@@ -89,11 +92,14 @@ voxel/
 │   ├── expressions.yaml   # 16 mood definitions
 │   ├── styles.yaml        # 3 face styles
 │   └── moods.yaml         # Icons, state map, LED behavior
+├── cli/                   # Voxel CLI (voxel setup, doctor, etc.)
+│   ├── app.py             # Command routing
+│   └── doctor.py          # System health diagnostics
 ├── core/                  # AI integration (Python)
 │   ├── gateway.py         # OpenClaw API client
-│   ├── stt.py             # Speech-to-text (Whisper)
-│   ├── tts.py             # Text-to-speech
-│   └── audio.py           # Audio capture/playback
+│   ├── stt.py             # Speech-to-text (Whisper API)
+│   ├── tts.py             # Text-to-speech (edge-tts + ElevenLabs)
+│   └── audio.py           # Audio capture/playback + amplitude
 ├── face/                  # Renderer abstraction + pygame fallback
 │   ├── base.py            # Abstract renderer interface
 │   └── renderer.py        # Pygame implementation (fallback)
@@ -195,28 +201,44 @@ The browser shows a 240x280 pixel device frame — exact match of the Relay's LC
 
 ## Pi Setup
 
+One command installs everything (clones repo, installs uv + Node.js, builds, configures services):
+
 ```bash
-# On the Raspberry Pi Zero 2W:
-git clone https://github.com/Codename-11/voxel.git
-cd voxel
-
-# Install dependencies
-./scripts/setup.sh   # System deps, uv, Node.js
-npm install           # React app deps
-npm run build         # Build React app to app/dist/
-
-# Configure
-cp config/default.yaml config/local.yaml
-# Edit config/local.yaml with your OpenClaw gateway URL and API keys
-
-# Test
-uv run server.py     # Backend — serves WebSocket on :8080
-# Open app/dist/index.html in WPE/Cog to verify face renders
-
-# Auto-start on boot
-sudo cp voxel.service /etc/systemd/system/
-sudo systemctl enable --now voxel
+curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
+
+After bootstrap, the `voxel` command is available globally:
+
+```bash
+voxel doctor      # Check system health
+voxel config set gateway.token <your-token>
+voxel start       # Start services
+voxel logs        # Watch logs
+voxel status      # Check everything
+voxel update      # Pull latest + rebuild + restart
+```
+
+### Remote Browser Mode
+
+Before the Whisplay HAT arrives, the Pi serves the UI over HTTP:
+
+```bash
+voxel start
+voxel status      # Shows the remote UI URL
+```
+
+Open `http://<pi-ip>:8081` from your laptop or phone. The Pi runs the backend (state machine, AI, hardware), the browser is just the display.
+
+### Whisplay Mode
+
+When the PiSugar Whisplay HAT is attached:
+
+```bash
+voxel hw          # Install drivers + tune config.txt
+sudo reboot
+```
+
+After reboot, the setup auto-detects Whisplay and switches from remote UI to local Cog rendering on the LCD.
 
 ## OpenClaw Integration
 

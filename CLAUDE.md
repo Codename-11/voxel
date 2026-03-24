@@ -52,11 +52,15 @@ voxel/
 │   ├── styles.yaml              # 3 face styles (kawaii, retro, minimal)
 │   ├── moods.yaml               # Mood icons, state-to-mood map, LED behavior
 │   └── __init__.py              # Python loader for shared YAML
+├── cli/                         # Voxel CLI (`uv run voxel <command>`)
+│   ├── app.py                   # Argument parsing, all commands
+│   ├── doctor.py                # System health diagnostics
+│   └── display.py               # Terminal colors, tables, status icons
 ├── core/                        # AI integration
 │   ├── gateway.py               # OpenClaw API client (chat completions)
 │   ├── stt.py                   # Speech-to-text (Whisper API)
-│   ├── tts.py                   # Text-to-speech (ElevenLabs/edge-tts)
-│   └── audio.py                 # Audio capture/playback
+│   ├── tts.py                   # Text-to-speech (edge-tts + ElevenLabs)
+│   └── audio.py                 # Audio capture/playback + amplitude
 ├── face/                        # Renderer abstraction + pygame fallback
 │   ├── base.py                  # Abstract renderer interface (BaseRenderer)
 │   ├── renderer.py              # Pygame implementation of BaseRenderer
@@ -74,11 +78,14 @@ voxel/
 │   └── machine.py               # IDLE → LISTENING → THINKING → SPEAKING
 ├── config/
 │   └── default.yaml             # Settings (agents, audio, power management)
+├── scripts/
+│   └── setup.sh                 # Bootstrap script (curl-able, installs uv + CLI)
 ├── run_dev_windows.bat          # Windows: starts backend + frontend
 ├── run.sh                       # macOS/Linux: starts backend + frontend
 ├── assets/                      # Concept art, fonts, icons
 ├── voxel.service                # Systemd: Python backend (server.py)
-└── voxel-ui.service             # Systemd: WPE/Cog browser (React UI on LCD)
+├── voxel-ui.service             # Systemd: WPE/Cog browser (React UI on LCD)
+└── voxel-web.service            # Systemd: HTTP server for remote browser UI
 ```
 
 ## Hardware Constraints
@@ -149,15 +156,30 @@ Button press → record from dual mics (WAV)
 **Server → Client (state pushes):**
 ```json
 { "type": "state", "mood": "thinking", "style": "kawaii", "speaking": false,
-  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon" }
+  "amplitude": 0.0, "battery": 100, "state": "THINKING", "agent": "daemon",
+  "brightness": 80, "volume": 80, "displayMode": "auto", "inputMode": "auto",
+  "agents": [...], "connected": false }
+```
+
+**Server → Client (conversation):**
+```json
+{ "type": "transcript", "role": "user", "text": "hello", "status": "done", "timestamp": 1234 }
+{ "type": "transcript", "role": "assistant", "text": "hi!", "status": "done", "timestamp": 1234 }
+{ "type": "chat_history", "messages": [...] }
+{ "type": "button", "button": "left" }
 ```
 
 **Client → Server (commands):**
 ```json
 { "type": "set_mood", "mood": "happy" }
 { "type": "set_style", "style": "retro" }
+{ "type": "set_state", "state": "IDLE" }
+{ "type": "set_agent", "agent": "soren" }
+{ "type": "set_setting", "section": "audio", "key": "volume", "value": 80 }
+{ "type": "button", "button": "press|release|menu|left|right" }
+{ "type": "text_input", "text": "hello voxel" }
+{ "type": "get_chat_history" }
 { "type": "cycle_state" }
-{ "type": "button", "button": "press" }
 ```
 
 ## Key Libraries
@@ -182,9 +204,28 @@ Button press → record from dual mics (WAV)
 
 ## Configuration
 
-`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio, power management.
+`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio, stt (Whisper), tts (edge-tts/ElevenLabs), pipeline (recording/chat limits), display, power management.
 
 Shared expression/style/mood data lives in `shared/*.yaml` — read by both Python and React.
+
+## Voxel CLI
+
+After bootstrap, all Pi management goes through the `voxel` command:
+
+```bash
+voxel setup       # First-time install (apt deps, Node, build, services)
+voxel doctor      # Full system health diagnostics
+voxel update      # Pull latest, rebuild, restart services
+voxel build       # Just rebuild (Python deps + React app)
+voxel hw          # Whisplay HAT drivers + config.txt tuning
+voxel start       # Start services
+voxel stop        # Stop services
+voxel restart     # Restart services
+voxel logs        # Tail service logs
+voxel status      # Service/system/hardware status
+voxel config      # Show config (also: config get/set)
+voxel uninstall   # Remove services + caches
+```
 
 ## Development Workflow
 
@@ -229,11 +270,11 @@ Changes to `shared/*.yaml` trigger HMR in the React app (Vite watches the direct
 ### Deploy to Pi:
 
 ```bash
-git pull origin main
-uv sync
-npm run build    # Produces app/dist/
-# WPE/Cog serves app/dist/ fullscreen
-sudo systemctl restart voxel
+# First-time (curl bootstrap):
+curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
+
+# After that, update with:
+voxel update    # git pull + rebuild + restart services
 ```
 
 ## Conventions
