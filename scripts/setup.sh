@@ -3,23 +3,14 @@
 # ║  Voxel Relay — Pi Zero 2W setup & management               ║
 # ║                                                              ║
 # ║  First-time install (curl):                                  ║
-# ║    curl -sSL https://voxel.sh/setup | bash                  ║
-# ║    — or —                                                    ║
 # ║    curl -sSL https://raw.githubusercontent.com/              ║
 # ║      Codename-11/voxel/main/scripts/setup.sh | bash         ║
 # ║                                                              ║
-# ║  From repo:                                                  ║
-# ║    ./scripts/setup.sh [command]                              ║
+# ║  Interactive mode:                                           ║
+# ║    ./scripts/setup.sh                                        ║
 # ║                                                              ║
-# ║  Commands:                                                   ║
-# ║    install   Full first-time setup (default)                 ║
-# ║    update    Pull latest, rebuild, restart services          ║
-# ║    hw        Install Whisplay HAT drivers + tune config.txt  ║
-# ║    start     Start Voxel services                            ║
-# ║    stop      Stop Voxel services                             ║
-# ║    restart   Restart Voxel services                          ║
-# ║    logs      Tail backend + UI logs                          ║
-# ║    status    Show service status, battery, memory            ║
+# ║  Direct commands:                                            ║
+# ║    ./scripts/setup.sh [install|update|hw|start|stop|...]     ║
 # ╚══════════════════════════════════════════════════════════════╝
 set -e
 
@@ -30,12 +21,39 @@ SERVICES="voxel voxel-ui"
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 info()  { echo "  ▸ $*"; }
+warn()  { echo "  ⚠ $*"; }
+
 header() {
     echo ""
     echo "╔══════════════════════════════════════╗"
     echo "║  $1"
     printf "╚══════════════════════════════════════╝\n"
     echo ""
+}
+
+has_tty() {
+    # Detect if we're in a terminal (not piped via curl)
+    [ -t 0 ] && [ -t 1 ] && command -v whiptail &> /dev/null
+}
+
+needs_hw() {
+    [ ! -e /dev/fb1 ] && return 0
+    ! arecord -l 2>/dev/null | grep -q "WM8960" && return 0
+    return 1
+}
+
+needs_reboot() {
+    CONFIG="/boot/firmware/config.txt"
+    [ -f "$CONFIG" ] || CONFIG="/boot/config.txt"
+    UPTIME_SECS=$(awk '{print int($1)}' /proc/uptime)
+    CONFIG_MOD=$(stat -c %Y "$CONFIG" 2>/dev/null || echo 0)
+    BOOT_TIME=$(( $(date +%s) - UPTIME_SECS ))
+    [ "$CONFIG_MOD" -gt "$BOOT_TIME" ] && return 0
+    return 1
+}
+
+svc_state() {
+    systemctl is-active "$1" 2>/dev/null || echo "unknown"
 }
 
 ensure_repo() {
@@ -86,12 +104,166 @@ install_services() {
     sudo systemctl enable $SERVICES
 }
 
-# ── Commands ─────────────────────────────────────────────────────────────────
+# ── TUI (whiptail) ──────────────────────────────────────────────────────────
+
+tui_main() {
+    while true; do
+        # Build status line
+        local be_state ui_state
+        be_state=$(svc_state voxel)
+        ui_state=$(svc_state voxel-ui)
+
+        local choice
+        choice=$(whiptail --title "Voxel Relay" \
+            --menu "  Backend: $be_state  |  UI: $ui_state" 18 56 9 \
+            "install"   "Full setup (deps + build + services)" \
+            "update"    "Pull latest, rebuild, restart" \
+            "hw"        "Hardware drivers + config.txt" \
+            "start"     "Start services" \
+            "stop"      "Stop services" \
+            "restart"   "Restart services" \
+            "status"    "System status" \
+            "logs"      "Tail service logs (Ctrl+C to exit)" \
+            "uninstall" "Remove Voxel completely" \
+            3>&1 1>&2 2>&3) || break
+
+        case "$choice" in
+            install)   tui_install ;;
+            update)    cmd_update; tui_pause ;;
+            hw)        cmd_hw; tui_pause ;;
+            start)     cmd_start; tui_pause ;;
+            stop)      cmd_stop; tui_pause ;;
+            restart)   cmd_restart; tui_pause ;;
+            status)    tui_status ;;
+            logs)      cmd_logs ;;
+            uninstall) tui_uninstall ;;
+        esac
+    done
+}
+
+tui_pause() {
+    echo ""
+    read -rp "  Press Enter to continue..." _
+}
+
+tui_install() {
+    # Confirm what will be installed
+    local selections
+    selections=$(whiptail --title "Install Components" \
+        --checklist "Select what to install (SPACE to toggle):" 16 60 6 \
+        "deps"     "System packages (apt)"        ON \
+        "node"     "Node.js"                      ON \
+        "uv"       "uv (Python package manager)"  ON \
+        "app"      "Build React app"              ON \
+        "services" "Configure systemd services"   ON \
+        "hw"       "Hardware drivers + config.txt" "$(needs_hw && echo ON || echo OFF)" \
+        3>&1 1>&2 2>&3) || return
+
+    echo ""
+    # Parse selections — whiptail returns "key1" "key2" ...
+    if echo "$selections" | grep -q '"deps"'; then
+        info "System dependencies..."
+        sudo apt update
+        sudo apt install -y git portaudio19-dev libasound2-dev python3-dev cog
+    fi
+
+    if echo "$selections" | grep -q '"node"'; then
+        ensure_node
+    fi
+
+    if echo "$selections" | grep -q '"uv"'; then
+        ensure_uv
+    fi
+
+    ensure_repo
+
+    if echo "$selections" | grep -q '"app"'; then
+        build_app
+    fi
+
+    # Config
+    if [ ! -f "$VOXEL_DIR/config/local.yaml" ]; then
+        cp "$VOXEL_DIR/config/default.yaml" "$VOXEL_DIR/config/local.yaml"
+        info "Created config/local.yaml"
+    fi
+
+    if echo "$selections" | grep -q '"services"'; then
+        install_services
+    fi
+
+    if echo "$selections" | grep -q '"hw"'; then
+        cmd_hw
+    fi
+
+    # Reboot check
+    if needs_reboot; then
+        if whiptail --title "Reboot Required" \
+            --yesno "Hardware drivers were installed.\nReboot now to activate them?" 10 50; then
+            sudo reboot
+        fi
+    else
+        whiptail --title "Install Complete" \
+            --msgbox "Voxel is installed!\n\nNext: edit config/local.yaml, then start services." 10 50
+    fi
+}
+
+tui_status() {
+    local be_state ui_state
+    be_state=$(svc_state voxel)
+    ui_state=$(svc_state voxel-ui)
+
+    local mem_used mem_total
+    mem_used=$(free -m | awk '/^Mem:/ {print $3}')
+    mem_total=$(free -m | awk '/^Mem:/ {print $2}')
+
+    local batt_line=""
+    local batt
+    batt=$(curl -sf http://localhost:8421/api/battery 2>/dev/null || true)
+    [ -n "$batt" ] && batt_line="\n  Battery:     $batt"
+
+    local fb_line audio_line
+    [ -e /dev/fb1 ] && fb_line="present" || fb_line="NOT FOUND"
+    arecord -l 2>/dev/null | grep -q "WM8960" && audio_line="WM8960" || audio_line="NOT FOUND"
+
+    local ip
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+    whiptail --title "Voxel Status" \
+        --msgbox "\
+  Services
+  ──────────────────────────
+  Backend (voxel):     $be_state
+  UI (voxel-ui):       $ui_state
+
+  Hardware
+  ──────────────────────────
+  Display (/dev/fb1):  $fb_line
+  Audio (WM8960):      $audio_line
+
+  System
+  ──────────────────────────
+  IP Address:    $ip
+  Memory:        ${mem_used}MB / ${mem_total}MB$batt_line
+" 22 50
+}
+
+tui_uninstall() {
+    if whiptail --title "Uninstall Voxel" \
+        --yesno --defaultno \
+        "This will:\n- Stop and remove systemd services\n- Delete $VOXEL_DIR\n- Clean uv cache\n\nAre you sure?" \
+        12 50; then
+        cmd_uninstall
+        whiptail --title "Uninstalled" \
+            --msgbox "Voxel has been removed.\n\nSystem packages (Node.js, cog, etc.) were kept." 10 50
+        exit 0
+    fi
+}
+
+# ── CLI Commands ─────────────────────────────────────────────────────────────
 
 cmd_install() {
     header "Voxel Relay — Install"
 
-    # System packages
     info "System dependencies..."
     sudo apt update
     sudo apt install -y git portaudio19-dev libasound2-dev python3-dev cog
@@ -101,7 +273,6 @@ cmd_install() {
     ensure_repo
     build_app
 
-    # Config
     if [ ! -f config/local.yaml ]; then
         cp config/default.yaml config/local.yaml
         info "Created config/local.yaml"
@@ -111,18 +282,29 @@ cmd_install() {
 
     install_services
 
-    header "Install complete            "
-    echo "  Next steps:"
-    echo ""
-    echo "  1. If you haven't installed hardware drivers yet:"
-    echo "     ./scripts/setup.sh hw"
-    echo ""
-    echo "  2. Edit your config:"
-    echo "     nano config/local.yaml"
-    echo ""
-    echo "  3. Start Voxel:"
-    echo "     ./scripts/setup.sh start"
-    echo ""
+    # Auto-detect hardware needs
+    if needs_hw; then
+        echo ""
+        info "Hardware drivers not detected — running hw setup..."
+        echo ""
+        cmd_hw
+    fi
+
+    if needs_reboot; then
+        header "Install complete — reboot needed"
+        echo "  Hardware drivers were installed. Reboot to activate:"
+        echo "    sudo reboot"
+        echo ""
+        echo "  After reboot:"
+        echo "    cd ~/voxel"
+        echo "    nano config/local.yaml"
+        echo "    ./scripts/setup.sh start"
+        echo ""
+    else
+        header "Install complete            "
+        echo "  Next: nano config/local.yaml && ./scripts/setup.sh start"
+        echo ""
+    fi
 }
 
 cmd_update() {
@@ -147,11 +329,13 @@ cmd_update() {
 cmd_hw() {
     header "Hardware Setup               "
 
-    # Whisplay HAT drivers
-    info "Installing Whisplay HAT drivers (display + audio)..."
-    curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
+    if needs_hw; then
+        info "Installing Whisplay HAT drivers (display + audio)..."
+        curl -sSL https://docs.pisugar.com/whisplay/install.sh | sudo bash
+    else
+        info "Whisplay drivers already installed"
+    fi
 
-    # GPU memory + HDMI power saving
     CONFIG="/boot/firmware/config.txt"
     [ -f "$CONFIG" ] || CONFIG="/boot/config.txt"
 
@@ -168,7 +352,6 @@ BOOT
         info "$CONFIG already configured"
     fi
 
-    # Swap
     if [ -f /etc/dphys-swapfile ]; then
         CURRENT_SWAP=$(grep "^CONF_SWAPSIZE" /etc/dphys-swapfile | cut -d= -f2)
         if [ "${CURRENT_SWAP:-100}" -lt 256 ]; then
@@ -181,16 +364,15 @@ BOOT
     fi
 
     header "Hardware setup complete      "
-    echo "  Verify after reboot:"
-    echo "    ls /dev/fb*       # should show /dev/fb1"
-    echo "    arecord -l        # should show WM8960"
-    echo ""
-    echo "  Reboot now?"
-    echo "    sudo reboot"
+    echo "  Reboot to activate: sudo reboot"
     echo ""
 }
 
 cmd_start() {
+    if needs_hw; then
+        warn "Hardware drivers not detected. Run: ./scripts/setup.sh hw"
+        echo ""
+    fi
     info "Starting Voxel..."
     sudo systemctl start $SERVICES
     sleep 2
@@ -217,9 +399,8 @@ cmd_logs() {
 cmd_status() {
     header "Voxel Status                "
 
-    # Services
     for svc in $SERVICES; do
-        STATE=$(systemctl is-active "$svc" 2>/dev/null || true)
+        STATE=$(svc_state "$svc")
         case "$STATE" in
             active)   icon="●" ;;
             inactive) icon="○" ;;
@@ -229,63 +410,109 @@ cmd_status() {
     done
     echo ""
 
-    # Memory
     MEM_USED=$(free -m | awk '/^Mem:/ {print $3}')
     MEM_TOTAL=$(free -m | awk '/^Mem:/ {print $2}')
     info "Memory: ${MEM_USED}MB / ${MEM_TOTAL}MB"
 
-    # Battery (if PiSugar API is available)
     BATT=$(curl -sf http://localhost:8421/api/battery 2>/dev/null || true)
-    if [ -n "$BATT" ]; then
-        info "Battery: $BATT"
-    fi
+    [ -n "$BATT" ] && info "Battery: $BATT"
 
-    # Display
     if [ -e /dev/fb1 ]; then
-        info "Display: /dev/fb1 present"
+        info "Display: /dev/fb1 ✓"
     else
-        info "Display: /dev/fb1 not found (run: ./scripts/setup.sh hw)"
+        warn "Display: /dev/fb1 not found"
     fi
 
+    if arecord -l 2>/dev/null | grep -q "WM8960"; then
+        info "Audio: WM8960 ✓"
+    else
+        warn "Audio: WM8960 not found"
+    fi
+
+    echo ""
+}
+
+cmd_uninstall() {
+    header "Voxel Relay — Uninstall     "
+
+    info "Stopping services..."
+    sudo systemctl stop $SERVICES 2>/dev/null || true
+    sudo systemctl disable $SERVICES 2>/dev/null || true
+
+    info "Removing systemd units..."
+    sudo rm -f /etc/systemd/system/voxel.service
+    sudo rm -f /etc/systemd/system/voxel-ui.service
+    sudo systemctl daemon-reload
+
+    if [ -d "$VOXEL_DIR" ]; then
+        info "Removing $VOXEL_DIR..."
+        rm -rf "$VOXEL_DIR"
+    fi
+
+    if [ -d "$HOME/.cache/uv" ]; then
+        info "Cleaning uv cache..."
+        rm -rf "$HOME/.cache/uv"
+    fi
+
+    header "Uninstall complete          "
+    echo "  Kept (shared system packages):"
+    echo "    Node.js, uv, cog, python3-dev, Whisplay drivers"
+    echo ""
+    echo "  To remove those too:"
+    echo "    sudo apt remove -y cog nodejs"
+    echo "    rm -rf ~/.local/bin/uv ~/.local/share/uv"
     echo ""
 }
 
 cmd_help() {
     echo "Usage: ./scripts/setup.sh [command]"
     echo ""
-    echo "Commands:"
-    echo "  install   Full first-time setup (default)"
-    echo "  update    Pull latest, rebuild, restart"
-    echo "  hw        Whisplay drivers + config.txt tuning"
-    echo "  start     Start services"
-    echo "  stop      Stop services"
-    echo "  restart   Restart services"
-    echo "  logs      Tail service logs"
-    echo "  status    Show service/system status"
-    echo "  help      Show this message"
+    echo "  No argument = interactive TUI (if terminal available)"
     echo ""
-    echo "First-time curl install:"
+    echo "Commands:"
+    echo "  install     Full first-time setup"
+    echo "  update      Pull latest, rebuild, restart"
+    echo "  hw          Whisplay drivers + config.txt tuning"
+    echo "  start       Start services"
+    echo "  stop        Stop services"
+    echo "  restart     Restart services"
+    echo "  logs        Tail service logs"
+    echo "  status      Show service/system status"
+    echo "  uninstall   Remove services, repo, and caches"
+    echo "  help        Show this message"
+    echo ""
+    echo "Curl install (non-interactive):"
     echo "  curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash"
     echo ""
 }
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────
 
-CMD="${1:-install}"
-
-case "$CMD" in
-    install) cmd_install ;;
-    update)  cmd_update ;;
-    hw)      cmd_hw ;;
-    start)   cmd_start ;;
-    stop)    cmd_stop ;;
-    restart) cmd_restart ;;
-    logs)    cmd_logs ;;
-    status)  cmd_status ;;
-    help|-h|--help) cmd_help ;;
-    *)
-        echo "Unknown command: $CMD"
-        cmd_help
-        exit 1
-        ;;
-esac
+# No args + TTY = interactive TUI
+# No args + piped = headless install
+# With args = direct command
+if [ $# -eq 0 ]; then
+    if has_tty; then
+        tui_main
+    else
+        cmd_install
+    fi
+else
+    case "$1" in
+        install)   cmd_install ;;
+        update)    cmd_update ;;
+        hw)        cmd_hw ;;
+        start)     cmd_start ;;
+        stop)      cmd_stop ;;
+        restart)   cmd_restart ;;
+        logs)      cmd_logs ;;
+        status)    cmd_status ;;
+        uninstall) cmd_uninstall ;;
+        help|-h|--help) cmd_help ;;
+        *)
+            echo "Unknown command: $1"
+            cmd_help
+            exit 1
+            ;;
+    esac
+fi
