@@ -158,6 +158,30 @@ voxel display-test
 
 `voxel display-test` is the preferred sanity check because it bypasses WPE/Cog and talks to the Whisplay driver directly.
 
+### 4b. LVGL Native Renderer PoC
+
+We also have a native LVGL proof of concept that renders RGB565 frames and plays them back on the Whisplay panel using the same direct Python driver path.
+
+Typical workflow:
+
+```bash
+# WSL / Linux workstation
+uv run voxel lvgl-build
+uv run voxel lvgl-render --frames-dir ./out/lvgl-frames
+uv run voxel lvgl-sync --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
+
+# Raspberry Pi
+voxel lvgl-play --frames-dir ~/voxel/.cache/lvgl-poc-frames
+```
+
+One-command variant from the workstation:
+
+```bash
+uv run voxel lvgl-deploy --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
+```
+
+This path exists specifically to avoid recompiling on the Pi during visual iteration.
+
 ### 5. Configure & Start
 
 ```bash
@@ -186,6 +210,11 @@ voxel update      # Pull latest, rebuild, restart services
 voxel build       # Just rebuild (Python deps + React app)
 voxel hw          # Whisplay drivers + config.txt tuning
 voxel display-test # Direct Whisplay display sanity test
+voxel lvgl-build  # Build the LVGL PoC once
+voxel lvgl-render # Render LVGL RGB565 frames without playback
+voxel lvgl-sync   # Sync rendered LVGL frames to the Pi
+voxel lvgl-play   # Replay pre-rendered LVGL frames on the Pi
+voxel lvgl-deploy # Render, sync, and play in one command
 voxel start       # Start services
 voxel stop        # Stop services
 voxel restart     # Restart services
@@ -262,6 +291,7 @@ Current status note:
 - Direct `cog` DRM startup currently fails on the tested Pi OS image with DRM/session initialization errors.
 - Weston can acquire DRM successfully when `seatd` is running, but `cog -P wl` still aborts on the tested package set because it cannot load `libWPEBackend-default.so`.
 - That means hardware is healthy, but the browser backend path still needs work.
+- LVGL frame generation and Whisplay playback both work, which makes the native renderer path the most credible route for matching the device UI today.
 
 ```bash
 # Check if DRM device exists for the LCD

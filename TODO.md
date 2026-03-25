@@ -7,12 +7,16 @@
 - [x] **Production build serving path** - Remote-browser Pi mode now serves `app/dist/` via `voxel-web.service`; Whisplay/Cog mode still loads directly from filesystem.
 - [x] **Pi setup script update** - `scripts/setup.sh` now installs Node.js, builds the React app, configures backend + UI services, and chooses remote-web vs Cog based on hardware.
 - [x] **Whisplay direct display sanity test** - `voxel display-test` now validates the LCD, RGB LED, and button path independently of WPE/Cog.
+- [x] **LVGL native renderer PoC** - LVGL frame generation and Whisplay playback are working with WSL->Pi sync support.
 - [ ] **Weston/wl local UI path** - Direct Cog DRM is failing on the current Pi image. Weston + `seatd` can acquire DRM, but `cog -P wl` is still blocked by the current WPE backend loader/package setup.
+- [ ] **Native Voxel face renderer** - Replace the generic LVGL PoC card with the real Voxel face, status bar, and animation system.
 
 ## Priority: Medium
 
 - [ ] **Settings menu UI** — React-based settings screens. Agent selection, voice picker, brightness, battery, about. Navigated via hardware buttons (WebSocket button events).
+- [ ] **LVGL menu shell** — Basic native menu container, selection model, focus handling, and transitions for Whisplay buttons.
 - [ ] **Status bar integration** — Show agent name, battery level, connectivity in the React status bar. Data already flows via WebSocket state.
+- [ ] **Shared animation/state model for LVGL** — Reuse moods/styles/expressions and backend state so native UI can stay visually aligned with the React reference.
 - [ ] **Full voice interaction loop** — End-to-end: button press → record → STT → gateway → TTS → speak with mouth sync → return to idle. All state transitions via WebSocket.
 - [ ] **Audio amplitude streaming** — Stream real-time audio RMS amplitude from Python backend to React frontend via WebSocket for live mouth animation during TTS playback.
 - [ ] **Wake word** — Optional "Hey Voxel" wake word for hands-free activation. Porcupine or Vosk for on-device detection.

@@ -57,6 +57,8 @@ Total hardware cost: ~$50-60
 | Voxel CLI (`voxel doctor`, `voxel setup`, etc.) | Done |
 | Pi remote-appliance mode (UI on :8081) | Done |
 | WPE/Cog deployment on Pi | In progress - Whisplay hardware verified, direct DRM path failing on current Pi image |
+| LVGL native renderer proof of concept | Done |
+| WSL -> Pi LVGL render/sync/play loop | Done |
 | Wake word detection | Planned |
 
 ## Architecture
@@ -217,6 +219,11 @@ voxel logs        # Watch logs
 voxel status      # Check everything
 voxel update      # Pull latest + rebuild + restart
 voxel display-test # Direct Whisplay display sanity test
+voxel lvgl-build   # Build the LVGL proof of concept
+voxel lvgl-render  # Render LVGL RGB565 frames locally
+voxel lvgl-sync    # Sync rendered LVGL frames to a Pi
+voxel lvgl-play    # Play pre-rendered LVGL frames on the Pi
+voxel lvgl-deploy  # Render, sync, and play in one command
 ```
 
 ### Remote Browser Mode
@@ -251,6 +258,28 @@ voxel display-test --button-cycle
 ```
 
 This test talks to PiSugar's Python driver directly, so it is useful for separating “hardware works” from “browser backend works”.
+
+### LVGL Native UI PoC
+
+We now have a native LVGL proof of concept that renders RGB565 frames and replays them on the Whisplay panel through the proven PiSugar driver path.
+
+Recommended iteration workflow:
+
+```bash
+# WSL / Linux dev machine
+uv run voxel lvgl-build
+uv run voxel lvgl-render --frames-dir ./out/lvgl-frames
+uv run voxel lvgl-sync --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
+
+# Pi
+voxel lvgl-play --frames-dir ~/voxel/.cache/lvgl-poc-frames
+```
+
+Or as a one-liner from WSL:
+
+```bash
+uv run voxel lvgl-deploy --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
+```
 
 ## OpenClaw Integration
 
