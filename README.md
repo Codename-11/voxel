@@ -288,11 +288,14 @@ From Windows, you can also launch the WSL flow directly without opening a shell 
 ./run_lvgl_deploy_wsl.ps1 -PiHost 172.16.24.33 -Frames 12 -FrameDelay 0.12
 ./run_lvgl_deploy_wsl.ps1 -PreviewLocal -PauseAtEnd
 ./run_lvgl_deploy_wsl.ps1 -NoPauseAtEnd
+./run_lvgl_deploy_wsl.ps1 -InteractivePreview
 ```
 
 The Windows wrapper now pauses by default at the end of the run so logs remain visible. Use `-NoPauseAtEnd` if you want it to return immediately.
 
 When `-PreviewLocal` is enabled, the wrapper writes `preview.gif` into the chosen frames directory and opens it on Windows after the WSL render step completes.
+
+When `-InteractivePreview` is enabled, the Pi keeps the LVGL preview running after deploy. Short button presses pause/step the preview, and a long hold exits.
 
 Or via `cmd.exe`:
 

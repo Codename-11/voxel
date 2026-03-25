@@ -217,7 +217,13 @@ def play(args) -> int:
     probe = probe_hardware()
     if probe.is_pi:
         try:
-            return _show_whisplay_frames(frame_paths, args.backlight, args.frame_delay)
+            return _show_whisplay_frames(
+                frame_paths,
+                args.backlight,
+                args.frame_delay,
+                interactive=getattr(args, "interactive_preview", False),
+                hold_to_exit=getattr(args, "hold_to_exit", 1.2),
+            )
         except Exception as exc:
             fail(f"Whisplay playback failed: {exc}")
             return 1
@@ -299,6 +305,8 @@ def deploy(args) -> int:
                 f"voxel lvgl-play --frames-dir {remote_dir} "
                 f"--frame-delay {args.frame_delay} --backlight {args.backlight}"
             )
+            if getattr(args, "interactive_preview", False):
+                command += f" --interactive-preview --hold-to-exit {args.hold_to_exit}"
             _, stdout, stderr = client.exec_command(command, timeout=600)
             out = stdout.read().decode("utf-8", "replace")
             err = stderr.read().decode("utf-8", "replace")
@@ -335,7 +343,19 @@ def _ssh_client(args):
     return client
 
 
-def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float) -> int:
+def _draw_frame(board, frame_path: Path) -> None:
+    data = frame_path.read_bytes()
+    pixel_data = list(data)
+    board.draw_image(0, 0, board.LCD_WIDTH, board.LCD_HEIGHT, pixel_data)
+
+
+def _show_whisplay_frames(
+    frame_paths: list[Path],
+    backlight: int,
+    delay: float,
+    interactive: bool = False,
+    hold_to_exit: float = 1.2,
+) -> int:
     module = _load_whisplay_board()
     gpio_module = getattr(module, "GPIO", None)
     original_add_event_detect = None
@@ -355,10 +375,50 @@ def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float)
     board.set_backlight(backlight)
     try:
         ok(f"Whisplay board initialized at backlight {backlight}%")
+        if interactive:
+            info("Interactive preview: short press pauses/steps, hold exits.")
+            idx = 0
+            auto_play = True
+            last_tick = time.monotonic()
+            was_pressed = False
+            press_started = 0.0
+
+            _draw_frame(board, frame_paths[idx])
+            info(f"Displayed {frame_paths[idx].name}")
+
+            while True:
+                now = time.monotonic()
+                pressed = bool(board.button_pressed())
+
+                if auto_play and now - last_tick >= delay:
+                    idx = (idx + 1) % len(frame_paths)
+                    _draw_frame(board, frame_paths[idx])
+                    last_tick = now
+
+                if pressed and not was_pressed:
+                    press_started = now
+
+                if pressed and press_started and now - press_started >= hold_to_exit:
+                    ok("Interactive preview exit requested")
+                    return 0
+
+                if not pressed and was_pressed:
+                    held = now - press_started
+                    if held < hold_to_exit:
+                        if auto_play:
+                            auto_play = False
+                            info("Preview paused")
+                        else:
+                            idx = (idx + 1) % len(frame_paths)
+                            _draw_frame(board, frame_paths[idx])
+                            info(f"Stepped to {frame_paths[idx].name}")
+                    press_started = 0.0
+
+                was_pressed = pressed
+                time.sleep(0.03)
+
         for path in frame_paths:
-            data = path.read_bytes()
-            pixel_data = list(data)
-            board.draw_image(0, 0, board.LCD_WIDTH, board.LCD_HEIGHT, pixel_data)
+            _draw_frame(board, path)
             info(f"Displayed {path.name}")
             time.sleep(delay)
         ok("LVGL PoC playback complete")

@@ -10,6 +10,8 @@ param(
     [switch]$Rebuild,
     [switch]$NoPlayRemote,
     [switch]$PreviewLocal,
+    [switch]$InteractivePreview,
+    [double]$HoldToExit = 1.2,
     [switch]$PauseAtEnd,
     [switch]$NoPauseAtEnd
 )
@@ -39,6 +41,11 @@ if ($NoPlayRemote) {
 
 if ($PreviewLocal) {
     $flags += "--preview-local"
+}
+
+if ($InteractivePreview) {
+    $flags += "--interactive-preview"
+    $flags += "--hold-to-exit $HoldToExit"
 }
 
 $command = @(
