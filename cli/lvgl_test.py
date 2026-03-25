@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tarfile
 import time
+import urllib.request
 from pathlib import Path
 
 from cli.display import fail, header, info, ok, warn
@@ -16,10 +18,41 @@ ROOT = Path(__file__).resolve().parent.parent
 POC_DIR = ROOT / "native" / "lvgl_poc"
 BUILD_DIR = ROOT / ".cache" / "lvgl-poc-build"
 FRAME_DIR = ROOT / ".cache" / "lvgl-poc-frames"
+LVGL_DIR = ROOT / ".cache" / "lvgl-src"
+LVGL_VERSION = "v8.3.11"
+LVGL_URL = f"https://github.com/lvgl/lvgl/archive/refs/tags/{LVGL_VERSION}.tar.gz"
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
+
+
+def _ensure_lvgl_source() -> Path:
+    cmakelists = LVGL_DIR / "CMakeLists.txt"
+    if cmakelists.exists():
+        return LVGL_DIR
+
+    archive_path = ROOT / ".cache" / f"lvgl-{LVGL_VERSION}.tar.gz"
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    info(f"Downloading LVGL {LVGL_VERSION} source...")
+    urllib.request.urlretrieve(LVGL_URL, archive_path)
+
+    extract_root = ROOT / ".cache"
+    if LVGL_DIR.exists():
+        shutil.rmtree(LVGL_DIR)
+
+    with tarfile.open(archive_path, "r:gz") as tar:
+        tar.extractall(extract_root)
+
+    extracted = extract_root / f"lvgl-{LVGL_VERSION.lstrip('v')}"
+    if not extracted.exists():
+        candidates = sorted(extract_root.glob("lvgl-*"))
+        if not candidates:
+            raise RuntimeError("LVGL archive extracted but source directory was not found")
+        extracted = candidates[-1]
+
+    extracted.rename(LVGL_DIR)
+    return LVGL_DIR
 
 
 def _build_native_poc() -> Path:
@@ -28,8 +61,17 @@ def _build_native_poc() -> Path:
     if not cmake or not cc:
         raise RuntimeError("cmake and a C compiler are required (install: sudo apt install cmake build-essential)")
 
+    lvgl_source = _ensure_lvgl_source()
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    _run([cmake, "-S", str(POC_DIR), "-B", str(BUILD_DIR), "-DCMAKE_BUILD_TYPE=Release"])
+    _run([
+        cmake,
+        "-S",
+        str(POC_DIR),
+        "-B",
+        str(BUILD_DIR),
+        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DLVGL_SOURCE_DIR={lvgl_source}",
+    ])
     _run([cmake, "--build", str(BUILD_DIR), "--config", "Release", "-j2"])
     binary = BUILD_DIR / "voxel_lvgl_poc"
     if not binary.exists():
