@@ -65,6 +65,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return run()
 
 
+def cmd_display_test(args: argparse.Namespace) -> int:
+    from cli.display_test import run
+
+    return run(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -422,6 +428,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("doctor", help="Diagnose system health")
+    p_display_test = sub.add_parser("display-test", help="Run a direct display sanity test")
+    p_display_test.add_argument("--hold", type=float, default=2.0, help="Seconds to hold the main test pattern")
+    p_display_test.add_argument("--color-hold", type=float, default=0.5, help="Seconds to hold each color fill")
+    p_display_test.add_argument("--backlight", type=int, default=60, help="Backlight percent for Whisplay tests")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -454,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {
     "doctor": cmd_doctor,
+    "display-test": cmd_display_test,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,
