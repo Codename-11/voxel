@@ -10,7 +10,8 @@ param(
     [switch]$Rebuild,
     [switch]$NoPlayRemote,
     [switch]$PreviewLocal,
-    [switch]$PauseAtEnd
+    [switch]$PauseAtEnd,
+    [switch]$NoPauseAtEnd
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +57,8 @@ if ($PreviewLocal) {
     }
 }
 
-if ($PauseAtEnd) {
+$shouldPause = $PauseAtEnd -or (-not $NoPauseAtEnd)
+
+if ($shouldPause) {
     Read-Host "Press Enter to close"
 }
