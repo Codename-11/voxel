@@ -192,7 +192,6 @@ def sync(args) -> int:
     client = _ssh_client(args)
 
     try:
-        client.connect(**connect_kwargs)
         sftp = client.open_sftp()
         try:
             client.exec_command(f"mkdir -p {remote_dir}")[1].channel.recv_exit_status()
