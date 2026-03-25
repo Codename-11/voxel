@@ -432,6 +432,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_display_test.add_argument("--hold", type=float, default=2.0, help="Seconds to hold the main test pattern")
     p_display_test.add_argument("--color-hold", type=float, default=0.5, help="Seconds to hold each color fill")
     p_display_test.add_argument("--backlight", type=int, default=60, help="Backlight percent for Whisplay tests")
+    p_display_test.add_argument("--button-cycle", action="store_true", help="After the auto test, let the hardware button cycle patterns")
+    p_display_test.add_argument("--button-timeout", type=float, default=20.0, help="Seconds to keep button cycle mode active")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")

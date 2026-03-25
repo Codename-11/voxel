@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -88,6 +89,46 @@ def _make_test_pattern(width: int, height: int):
     return img
 
 
+def _show_pattern(board, pattern):
+    kind = pattern[0]
+    if kind == "image":
+        _, label, pixel_data = pattern
+        board.draw_image(0, 0, board.LCD_WIDTH, board.LCD_HEIGHT, pixel_data)
+        board.set_rgb(0, 180, 255)
+        return label
+
+    _, label, color565, led = pattern
+    board.fill_screen(color565)
+    board.set_rgb(*led)
+    return label
+
+
+def _run_button_cycle(board, patterns, duration: float) -> None:
+    info("Interactive mode: press the Whisplay button to cycle patterns.")
+    info(f"Interactive mode will auto-exit after {duration:.0f}s.")
+
+    state = {"index": 0, "last_pressed": False}
+    stop_at = time.monotonic() + duration
+
+    def show_current() -> None:
+        label = _show_pattern(board, patterns[state["index"]])
+        info(f"Button cycle -> {label}")
+
+    show_current()
+    while time.monotonic() < stop_at:
+        try:
+            pressed = bool(board.button_pressed())
+        except Exception as exc:
+            warn(f"Button polling failed; leaving interactive mode ({exc})")
+            break
+
+        if pressed and not state["last_pressed"]:
+            state["index"] = (state["index"] + 1) % len(patterns)
+            show_current()
+        state["last_pressed"] = pressed
+        time.sleep(0.05)
+
+
 def _run_whisplay_test(args) -> int:
     probe = probe_hardware()
     if not probe.whisplay_detected:
@@ -132,23 +173,29 @@ def _run_whisplay_test(args) -> int:
         ok(f"Whisplay board initialized at backlight {args.backlight}%")
 
         image = _make_test_pattern(board.LCD_WIDTH, board.LCD_HEIGHT)
-        board.draw_image(0, 0, board.LCD_WIDTH, board.LCD_HEIGHT, _to_rgb565_bytes(image))
-        ok("Rendered Voxel test pattern")
-        time.sleep(args.hold)
-
-        for label, color565, led in [
+        pixel_data = _to_rgb565_bytes(image)
+        patterns = [("image", "Voxel test pattern", pixel_data)]
+        patterns.extend([
             ("Red", 0xF800, (255, 0, 0)),
             ("Green", 0x07E0, (0, 255, 0)),
             ("Blue", 0x001F, (0, 0, 255)),
             ("White", 0xFFFF, (255, 255, 255)),
-        ]:
+        ])
+
+        _show_pattern(board, patterns[0])
+        ok("Rendered Voxel test pattern")
+        time.sleep(args.hold)
+
+        for pattern in patterns[1:]:
+            label = _show_pattern(board, pattern)
             info(f"Showing {label} fill")
-            board.fill_screen(color565)
-            board.set_rgb(*led)
             time.sleep(args.color_hold)
 
-        board.draw_image(0, 0, board.LCD_WIDTH, board.LCD_HEIGHT, _to_rgb565_bytes(image))
-        board.set_rgb(0, 180, 255)
+        _show_pattern(board, patterns[0])
+
+        if args.button_cycle:
+            _run_button_cycle(board, patterns, args.button_timeout)
+
         ok("Display sanity test complete")
         return 0
     except Exception as exc:
