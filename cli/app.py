@@ -89,6 +89,18 @@ def cmd_lvgl_play(args: argparse.Namespace) -> int:
     return play(args)
 
 
+def cmd_lvgl_render(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import render
+
+    return render(args)
+
+
+def cmd_lvgl_sync(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import sync
+
+    return sync(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -457,11 +469,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_test.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame")
     p_lvgl_test.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
     p_lvgl_build = sub.add_parser("lvgl-build", help="Build the LVGL proof of concept once")
+    p_lvgl_render = sub.add_parser("lvgl-render", help="Render LVGL frames without playback")
+    p_lvgl_render.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
+    p_lvgl_render.add_argument("--frames-dir", help="Directory to write rendered RGB565 frames")
+    p_lvgl_render.add_argument("--rebuild", action="store_true", help="Force a rebuild before rendering frames")
     p_lvgl_play = sub.add_parser("lvgl-play", help="Render and play the cached LVGL proof of concept")
-    p_lvgl_play.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
+    p_lvgl_play.add_argument("--frames-dir", help="Directory containing pre-rendered RGB565 frames")
     p_lvgl_play.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame")
     p_lvgl_play.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
-    p_lvgl_play.add_argument("--rebuild", action="store_true", help="Force a rebuild before rendering frames")
+    p_lvgl_sync = sub.add_parser("lvgl-sync", help="Sync rendered LVGL frames to a Pi over SSH")
+    p_lvgl_sync.add_argument("--frames-dir", help="Directory containing pre-rendered RGB565 frames")
+    p_lvgl_sync.add_argument("--host", default="voxel", help="SSH host for the Pi")
+    p_lvgl_sync.add_argument("--user", default="pi", help="SSH user for the Pi")
+    p_lvgl_sync.add_argument("--password", help="SSH password for the Pi (optional if keys are configured)")
+    p_lvgl_sync.add_argument("--remote-dir", default="~/voxel/.cache/lvgl-poc-frames", help="Remote directory for synced frames")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -497,7 +518,9 @@ COMMANDS = {
     "display-test": cmd_display_test,
     "lvgl-test": cmd_lvgl_test,
     "lvgl-build": cmd_lvgl_build,
+    "lvgl-render": cmd_lvgl_render,
     "lvgl-play": cmd_lvgl_play,
+    "lvgl-sync": cmd_lvgl_sync,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,

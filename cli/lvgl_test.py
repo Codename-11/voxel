@@ -83,16 +83,29 @@ def _cached_binary_path() -> Path:
     return BUILD_DIR / "voxel_lvgl_poc"
 
 
-def _render_frames(binary: Path, frames: int) -> list[Path]:
-    FRAME_DIR.mkdir(parents=True, exist_ok=True)
-    for path in FRAME_DIR.glob("frame-*.rgb565"):
+def _render_frames(binary: Path, frames: int, frames_dir: Path) -> list[Path]:
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for path in frames_dir.glob("frame-*.rgb565"):
         path.unlink()
 
-    _run([str(binary), str(FRAME_DIR), str(frames)])
-    rendered = sorted(FRAME_DIR.glob("frame-*.rgb565"))
+    _run([str(binary), str(frames_dir), str(frames)])
+    rendered = sorted(frames_dir.glob("frame-*.rgb565"))
     if not rendered:
         raise RuntimeError("LVGL PoC did not render any frames")
     return rendered
+
+
+def _frames_dir(value: str | Path | None) -> Path:
+    if not value:
+        return FRAME_DIR
+    return Path(value).expanduser().resolve()
+
+
+def _load_frame_paths(frames_dir: Path) -> list[Path]:
+    frame_paths = sorted(frames_dir.glob("frame-*.rgb565"))
+    if not frame_paths:
+        raise RuntimeError(f"No LVGL frame files found in {frames_dir}")
+    return frame_paths
 
 
 def build(args) -> int:
@@ -108,11 +121,12 @@ def build(args) -> int:
         return 1
 
 
-def play(args) -> int:
-    header("Voxel LVGL Play")
-    info("Rendering LVGL frames and replaying them on the display.")
+def render(args) -> int:
+    header("Voxel LVGL Render")
+    info("Rendering LVGL frames without playback.")
 
     binary = _cached_binary_path()
+    frames_dir = _frames_dir(getattr(args, "frames_dir", None))
     try:
         if getattr(args, "rebuild", False) or not binary.exists():
             if not binary.exists():
@@ -122,10 +136,24 @@ def play(args) -> int:
         else:
             ok(f"Using cached LVGL PoC: {binary}")
 
-        frame_paths = _render_frames(binary, args.frames)
-        ok(f"Rendered {len(frame_paths)} LVGL frame(s)")
+        frame_paths = _render_frames(binary, args.frames, frames_dir)
+        ok(f"Rendered {len(frame_paths)} LVGL frame(s) to {frames_dir}")
+        return 0
     except Exception as exc:
         fail(f"LVGL render failed: {exc}")
+        return 1
+
+
+def play(args) -> int:
+    header("Voxel LVGL Play")
+    info("Replaying pre-rendered LVGL frames on the display.")
+
+    frames_dir = _frames_dir(getattr(args, "frames_dir", None))
+    try:
+        frame_paths = _load_frame_paths(frames_dir)
+        ok(f"Loaded {len(frame_paths)} LVGL frame(s) from {frames_dir}")
+    except Exception as exc:
+        fail(f"LVGL frame load failed: {exc}")
         return 1
 
     probe = probe_hardware()
@@ -137,8 +165,58 @@ def play(args) -> int:
             return 1
 
     warn("Desktop mode: frames rendered only; no Whisplay playback available.")
-    info(f"Frames written to: {FRAME_DIR}")
+    info(f"Frames loaded from: {frames_dir}")
     return 0
+
+
+def sync(args) -> int:
+    header("Voxel LVGL Sync")
+    info("Syncing pre-rendered LVGL frames to the Pi.")
+
+    frames_dir = _frames_dir(getattr(args, "frames_dir", None))
+    try:
+        frame_paths = _load_frame_paths(frames_dir)
+    except Exception as exc:
+        fail(f"LVGL frame load failed: {exc}")
+        return 1
+
+    try:
+        import paramiko
+    except Exception:
+        fail("paramiko is required for lvgl-sync. Run: uv sync")
+        return 1
+
+    remote_dir = getattr(args, "remote_dir", "~/voxel/.cache/lvgl-poc-frames")
+    remote_dir = remote_dir.replace("~", "/home/pi", 1) if remote_dir.startswith("~/") else remote_dir
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    connect_kwargs = {
+        "hostname": args.host,
+        "username": args.user,
+        "timeout": 20,
+    }
+    if getattr(args, "password", None):
+        connect_kwargs["password"] = args.password
+
+    try:
+        client.connect(**connect_kwargs)
+        sftp = client.open_sftp()
+        try:
+            client.exec_command(f"mkdir -p {remote_dir}")[1].channel.recv_exit_status()
+            for path in frame_paths:
+                remote_path = f"{remote_dir}/{path.name}"
+                sftp.put(str(path), remote_path)
+                info(f"Synced {path.name}")
+            ok(f"Synced {len(frame_paths)} frame(s) to {args.user}@{args.host}:{remote_dir}")
+            return 0
+        finally:
+            sftp.close()
+    except Exception as exc:
+        fail(f"LVGL sync failed: {exc}")
+        return 1
+    finally:
+        client.close()
 
 
 def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float) -> int:
@@ -182,4 +260,9 @@ def run(args) -> int:
     header("Voxel LVGL Test")
     info("Building a tiny native LVGL app, rendering RGB565 frames, and replaying them on the display.")
 
+    render_result = render(args)
+    if render_result != 0:
+        return render_result
+
+    args.frames_dir = getattr(args, "frames_dir", None)
     return play(args)
