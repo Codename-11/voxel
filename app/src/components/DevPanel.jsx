@@ -13,6 +13,7 @@ export default function DevPanel({
   onSetMood, onSetStyle, onSetState, onSetAmplitude, onSetBattery,
   onSetAgent, onSetTransitionSpeed, onSetSplitView, onSetPreviewScale, onSetExpressionOverride,
   micActive, micAmplitude, onToggleMic, micSensitivity, onSetMicSensitivity,
+  audioTuning, onSetAudioTuning,
 }) {
   const [activeTab, setActiveTab] = useState("controls");
   const [logOpen, setLogOpen] = useState(false);
@@ -128,8 +129,11 @@ export default function DevPanel({
               </button>
             </div>
             {micActive && (
-              <SliderRow label="Sens" value={micSensitivity} min={0} max={1} step={0.05}
-                onChange={onSetMicSensitivity} fmt={(v) => `${Math.round(v * 100)}%`} />
+              <>
+                <SliderRow label="Sens" value={micSensitivity} min={0} max={1} step={0.05}
+                  onChange={onSetMicSensitivity} fmt={(v) => `${Math.round(v * 100)}%`} />
+                <AudioTuner tuning={audioTuning} onChange={onSetAudioTuning} />
+              </>
             )}
             <SliderRow label="Battery" value={battery} min={0} max={100} step={1}
               onChange={onSetBattery}
@@ -222,6 +226,36 @@ function SliderRow({ label, value, min, max, step = 0.01, onChange, fmt, cls = "
       <input type="range" className="dev-slider" min={min} max={max} step={step}
         value={value} onChange={(e) => onChange(parseFloat(e.target.value))} />
       <span className={`dev-slider-val ${cls}`}>{fmt(value)}</span>
+    </div>
+  );
+}
+
+/* ── Audio tuner (live-adjustable waveform params) ───────────────── */
+const AUDIO_PARAMS = [
+  { key: "smoothing",     label: "Smooth",    min: 0.01, max: 0.5,  step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "decay",         label: "Decay",     min: 0.95, max: 0.999,step: 0.001,fmt: (v) => v.toFixed(3) },
+  { key: "gamma",         label: "Gamma",     min: 0.3,  max: 1.5,  step: 0.05, fmt: (v) => v.toFixed(2) },
+  { key: "waveSmoothing", label: "W.Smooth",  min: 0.05, max: 0.6,  step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "waveDecay",     label: "W.Decay",   min: 0.95, max: 0.999,step: 0.001,fmt: (v) => v.toFixed(3) },
+  { key: "waveSpeed",     label: "W.Speed",   min: 0.01, max: 0.2,  step: 0.005,fmt: (v) => v.toFixed(3) },
+  { key: "waveGain",      label: "W.Gain",    min: 0,    max: 0.6,  step: 0.02, fmt: (v) => v.toFixed(2) },
+  { key: "minAmp",        label: "Min Amp",   min: 0,    max: 0.2,  step: 0.01, fmt: (v) => v.toFixed(2) },
+  { key: "maxAmp",        label: "Max Amp",   min: 0.5,  max: 3.0,  step: 0.1,  fmt: (v) => v.toFixed(1) },
+];
+
+function AudioTuner({ tuning, onChange }) {
+  const update = (key, value) => onChange((prev) => ({ ...prev, [key]: value }));
+  return (
+    <div className="dev-audio-tuner">
+      <span className="dev-label" style={{ marginBottom: 2 }}>Audio Tuning</span>
+      {AUDIO_PARAMS.map(({ key, label, min, max, step, fmt }) => (
+        <div key={key} className="dev-slider-row">
+          <span className="dev-slider-label">{label}</span>
+          <input type="range" className="dev-slider" min={min} max={max} step={step}
+            value={tuning[key]} onChange={(e) => update(key, parseFloat(e.target.value))} />
+          <span className="dev-slider-val">{fmt(tuning[key])}</span>
+        </div>
+      ))}
     </div>
   );
 }

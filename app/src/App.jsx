@@ -38,14 +38,6 @@ function App() {
   const { state, wsConnected, send, setMood, setStyle, setAgent, setSetting, sendTextInput } =
     useVoxelSocket();
   const [devMode, setDevMode] = useState(false);
-  const mic = useAudioAmplitude(audioTuning);
-
-  // Local overrides for when backend isn't connected (standalone dev)
-  const [localMood, setLocalMood] = useState("neutral");
-  const [localStyle, setLocalStyle] = useState(DEFAULT_STYLE);
-  const [localSpeaking, setLocalSpeaking] = useState(false);
-  const [localAgent, setLocalAgent] = useState("Daemon");
-  const [localState, setLocalState] = useState("IDLE");
 
   // Dev panel state
   const [amplitude, setAmplitude] = useState(0);
@@ -62,6 +54,15 @@ function App() {
     minAmp: 0.03,        // wave noise floor
     maxAmp: 1.3,         // wave ceiling
   });
+  const mic = useAudioAmplitude(audioTuning);
+
+  // Local overrides for when backend isn't connected (standalone dev)
+  const [localMood, setLocalMood] = useState("neutral");
+  const [localStyle, setLocalStyle] = useState(DEFAULT_STYLE);
+  const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [localAgent, setLocalAgent] = useState("Daemon");
+  const [localState, setLocalState] = useState("IDLE");
+
   const [localBattery, setLocalBattery] = useState(100);
   const [transitionSpeed, setTransitionSpeed] = useState(1.0);
   const [splitView, setSplitView] = useState(false);

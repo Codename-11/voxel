@@ -9,7 +9,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cli.display import ok, warn, fail, info, header, section, kv
+from cli.display import ok, warn, fail, info, header, section, kv, console
+from hardware.platform import probe_hardware
+
+
+def _cmd_name(name: str) -> str:
+    """Use .cmd shims for npm-like tools on Windows."""
+    if os.name == "nt" and name in {"npm", "npx"}:
+        return f"{name}.cmd"
+    return name
 
 
 def _run(cmd: list[str], timeout: int = 5) -> tuple[int, str]:
@@ -29,6 +37,15 @@ def _svc_status(name: str) -> str:
     """Get systemd service status."""
     code, out = _run(["systemctl", "is-active", name])
     return out if code == 0 else "not found"
+
+
+def _display_mode() -> str:
+    try:
+        from config.settings import load_settings
+
+        return str(load_settings().get("display", {}).get("mode", "auto")).lower()
+    except Exception:
+        return "auto"
 
 
 def run() -> int:
@@ -61,7 +78,7 @@ def run() -> int:
     section("Tools")
 
     # Node.js
-    code, out = _run(["node", "--version"])
+    code, out = _run([_cmd_name("node"), "--version"])
     if code == 0:
         ok(f"Node.js {out}")
     else:
@@ -69,14 +86,14 @@ def run() -> int:
         failures += 1
 
     # npm
-    code, out = _run(["npm", "--version"])
+    code, out = _run([_cmd_name("npm"), "--version"])
     if code == 0:
         ok(f"npm {out}")
     else:
         warn("npm not installed")
 
     # uv
-    code, out = _run(["uv", "--version"])
+    code, out = _run([_cmd_name("uv"), "--version"])
     if code == 0:
         ok(f"uv {out}")
     else:
@@ -93,7 +110,7 @@ def run() -> int:
         failures += 1
 
     # git
-    code, out = _run(["git", "--version"])
+    code, out = _run([_cmd_name("git"), "--version"])
     if code == 0:
         ok(f"git {out.replace('git version ', '')}")
     else:
@@ -185,21 +202,41 @@ def run() -> int:
 
     section("Hardware")
 
+    display_mode = _display_mode()
+    probe = probe_hardware()
+    kv("Display mode", display_mode)
+    kv("Whisplay", "detected" if probe.whisplay_detected else "not detected")
+
     # Display
-    if Path("/dev/fb1").exists():
+    if probe.has_fb1:
         ok("Display: /dev/fb1 present (ST7789 SPI LCD)")
     elif is_pi:
-        warn("Display: /dev/fb1 not found — run: voxel hw")
+        if display_mode == "cog":
+            if probe.has_drm:
+                warn("Display: cog mode forced, using DRM path without /dev/fb1")
+            else:
+                warn("Display: cog mode forced, but no framebuffer/DRM device is visible")
+        elif display_mode == "remote":
+            info("Display: remote mode selected - /dev/fb1 is not required")
+        elif probe.whisplay_detected:
+            info("Display: Whisplay detected; auto mode will prefer cog when DRM is available")
+        else:
+            warn("Display: Whisplay display path not detected - auto mode will use voxel-web")
     else:
         info("Display: N/A (desktop)")
 
+    if is_pi:
+        kv("DRM", "available" if probe.has_drm else "not found")
+        kv("SPI", "enabled" if probe.spi_enabled else "disabled")
+        kv("Cog", "installed" if probe.has_cog else "not installed")
+        kv("Auto UI", probe.recommended_display_mode)
+
     # Audio device
     if is_pi:
-        code, out = _run(["arecord", "-l"])
-        if "WM8960" in out or "wm8960" in out:
+        if probe.has_wm8960_audio:
             ok("Audio: WM8960 codec detected")
         else:
-            warn("Audio: WM8960 not found — Whisplay drivers may not be installed")
+            warn("Audio: WM8960 not found - Whisplay drivers may not be installed")
     else:
         # Desktop: check for any audio
         try:
@@ -298,11 +335,11 @@ def run() -> int:
 
     # ── Summary ───────────────────────────────────────────────
 
-    print()
+    console.print()
     if failures == 0:
-        ok("All checks passed!")
+        ok("All checks passed! 🎉")
     else:
         fail(f"{failures} issue(s) found")
-    print()
+    console.print()
 
     return failures

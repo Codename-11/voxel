@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import AudioWaveform from "./AudioWaveform";
 import "./SpeakingPill.css";
 
-export default function SpeakingPill({ speaking = false, amplitude = 0 }) {
+export default function SpeakingPill({ speaking = false, amplitude = 0, tuning = {} }) {
   return (
     <AnimatePresence>
       {speaking && (
@@ -26,6 +26,7 @@ export default function SpeakingPill({ speaking = false, amplitude = 0 }) {
               height={22}
               strokeColor="var(--vx-cyan)"
               strokeWidth={1.4}
+              tuning={tuning}
             />
           </div>
           {/* Gradient edge fade — fades waveform at pill edges */}

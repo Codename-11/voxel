@@ -2,18 +2,11 @@
  * AudioWaveform — Animated SVG waveform driven by amplitude.
  * Adapted from Conjure's AudioWaveform.tsx for Voxel.
  *
- * Uses requestAnimationFrame for smooth 60fps rendering.
- * 3 layered sine waves with different frequencies create organic feel.
+ * Accepts tuning overrides for real-time parameter adjustment.
  */
 import { useEffect, useRef } from "react";
 
 const TAU = Math.PI * 2;
-const LEVEL_SMOOTHING = 0.25;           // faster response (input is already smoothed by caller)
-const TARGET_DECAY_PER_FRAME = 0.992;   // slower decay — holds peaks a bit longer
-const WAVE_BASE_PHASE_STEP = 0.065;
-const WAVE_PHASE_GAIN = 0.2;
-const MIN_AMPLITUDE = 0.03;
-const MAX_AMPLITUDE = 1.3;
 
 const WAVE_CONFIG = [
   { frequency: 0.8, multiplier: 2.0, phaseOffset: 0, opacity: 1 },
@@ -41,15 +34,17 @@ export default function AudioWaveform({
   height = 28,
   strokeColor = "var(--vx-cyan)",
   strokeWidth = 1.4,
+  tuning = {},
 }) {
   const waveRefs = useRef([]);
   const animFrameRef = useRef(null);
   const stateRef = useRef({ phase: 0, currentLevel: 0, targetLevel: 0 });
+  const tuningRef = useRef(tuning);
 
   waveRefs.current.length = WAVE_CONFIG.length;
+  tuningRef.current = tuning;
 
-  // Feed amplitude directly as target — caller (useAudioAmplitude / backend)
-  // already handles smoothing, so no boost/momentum here to avoid double-processing
+  // Feed amplitude directly as target
   useEffect(() => {
     if (!active) return;
     stateRef.current.targetLevel = amplitude;
@@ -74,14 +69,22 @@ export default function AudioWaveform({
 
     const step = () => {
       const s = stateRef.current;
+      const t = tuningRef.current;
 
-      s.currentLevel += (s.targetLevel - s.currentLevel) * LEVEL_SMOOTHING;
+      const levelSmoothing = t.waveSmoothing ?? 0.25;
+      const targetDecay = t.waveDecay ?? 0.992;
+      const basePhaseStep = t.waveSpeed ?? 0.065;
+      const phaseGain = t.waveGain ?? 0.2;
+      const minAmp = t.minAmp ?? 0.03;
+      const maxAmp = t.maxAmp ?? 1.3;
+
+      s.currentLevel += (s.targetLevel - s.currentLevel) * levelSmoothing;
       if (s.currentLevel < 0.0002) s.currentLevel = 0;
-      s.targetLevel *= TARGET_DECAY_PER_FRAME;
+      s.targetLevel *= targetDecay;
       if (s.targetLevel < 0.0005) s.targetLevel = 0;
 
       const level = s.currentLevel;
-      const advance = WAVE_BASE_PHASE_STEP + WAVE_PHASE_GAIN * level;
+      const advance = basePhaseStep + phaseGain * level;
       s.phase = (s.phase + advance) % TAU;
 
       const baseline = height / 2;
@@ -90,8 +93,8 @@ export default function AudioWaveform({
         if (!path) return;
         const cfg = WAVE_CONFIG[i];
         const ampFactor = Math.min(
-          MAX_AMPLITUDE,
-          Math.max(MIN_AMPLITUDE, level * cfg.multiplier),
+          maxAmp,
+          Math.max(minAmp, level * cfg.multiplier),
         );
         const amp = Math.max(1, height * 0.75 * ampFactor);
         const ph = s.phase + cfg.phaseOffset;
@@ -114,7 +117,6 @@ export default function AudioWaveform({
     };
   }, [active, width, height]);
 
-  // Cleanup on unmount
   useEffect(
     () => () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);

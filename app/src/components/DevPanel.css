@@ -301,6 +301,27 @@
   box-shadow: 0 0 6px rgba(68, 204, 102, 0.4);
 }
 
+/* ── Audio tuner ────────────────────────────────────────────── */
+
+.dev-audio-tuner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid #1a1a2e;
+  margin-top: 4px;
+}
+
+.dev-audio-tuner .dev-slider-label {
+  min-width: 62px;
+  font-size: 9px;
+}
+
+.dev-audio-tuner .dev-slider-val {
+  min-width: 42px;
+  font-size: 10px;
+}
+
 /* ── View controls ────────────────────────────────────────── */
 
 .dev-view-row {

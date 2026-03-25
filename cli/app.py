@@ -9,7 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cli.display import header, section, info, ok, warn, fail, kv, cyan, bold, dim
+from cli.display import header, section, info, ok, warn, fail, kv, cyan, bold, dim, console, banner, print_commands
+from hardware.platform import probe_hardware
 
 VOXEL_DIR = Path(__file__).resolve().parent.parent
 SERVICES = ["voxel", "voxel-ui", "voxel-web"]
@@ -34,8 +35,23 @@ def _svc_state(name: str) -> str:
 def _active_services() -> list[str]:
     """Return list of service names that should be managed."""
     active = ["voxel"]
-    # Detect which UI service to use
-    if Path("/dev/fb1").exists():
+
+    # Respect explicit config first, then fall back to auto-detection.
+    mode = "auto"
+    try:
+        from config.settings import load_settings
+
+        mode = str(load_settings().get("display", {}).get("mode", "auto")).lower()
+    except Exception:
+        pass
+
+    probe = probe_hardware()
+
+    if mode == "cog":
+        active.append("voxel-ui")
+    elif mode == "remote":
+        active.append("voxel-web")
+    elif probe.recommended_display_mode == "cog":
         active.append("voxel-ui")
     else:
         active.append("voxel-web")
@@ -87,12 +103,12 @@ def cmd_setup(args: argparse.Namespace) -> int:
     cmd_install_services(args)
 
     ok("Setup complete!")
-    print()
+    console.print()
     info("Next steps:")
-    print(f"    {dim('1.')} Edit config:  {cyan('nano config/local.yaml')}")
-    print(f"    {dim('2.')} Check health:  {cyan('voxel doctor')}")
-    print(f"    {dim('3.')} Start:         {cyan('voxel start')}")
-    print()
+    console.print(f"    {dim('1.')} Edit config:  {cyan('nano config/local.yaml')}")
+    console.print(f"    {dim('2.')} Check health:  {cyan('voxel doctor')}")
+    console.print(f"    {dim('3.')} Start:         {cyan('voxel start')}")
+    console.print()
     return 0
 
 
@@ -126,7 +142,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     _run(f"sudo systemctl restart {svcs}", shell=True)
 
     ok("Update complete!")
-    print()
+    console.print()
     cmd_status(args)
     return 0
 
@@ -181,9 +197,9 @@ def cmd_hw(args: argparse.Namespace) -> int:
                 break
 
     ok("Hardware setup complete")
-    print()
+    console.print()
     warn("Reboot to activate drivers: sudo reboot")
-    print()
+    console.print()
     return 0
 
 
@@ -284,14 +300,14 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Hardware
     section("Hardware")
-    kv("Display", "present" if Path("/dev/fb1").exists() else "not found")
-    try:
-        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=5)
-        kv("Audio", "WM8960" if "WM8960" in r.stdout or "wm8960" in r.stdout else "no WM8960")
-    except Exception:
-        kv("Audio", "unknown")
+    probe = probe_hardware()
+    kv("Whisplay", "detected" if probe.whisplay_detected else "not detected")
+    kv("Display", "/dev/fb1" if probe.has_fb1 else "no framebuffer device")
+    kv("DRM", "available" if probe.has_drm else "not found")
+    kv("Audio", "WM8960" if probe.has_wm8960_audio else "no WM8960")
+    kv("UI auto mode", probe.recommended_display_mode)
 
-    print()
+    console.print()
     return 0
 
 
@@ -329,9 +345,9 @@ def cmd_config(args: argparse.Namespace) -> int:
         if current is not None:
             if isinstance(current, dict):
                 import yaml
-                print(yaml.dump(current, default_flow_style=False))
+                console.print(yaml.dump(current, default_flow_style=False))
             else:
-                print(current)
+                console.print(str(current))
         else:
             warn(f"Key not found: {key}")
             return 1
@@ -343,7 +359,7 @@ def cmd_config(args: argparse.Namespace) -> int:
         from config.settings import load_settings
         settings = load_settings()
         import yaml
-        print(yaml.dump(settings, default_flow_style=False, sort_keys=False))
+        console.print(yaml.dump(settings, default_flow_style=False, sort_keys=False))
         return 0
 
 
@@ -376,20 +392,23 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         shutil.rmtree(cache, ignore_errors=True)
 
     ok("Uninstall complete")
-    print()
+    console.print()
     info("Kept: Node.js, uv, cog, system packages, Whisplay drivers")
     info(f"Repo still at: {VOXEL_DIR}")
-    print()
+    console.print()
     return 0
 
 
-def cmd_version(args: argparse.Namespace) -> int:
+def _get_version() -> str:
     try:
         from importlib.metadata import version
-        v = version("voxel")
+        return version("voxel")
     except Exception:
-        v = "0.1.0-dev"
-    print(f"voxel {v}")
+        return "0.1.0-dev"
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    banner(_get_version())
     return 0
 
 
@@ -460,5 +479,7 @@ def main() -> None:
     if args.command in COMMANDS:
         sys.exit(COMMANDS[args.command](args))
     else:
-        parser.print_help()
+        # No command — show branded TUI welcome
+        banner(_get_version())
+        print_commands()
         sys.exit(0)
