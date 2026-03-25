@@ -69,6 +69,8 @@ def print_commands() -> None:
         ("doctor",   "🩺  Run system health diagnostics"),
         ("display-test", "🖥️  Run direct display sanity test"),
         ("lvgl-test", "🧪  Build and play back a tiny LVGL PoC"),
+        ("lvgl-build", "🔨  Build the LVGL PoC once"),
+        ("lvgl-play", "🎞️  Play the cached LVGL PoC"),
         ("setup",    "📦  First-time install & configure"),
         ("build",    "🔨  Build Python deps + React app"),
         ("update",   "🔄  Pull latest, rebuild, restart"),

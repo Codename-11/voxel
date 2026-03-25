@@ -77,6 +77,18 @@ def cmd_lvgl_test(args: argparse.Namespace) -> int:
     return run(args)
 
 
+def cmd_lvgl_build(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import build
+
+    return build(args)
+
+
+def cmd_lvgl_play(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import play
+
+    return play(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -444,6 +456,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_test.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
     p_lvgl_test.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame")
     p_lvgl_test.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
+    p_lvgl_build = sub.add_parser("lvgl-build", help="Build the LVGL proof of concept once")
+    p_lvgl_play = sub.add_parser("lvgl-play", help="Render and play the cached LVGL proof of concept")
+    p_lvgl_play.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
+    p_lvgl_play.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame")
+    p_lvgl_play.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
+    p_lvgl_play.add_argument("--rebuild", action="store_true", help="Force a rebuild before rendering frames")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -478,6 +496,8 @@ COMMANDS = {
     "doctor": cmd_doctor,
     "display-test": cmd_display_test,
     "lvgl-test": cmd_lvgl_test,
+    "lvgl-build": cmd_lvgl_build,
+    "lvgl-play": cmd_lvgl_play,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,

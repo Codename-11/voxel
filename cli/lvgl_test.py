@@ -79,6 +79,10 @@ def _build_native_poc() -> Path:
     return binary
 
 
+def _cached_binary_path() -> Path:
+    return BUILD_DIR / "voxel_lvgl_poc"
+
+
 def _render_frames(binary: Path, frames: int) -> list[Path]:
     FRAME_DIR.mkdir(parents=True, exist_ok=True)
     for path in FRAME_DIR.glob("frame-*.rgb565"):
@@ -89,6 +93,52 @@ def _render_frames(binary: Path, frames: int) -> list[Path]:
     if not rendered:
         raise RuntimeError("LVGL PoC did not render any frames")
     return rendered
+
+
+def build(args) -> int:
+    header("Voxel LVGL Build")
+    info("Building the native LVGL proof of concept.")
+
+    try:
+        binary = _build_native_poc()
+        ok(f"Built LVGL PoC: {binary}")
+        return 0
+    except Exception as exc:
+        fail(f"LVGL build failed: {exc}")
+        return 1
+
+
+def play(args) -> int:
+    header("Voxel LVGL Play")
+    info("Rendering LVGL frames and replaying them on the display.")
+
+    binary = _cached_binary_path()
+    try:
+        if getattr(args, "rebuild", False) or not binary.exists():
+            if not binary.exists():
+                warn("No cached LVGL PoC binary found; building first.")
+            binary = _build_native_poc()
+            ok(f"Built LVGL PoC: {binary}")
+        else:
+            ok(f"Using cached LVGL PoC: {binary}")
+
+        frame_paths = _render_frames(binary, args.frames)
+        ok(f"Rendered {len(frame_paths)} LVGL frame(s)")
+    except Exception as exc:
+        fail(f"LVGL render failed: {exc}")
+        return 1
+
+    probe = probe_hardware()
+    if probe.is_pi:
+        try:
+            return _show_whisplay_frames(frame_paths, args.backlight, args.frame_delay)
+        except Exception as exc:
+            fail(f"Whisplay playback failed: {exc}")
+            return 1
+
+    warn("Desktop mode: frames rendered only; no Whisplay playback available.")
+    info(f"Frames written to: {FRAME_DIR}")
+    return 0
 
 
 def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float) -> int:
@@ -132,23 +182,4 @@ def run(args) -> int:
     header("Voxel LVGL Test")
     info("Building a tiny native LVGL app, rendering RGB565 frames, and replaying them on the display.")
 
-    try:
-        binary = _build_native_poc()
-        ok(f"Built LVGL PoC: {binary}")
-        frame_paths = _render_frames(binary, args.frames)
-        ok(f"Rendered {len(frame_paths)} LVGL frame(s)")
-    except Exception as exc:
-        fail(f"LVGL build/render failed: {exc}")
-        return 1
-
-    probe = probe_hardware()
-    if probe.is_pi:
-        try:
-            return _show_whisplay_frames(frame_paths, args.backlight, args.frame_delay)
-        except Exception as exc:
-            fail(f"Whisplay playback failed: {exc}")
-            return 1
-
-    warn("Desktop mode: frames rendered only; no Whisplay playback available.")
-    info(f"Frames written to: {FRAME_DIR}")
-    return 0
+    return play(args)
