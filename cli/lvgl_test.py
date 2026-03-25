@@ -189,15 +189,7 @@ def sync(args) -> int:
     remote_dir = getattr(args, "remote_dir", "~/voxel/.cache/lvgl-poc-frames")
     remote_dir = remote_dir.replace("~", "/home/pi", 1) if remote_dir.startswith("~/") else remote_dir
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    connect_kwargs = {
-        "hostname": args.host,
-        "username": args.user,
-        "timeout": 20,
-    }
-    if getattr(args, "password", None):
-        connect_kwargs["password"] = args.password
+    client = _ssh_client(args)
 
     try:
         client.connect(**connect_kwargs)
@@ -217,6 +209,68 @@ def sync(args) -> int:
         return 1
     finally:
         client.close()
+
+
+def deploy(args) -> int:
+    header("Voxel LVGL Deploy")
+    info("Rendering LVGL frames locally, syncing them to the Pi, and optionally starting playback.")
+
+    render_result = render(args)
+    if render_result != 0:
+        return render_result
+
+    sync_result = sync(args)
+    if sync_result != 0:
+        return sync_result
+
+    if not getattr(args, "play_remote", True):
+        return 0
+
+    remote_dir = getattr(args, "remote_dir", "~/voxel/.cache/lvgl-poc-frames")
+    remote_dir = remote_dir.replace("~", "/home/pi", 1) if remote_dir.startswith("~/") else remote_dir
+
+    try:
+        client = _ssh_client(args)
+        try:
+            command = (
+                f"cd /home/pi/voxel && "
+                f"voxel lvgl-play --frames-dir {remote_dir} "
+                f"--frame-delay {args.frame_delay} --backlight {args.backlight}"
+            )
+            _, stdout, stderr = client.exec_command(command, timeout=600)
+            out = stdout.read().decode("utf-8", "replace")
+            err = stderr.read().decode("utf-8", "replace")
+            code = stdout.channel.recv_exit_status()
+            if out.strip():
+                info(out.strip())
+            if err.strip():
+                warn(err.strip())
+            if code != 0:
+                fail(f"Remote playback failed with exit code {code}")
+                return code
+            ok("Remote playback completed")
+            return 0
+        finally:
+            client.close()
+    except Exception as exc:
+        fail(f"Remote playback failed: {exc}")
+        return 1
+
+
+def _ssh_client(args):
+    import paramiko
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    connect_kwargs = {
+        "hostname": args.host,
+        "username": args.user,
+        "timeout": 20,
+    }
+    if getattr(args, "password", None):
+        connect_kwargs["password"] = args.password
+    client.connect(**connect_kwargs)
+    return client
 
 
 def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float) -> int:

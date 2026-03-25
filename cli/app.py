@@ -101,6 +101,12 @@ def cmd_lvgl_sync(args: argparse.Namespace) -> int:
     return sync(args)
 
 
+def cmd_lvgl_deploy(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import deploy
+
+    return deploy(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -483,6 +489,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_sync.add_argument("--user", default="pi", help="SSH user for the Pi")
     p_lvgl_sync.add_argument("--password", help="SSH password for the Pi (optional if keys are configured)")
     p_lvgl_sync.add_argument("--remote-dir", default="~/voxel/.cache/lvgl-poc-frames", help="Remote directory for synced frames")
+    p_lvgl_deploy = sub.add_parser("lvgl-deploy", help="Render locally, sync to the Pi, and play remotely")
+    p_lvgl_deploy.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
+    p_lvgl_deploy.add_argument("--frames-dir", help="Directory to write rendered RGB565 frames")
+    p_lvgl_deploy.add_argument("--rebuild", action="store_true", help="Force a rebuild before rendering frames")
+    p_lvgl_deploy.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame on the Pi")
+    p_lvgl_deploy.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
+    p_lvgl_deploy.add_argument("--host", default="voxel", help="SSH host for the Pi")
+    p_lvgl_deploy.add_argument("--user", default="pi", help="SSH user for the Pi")
+    p_lvgl_deploy.add_argument("--password", help="SSH password for the Pi (optional if keys are configured)")
+    p_lvgl_deploy.add_argument("--remote-dir", default="~/voxel/.cache/lvgl-poc-frames", help="Remote directory for synced frames")
+    p_lvgl_deploy.add_argument("--no-play-remote", action="store_true", help="Only render and sync; do not trigger playback on the Pi")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -521,6 +538,7 @@ COMMANDS = {
     "lvgl-render": cmd_lvgl_render,
     "lvgl-play": cmd_lvgl_play,
     "lvgl-sync": cmd_lvgl_sync,
+    "lvgl-deploy": cmd_lvgl_deploy,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,
@@ -542,6 +560,8 @@ def main() -> None:
 
     if args.command == "logs":
         args.follow = not getattr(args, "no_follow", False)
+    if args.command == "lvgl-deploy":
+        args.play_remote = not getattr(args, "no_play_remote", False)
 
     if args.command in COMMANDS:
         sys.exit(COMMANDS[args.command](args))
