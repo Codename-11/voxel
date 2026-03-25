@@ -28,9 +28,9 @@ class HardwareProbe:
     @property
     def whisplay_detected(self) -> bool:
         """Whisplay HAT appears to be attached/configured."""
-        return self.is_pi and (
-            self.has_wm8960_audio or self.has_fb1 or (self.spi_enabled and self.has_spi_device)
-        )
+        # Generic SPI peripherals also expose /dev/spidev* and dtparam=spi=on,
+        # so treat SPI as a hint only and require a Whisplay-specific signal.
+        return self.is_pi and (self.has_wm8960_audio or self.has_fb1)
 
     @property
     def cog_ready(self) -> bool:
@@ -51,17 +51,46 @@ def _run_capture(cmd: list[str]) -> str:
         return ""
 
 
+def _spi_setting_from_config(config_text: str) -> bool | None:
+    """Parse the effective SPI dtparam from a config.txt-style file.
+
+    Raspberry Pi config allows repeated dtparam assignments where later lines
+    override earlier ones, so this returns the last explicit SPI setting.
+    """
+
+    spi_enabled: bool | None = None
+    for raw_line in config_text.splitlines():
+        line = raw_line.split("#", 1)[0].strip().lower()
+        if not line:
+            continue
+
+        compact = line.replace(" ", "")
+        if not compact.startswith("dtparam="):
+            continue
+
+        params = compact.split("=", 1)[1].split(",")
+        for param in params:
+            if param == "spi":
+                spi_enabled = True
+                continue
+            if not param.startswith("spi="):
+                continue
+            value = param.split("=", 1)[1]
+            if value in {"on", "1", "true", "yes"}:
+                spi_enabled = True
+            elif value in {"off", "0", "false", "no"}:
+                spi_enabled = False
+    return spi_enabled
+
+
 def _spi_enabled() -> bool:
     for path in (Path("/boot/firmware/config.txt"), Path("/boot/config.txt")):
         if not path.exists():
             continue
         try:
-            for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = raw_line.strip().lower()
-                if not line or line.startswith("#"):
-                    continue
-                if line.startswith("dtparam=spi="):
-                    return line.endswith("=on")
+            spi_enabled = _spi_setting_from_config(path.read_text(encoding="utf-8", errors="replace"))
+            if spi_enabled is not None:
+                return spi_enabled
         except Exception:
             continue
     return False
@@ -71,7 +100,8 @@ def probe_hardware() -> HardwareProbe:
     """Detect the current Pi/Whisplay environment.
 
     Notes:
-    - Whisplay presence is inferred from the WM8960 sound card and SPI/display hints.
+    - Whisplay presence is inferred from WM8960 audio and/or framebuffer devices.
+    - SPI configuration is tracked separately as a setup diagnostic hint.
     - Cog readiness is a separate question from hardware presence.
     """
 

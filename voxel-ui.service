@@ -6,6 +6,9 @@ Wants=voxel.service
 [Service]
 Type=simple
 User=pi
+SupplementaryGroups=video render input audio
+RuntimeDirectory=voxel-ui
+Environment=XDG_RUNTIME_DIR=/run/voxel-ui
 Environment=COG_PLATFORM=drm
 Environment=COG_PLATFORM_DRM_RENDERER=gles2
 Environment=WPE_BCMRPI_TOUCH=1
