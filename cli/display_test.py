@@ -176,10 +176,10 @@ def _run_whisplay_test(args) -> int:
         pixel_data = _to_rgb565_bytes(image)
         patterns = [("image", "Voxel test pattern", pixel_data)]
         patterns.extend([
-            ("Red", 0xF800, (255, 0, 0)),
-            ("Green", 0x07E0, (0, 255, 0)),
-            ("Blue", 0x001F, (0, 0, 255)),
-            ("White", 0xFFFF, (255, 255, 255)),
+            ("fill", "Red", 0xF800, (255, 0, 0)),
+            ("fill", "Green", 0x07E0, (0, 255, 0)),
+            ("fill", "Blue", 0x001F, (0, 0, 255)),
+            ("fill", "White", 0xFFFF, (255, 255, 255)),
         ])
 
         _show_pattern(board, patterns[0])
