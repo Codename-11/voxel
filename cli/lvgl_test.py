@@ -93,6 +93,20 @@ def _render_frames(binary: Path, frames: int) -> list[Path]:
 
 def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float) -> int:
     module = _load_whisplay_board()
+    gpio_module = getattr(module, "GPIO", None)
+    original_add_event_detect = None
+    if gpio_module is not None and hasattr(gpio_module, "add_event_detect"):
+        original_add_event_detect = gpio_module.add_event_detect
+
+        def _safe_add_event_detect(*event_args, **event_kwargs):
+            try:
+                return original_add_event_detect(*event_args, **event_kwargs)
+            except Exception as exc:
+                warn(f"Button edge detect unavailable during LVGL playback; continuing without button events ({exc})")
+                return False
+
+        gpio_module.add_event_detect = _safe_add_event_detect
+
     board = module.WhisPlayBoard()
     board.set_backlight(backlight)
     try:
@@ -106,6 +120,8 @@ def _show_whisplay_frames(frame_paths: list[Path], backlight: int, delay: float)
         ok("LVGL PoC playback complete")
         return 0
     finally:
+        if gpio_module is not None and original_add_event_detect is not None:
+            gpio_module.add_event_detect = original_add_event_detect
         try:
             board.cleanup()
         except Exception:
