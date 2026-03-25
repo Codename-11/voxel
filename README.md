@@ -56,7 +56,7 @@ Total hardware cost: ~$50-60
 | Settings/menu UI + persisted runtime settings | Done |
 | Voxel CLI (`voxel doctor`, `voxel setup`, etc.) | Done |
 | Pi remote-appliance mode (UI on :8081) | Done |
-| WPE/Cog deployment on Pi | Ready (untested with Whisplay) |
+| WPE/Cog deployment on Pi | In progress - Whisplay hardware verified, direct DRM path failing on current Pi image |
 | Wake word detection | Planned |
 
 ## Architecture
@@ -216,6 +216,7 @@ voxel start       # Start services
 voxel logs        # Watch logs
 voxel status      # Check everything
 voxel update      # Pull latest + rebuild + restart
+voxel display-test # Direct Whisplay display sanity test
 ```
 
 ### Remote Browser Mode
@@ -239,6 +240,17 @@ sudo reboot
 ```
 
 After reboot, the setup auto-detects Whisplay and switches from remote UI to local Cog rendering on the LCD.
+
+### Display Sanity Test
+
+To verify the Whisplay LCD, backlight, RGB LED, and button input independently of WPE/Cog:
+
+```bash
+voxel display-test
+voxel display-test --button-cycle
+```
+
+This test talks to PiSugar's Python driver directly, so it is useful for separating “hardware works” from “browser backend works”.
 
 ## OpenClaw Integration
 

@@ -4,8 +4,10 @@
 
 - [ ] **Voice pipeline wiring** — Wire STT/TTS through the WebSocket backend. Button press → record → Whisper → OpenClaw gateway → ElevenLabs/edge-tts → playback + amplitude over WebSocket for mouth sync.
 - [ ] **WPE/Cog deployment** — Set up WPE WebKit on Pi OS Lite to render `app/dist/` fullscreen on the LCD. Configure Cog to auto-launch on boot pointing at the React build.
-- [x] **Production build serving path** — Remote-browser Pi mode now serves `app/dist/` via `voxel-web.service`; Whisplay/Cog mode still loads directly from filesystem.
-- [x] **Pi setup script update** — `scripts/setup.sh` now installs Node.js, builds the React app, configures backend + UI services, and chooses remote-web vs Cog based on hardware.
+- [x] **Production build serving path** - Remote-browser Pi mode now serves `app/dist/` via `voxel-web.service`; Whisplay/Cog mode still loads directly from filesystem.
+- [x] **Pi setup script update** - `scripts/setup.sh` now installs Node.js, builds the React app, configures backend + UI services, and chooses remote-web vs Cog based on hardware.
+- [x] **Whisplay direct display sanity test** - `voxel display-test` now validates the LCD, RGB LED, and button path independently of WPE/Cog.
+- [ ] **Weston/wl local UI path** - Direct Cog DRM is failing on the current Pi image. Weston + `seatd` can acquire DRM, but `cog -P wl` is still blocked by the current WPE backend loader/package setup.
 
 ## Priority: Medium
 

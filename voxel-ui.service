@@ -6,7 +6,6 @@ Wants=voxel.service
 [Service]
 Type=simple
 User=pi
-SupplementaryGroups=video render input audio
 RuntimeDirectory=voxel-ui
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/voxel-ui
