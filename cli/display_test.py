@@ -27,7 +27,7 @@ def _driver_candidates() -> list[Path]:
 def _load_whisplay_board():
     try:
         module = importlib.import_module("WhisPlay")
-        return module.WhisPlayBoard
+        return module
     except Exception:
         pass
 
@@ -39,7 +39,7 @@ def _load_whisplay_board():
         if path_str not in sys.path:
             sys.path.insert(0, path_str)
         module = importlib.import_module("WhisPlay")
-        return module.WhisPlayBoard
+        return module
 
     raise ModuleNotFoundError(
         "WhisPlay.py not found. Set VOXEL_WHISPLAY_DRIVER or clone PiSugar/Whisplay to ~/Whisplay."
@@ -94,11 +94,30 @@ def _run_whisplay_test(args) -> int:
         warn("Whisplay not auto-detected; continuing anyway because this is a direct sanity test.")
 
     try:
-        WhisPlayBoard = _load_whisplay_board()
+        whisplay_module = _load_whisplay_board()
     except ModuleNotFoundError as exc:
         fail(str(exc))
         info("Expected locations checked include ~/Whisplay/Driver and VOXEL_WHISPLAY_DRIVER.")
         return 1
+
+    WhisPlayBoard = whisplay_module.WhisPlayBoard
+
+    # PiSugar's board init installs GPIO edge detection for the button. On some
+    # Pi setups that fails even though SPI/LCD access still works, so degrade the
+    # display sanity test to a button-less mode instead of aborting.
+    gpio_module = getattr(whisplay_module, "GPIO", None)
+    original_add_event_detect = None
+    if probe.is_pi and gpio_module is not None and hasattr(gpio_module, "add_event_detect"):
+        original_add_event_detect = gpio_module.add_event_detect
+
+        def _safe_add_event_detect(*event_args, **event_kwargs):
+            try:
+                return original_add_event_detect(*event_args, **event_kwargs)
+            except Exception as exc:
+                warn(f"Button edge detect unavailable; continuing without button events ({exc})")
+                return False
+
+        gpio_module.add_event_detect = _safe_add_event_detect
 
     try:
         from PIL import Image  # noqa: F401
@@ -136,6 +155,8 @@ def _run_whisplay_test(args) -> int:
         fail(f"Display test failed: {exc}")
         return 1
     finally:
+        if gpio_module is not None and original_add_event_detect is not None:
+            gpio_module.add_event_detect = original_add_event_detect
         if board is not None:
             try:
                 board.cleanup()
