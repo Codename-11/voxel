@@ -23,6 +23,10 @@ FRAME_DIR = ROOT / ".cache" / "lvgl-poc-frames"
 LVGL_DIR = ROOT / ".cache" / "lvgl-src"
 LVGL_VERSION = "v8.3.11"
 LVGL_URL = f"https://github.com/lvgl/lvgl/archive/refs/tags/{LVGL_VERSION}.tar.gz"
+DEFAULT_DEV_PI_HOST = "172.16.24.33"
+DEFAULT_DEV_PI_USER = "pi"
+DEFAULT_DEV_PI_PASSWORD = "voxel"
+DEFAULT_DEV_FRAMES_DIR = "./out/lvgl-frames"
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -325,6 +329,40 @@ def deploy(args) -> int:
     except Exception as exc:
         fail(f"Remote playback failed: {exc}")
         return 1
+
+
+def dev(args) -> int:
+    header("Voxel LVGL Dev")
+    info("Using the default LVGL dev loop: render locally, sync to the Pi, and keep interactive preview enabled.")
+
+    if not getattr(args, "frames_dir", None):
+        args.frames_dir = DEFAULT_DEV_FRAMES_DIR
+    if not getattr(args, "host", None):
+        args.host = DEFAULT_DEV_PI_HOST
+    if not getattr(args, "user", None):
+        args.user = DEFAULT_DEV_PI_USER
+    if not getattr(args, "password", None):
+        args.password = DEFAULT_DEV_PI_PASSWORD
+
+    if not hasattr(args, "frames") or args.frames is None:
+        args.frames = 24
+    if not hasattr(args, "frame_delay") or args.frame_delay is None:
+        args.frame_delay = 0.18
+    if not hasattr(args, "backlight") or args.backlight is None:
+        args.backlight = 70
+    if not hasattr(args, "hold_to_exit") or args.hold_to_exit is None:
+        args.hold_to_exit = 1.2
+
+    args.play_remote = True
+    args.interactive_preview = True
+    if not hasattr(args, "preview_local"):
+        args.preview_local = False
+    if not hasattr(args, "rebuild"):
+        args.rebuild = False
+    if not hasattr(args, "remote_dir") or args.remote_dir is None:
+        args.remote_dir = "~/voxel/.cache/lvgl-poc-frames"
+
+    return deploy(args)
 
 
 def _ssh_client(args):

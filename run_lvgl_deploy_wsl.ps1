@@ -51,7 +51,7 @@ if ($InteractivePreview) {
 $command = @(
     "cd `"$repoWsl`"",
     'export PATH="$HOME/.local/bin:$PATH"',
-    "uv run voxel lvgl-deploy $($flags -join ' ')"
+    "uv run voxel lvgl-dev $($flags -join ' ')"
 ) -join " && "
 
 wsl.exe -d $Distro -- bash -lc $command

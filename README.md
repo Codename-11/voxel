@@ -278,8 +278,11 @@ voxel lvgl-play --frames-dir ~/voxel/.cache/lvgl-poc-frames
 Or as a one-liner from WSL:
 
 ```bash
+uv run voxel lvgl-dev
 uv run voxel lvgl-deploy --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
 ```
+
+`uv run voxel lvgl-dev` is the opinionated default: local render, sync to the Pi, and interactive on-device preview with the Whisplay button.
 
 From Windows, you can also launch the WSL flow directly without opening a shell first:
 

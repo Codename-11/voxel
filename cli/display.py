@@ -74,6 +74,7 @@ def print_commands() -> None:
         ("lvgl-play", "🎞️  Play the cached LVGL PoC"),
         ("lvgl-sync", "📡  Sync rendered LVGL frames to a Pi"),
         ("lvgl-deploy", "🚀  Render, sync, and play on the Pi"),
+        ("lvgl-dev", "🛠️  Default LVGL dev loop with interactive Pi preview"),
         ("setup",    "📦  First-time install & configure"),
         ("build",    "🔨  Build Python deps + React app"),
         ("update",   "🔄  Pull latest, rebuild, restart"),
