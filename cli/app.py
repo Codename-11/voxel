@@ -71,6 +71,12 @@ def cmd_display_test(args: argparse.Namespace) -> int:
     return run(args)
 
 
+def cmd_lvgl_test(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import run
+
+    return run(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -434,6 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_display_test.add_argument("--backlight", type=int, default=60, help="Backlight percent for Whisplay tests")
     p_display_test.add_argument("--button-cycle", action="store_true", help="After the auto test, let the hardware button cycle patterns")
     p_display_test.add_argument("--button-timeout", type=float, default=20.0, help="Seconds to keep button cycle mode active")
+    p_lvgl_test = sub.add_parser("lvgl-test", help="Build and run a basic LVGL proof of concept")
+    p_lvgl_test.add_argument("--frames", type=int, default=24, help="Number of LVGL frames to render")
+    p_lvgl_test.add_argument("--frame-delay", type=float, default=0.18, help="Seconds to display each rendered frame")
+    p_lvgl_test.add_argument("--backlight", type=int, default=70, help="Backlight percent for Whisplay playback")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -467,6 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {
     "doctor": cmd_doctor,
     "display-test": cmd_display_test,
+    "lvgl-test": cmd_lvgl_test,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,

@@ -68,6 +68,7 @@ def print_commands() -> None:
     cmds = [
         ("doctor",   "🩺  Run system health diagnostics"),
         ("display-test", "🖥️  Run direct display sanity test"),
+        ("lvgl-test", "🧪  Build and play back a tiny LVGL PoC"),
         ("setup",    "📦  First-time install & configure"),
         ("build",    "🔨  Build Python deps + React app"),
         ("update",   "🔄  Pull latest, rebuild, restart"),
