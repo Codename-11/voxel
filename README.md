@@ -281,6 +281,20 @@ Or as a one-liner from WSL:
 uv run voxel lvgl-deploy --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
 ```
 
+From Windows, you can also launch the WSL flow directly without opening a shell first:
+
+```powershell
+./run_lvgl_deploy_wsl.ps1
+```
+
+Or via `cmd.exe`:
+
+```bat
+run_lvgl_deploy_wsl.cmd
+```
+
+Under the hood this uses WSL's direct command mode (`wsl.exe -d Ubuntu -- bash -lc "..."`), so you do not have to manually start an interactive Ubuntu shell every time.
+
 ## OpenClaw Integration
 
 Voxel connects to an [OpenClaw](https://openclaw.ai) gateway to access your AI agent team. Each agent gets its own session (`agent:{id}:companion`) — separate from Discord, ClawPort, or any other surface.
