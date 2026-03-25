@@ -1,6 +1,6 @@
 param(
     [string]$Distro = "Ubuntu",
-    [string]$Host = "172.16.24.33",
+    [string]$PiHost = "172.16.24.33",
     [string]$User = "pi",
     [string]$Password = "voxel",
     [string]$FramesDir = "./out/lvgl-frames",
@@ -21,7 +21,7 @@ $flags = @(
     "--frames $Frames",
     "--frame-delay $FrameDelay",
     "--backlight $Backlight",
-    "--host $Host",
+    "--host $PiHost",
     "--user $User",
     "--password $Password"
 )

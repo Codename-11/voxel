@@ -285,6 +285,7 @@ From Windows, you can also launch the WSL flow directly without opening a shell 
 
 ```powershell
 ./run_lvgl_deploy_wsl.ps1
+./run_lvgl_deploy_wsl.ps1 -PiHost 172.16.24.33 -Frames 12 -FrameDelay 0.12
 ```
 
 Or via `cmd.exe`:
