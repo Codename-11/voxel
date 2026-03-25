@@ -42,10 +42,17 @@ static int write_frame(const char *dir, int index) {
         return 1;
     }
 
-    if (fwrite(framebuffer, sizeof(uint16_t), FRAME_PIXELS, fp) != FRAME_PIXELS) {
-        fprintf(stderr, "Failed to write frame %d\n", index);
-        fclose(fp);
-        return 1;
+    for (size_t i = 0; i < FRAME_PIXELS; i++) {
+        uint16_t pixel = framebuffer[i];
+        uint8_t bytes[2] = {
+            (uint8_t)((pixel >> 8) & 0xFF),
+            (uint8_t)(pixel & 0xFF),
+        };
+        if (fwrite(bytes, 1, 2, fp) != 2) {
+            fprintf(stderr, "Failed to write frame %d\n", index);
+            fclose(fp);
+            return 1;
+        }
     }
 
     fclose(fp);
