@@ -9,6 +9,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from PIL import Image
+
 from cli.display import fail, header, info, ok, warn
 from cli.display_test import _load_whisplay_board
 from hardware.platform import probe_hardware
@@ -106,6 +108,62 @@ def _load_frame_paths(frames_dir: Path) -> list[Path]:
     if not frame_paths:
         raise RuntimeError(f"No LVGL frame files found in {frames_dir}")
     return frame_paths
+
+
+def _rgb565_to_image(frame_path: Path) -> Image.Image:
+    data = frame_path.read_bytes()
+    expected = 240 * 280 * 2
+    if len(data) != expected:
+        raise RuntimeError(f"Unexpected frame size for {frame_path.name}: {len(data)} bytes")
+
+    img = Image.new("RGB", (240, 280))
+    pixels = []
+    for i in range(0, len(data), 2):
+        value = (data[i] << 8) | data[i + 1]
+        r = ((value >> 11) & 0x1F) * 255 // 31
+        g = ((value >> 5) & 0x3F) * 255 // 63
+        b = (value & 0x1F) * 255 // 31
+        pixels.append((r, g, b))
+    img.putdata(pixels)
+    return img
+
+
+def preview(args) -> int:
+    header("Voxel LVGL Preview")
+    info("Opening a local preview for pre-rendered LVGL frames.")
+
+    frames_dir = _frames_dir(getattr(args, "frames_dir", None))
+    try:
+        frame_paths = _load_frame_paths(frames_dir)
+        images = [_rgb565_to_image(path) for path in frame_paths]
+    except Exception as exc:
+        fail(f"LVGL preview failed: {exc}")
+        return 1
+
+    gif_path = frames_dir / "preview.gif"
+    images[0].save(
+        gif_path,
+        save_all=True,
+        append_images=images[1:],
+        duration=max(1, int(getattr(args, "frame_delay", 0.18) * 1000)),
+        loop=0,
+    )
+    ok(f"Wrote preview GIF: {gif_path}")
+
+    if not getattr(args, "open_preview", True):
+        return 0
+
+    try:
+        if shutil.which("wslview"):
+            subprocess.run(["wslview", str(gif_path)], check=False)
+        elif shutil.which("xdg-open"):
+            subprocess.run(["xdg-open", str(gif_path)], check=False)
+        else:
+            warn("No preview opener found (tried wslview and xdg-open).")
+    except Exception as exc:
+        warn(f"Could not open preview automatically ({exc})")
+
+    return 0
 
 
 def build(args) -> int:
@@ -217,6 +275,11 @@ def deploy(args) -> int:
     render_result = render(args)
     if render_result != 0:
         return render_result
+
+    if getattr(args, "preview_local", False):
+        preview_result = preview(args)
+        if preview_result != 0:
+            return preview_result
 
     sync_result = sync(args)
     if sync_result != 0:

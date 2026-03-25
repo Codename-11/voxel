@@ -8,7 +8,9 @@ param(
     [double]$FrameDelay = 0.18,
     [int]$Backlight = 70,
     [switch]$Rebuild,
-    [switch]$NoPlayRemote
+    [switch]$NoPlayRemote,
+    [switch]$PreviewLocal,
+    [switch]$PauseAtEnd
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +36,10 @@ if ($NoPlayRemote) {
     $flags += "--no-play-remote"
 }
 
+if ($PreviewLocal) {
+    $flags += "--preview-local"
+}
+
 $command = @(
     "cd `"$repoWsl`"",
     'export PATH="$HOME/.local/bin:$PATH"',
@@ -41,3 +47,15 @@ $command = @(
 ) -join " && "
 
 wsl.exe -d $Distro -- bash -lc $command
+
+if ($PreviewLocal) {
+    $previewPath = Join-Path $repoWin ($FramesDir -replace '^\./', '')
+    $previewGif = Join-Path $previewPath 'preview.gif'
+    if (Test-Path $previewGif) {
+        Start-Process $previewGif
+    }
+}
+
+if ($PauseAtEnd) {
+    Read-Host "Press Enter to close"
+}

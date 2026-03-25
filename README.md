@@ -286,7 +286,10 @@ From Windows, you can also launch the WSL flow directly without opening a shell 
 ```powershell
 ./run_lvgl_deploy_wsl.ps1
 ./run_lvgl_deploy_wsl.ps1 -PiHost 172.16.24.33 -Frames 12 -FrameDelay 0.12
+./run_lvgl_deploy_wsl.ps1 -PreviewLocal -PauseAtEnd
 ```
+
+When `-PreviewLocal` is enabled, the wrapper writes `preview.gif` into the chosen frames directory and opens it on Windows after the WSL render step completes.
 
 Or via `cmd.exe`:
 

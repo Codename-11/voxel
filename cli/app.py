@@ -107,6 +107,12 @@ def cmd_lvgl_deploy(args: argparse.Namespace) -> int:
     return deploy(args)
 
 
+def cmd_lvgl_preview(args: argparse.Namespace) -> int:
+    from cli.lvgl_test import preview
+
+    return preview(args)
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -500,6 +506,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_deploy.add_argument("--password", help="SSH password for the Pi (optional if keys are configured)")
     p_lvgl_deploy.add_argument("--remote-dir", default="~/voxel/.cache/lvgl-poc-frames", help="Remote directory for synced frames")
     p_lvgl_deploy.add_argument("--no-play-remote", action="store_true", help="Only render and sync; do not trigger playback on the Pi")
+    p_lvgl_deploy.add_argument("--preview-local", action="store_true", help="Generate and open a local preview GIF before syncing")
+    p_lvgl_preview = sub.add_parser("lvgl-preview", help="Generate a local preview GIF from rendered LVGL frames")
+    p_lvgl_preview.add_argument("--frames-dir", help="Directory containing pre-rendered RGB565 frames")
+    p_lvgl_preview.add_argument("--frame-delay", type=float, default=0.18, help="Frame delay in seconds for the preview GIF")
+    p_lvgl_preview.add_argument("--no-open-preview", action="store_true", help="Write the preview GIF without opening it")
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -539,6 +550,7 @@ COMMANDS = {
     "lvgl-play": cmd_lvgl_play,
     "lvgl-sync": cmd_lvgl_sync,
     "lvgl-deploy": cmd_lvgl_deploy,
+    "lvgl-preview": cmd_lvgl_preview,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,
@@ -562,6 +574,8 @@ def main() -> None:
         args.follow = not getattr(args, "no_follow", False)
     if args.command == "lvgl-deploy":
         args.play_remote = not getattr(args, "no_play_remote", False)
+    if args.command == "lvgl-preview":
+        args.open_preview = not getattr(args, "no_open_preview", False)
 
     if args.command in COMMANDS:
         sys.exit(COMMANDS[args.command](args))
