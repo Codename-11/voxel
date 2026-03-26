@@ -144,6 +144,44 @@ def _load_frame_paths(frames_dir: Path) -> list[Path]:
     return frame_paths
 
 
+def _load_manifest(frames_dir: Path) -> dict[str, str]:
+    manifest_path = frames_dir / "manifest.txt"
+    if not manifest_path.exists():
+        return {}
+
+    mapping: dict[str, str] = {}
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) == 2:
+            mapping[parts[0]] = parts[1]
+    return mapping
+
+
+def _frame_groups(frame_paths: list[Path], frames_dir: Path) -> list[tuple[str, list[Path]]]:
+    manifest = _load_manifest(frames_dir)
+    groups: list[tuple[str, list[Path]]] = []
+    current_label: str | None = None
+    current_paths: list[Path] = []
+
+    for path in frame_paths:
+        label = manifest.get(path.name, path.stem)
+        if current_label is None or label == current_label:
+            current_label = label
+            current_paths.append(path)
+            continue
+        groups.append((current_label, current_paths))
+        current_label = label
+        current_paths = [path]
+
+    if current_label is not None and current_paths:
+        groups.append((current_label, current_paths))
+
+    return groups
+
+
 def _rgb565_to_image(frame_path: Path) -> Image.Image:
     data = frame_path.read_bytes()
     expected = 240 * 280 * 2
@@ -244,6 +282,7 @@ def play(args) -> int:
     frames_dir = _frames_dir(getattr(args, "frames_dir", None))
     try:
         frame_paths = _load_frame_paths(frames_dir)
+        groups = _frame_groups(frame_paths, frames_dir)
         ok(f"Loaded {len(frame_paths)} LVGL frame(s) from {frames_dir}")
     except Exception as exc:
         fail(f"LVGL frame load failed: {exc}")
@@ -254,6 +293,7 @@ def play(args) -> int:
         try:
             return _show_whisplay_frames(
                 frame_paths,
+                groups,
                 args.backlight,
                 args.frame_delay,
                 interactive=getattr(args, "interactive_preview", False),
@@ -453,6 +493,7 @@ def _draw_frame(board, frame_path: Path) -> None:
 
 def _show_whisplay_frames(
     frame_paths: list[Path],
+    groups: list[tuple[str, list[Path]]],
     backlight: int,
     delay: float,
     interactive: bool = False,
@@ -478,23 +519,26 @@ def _show_whisplay_frames(
     try:
         ok(f"Whisplay board initialized at backlight {backlight}%")
         if interactive:
-            info("Interactive preview: short press pauses/steps, hold exits.")
-            idx = 0
-            auto_play = True
+            info("Interactive preview: short press cycles moods, hold exits.")
+            if not groups:
+                groups = [("preview", frame_paths)]
+            group_idx = 0
+            frame_idx = 0
             last_tick = time.monotonic()
             was_pressed = False
             press_started = 0.0
 
-            _draw_frame(board, frame_paths[idx])
-            info(f"Displayed {frame_paths[idx].name}")
+            current_label, current_group = groups[group_idx]
+            _draw_frame(board, current_group[frame_idx])
+            info(f"Mood -> {current_label}")
 
             while True:
                 now = time.monotonic()
                 pressed = bool(board.button_pressed())
 
-                if auto_play and now - last_tick >= delay:
-                    idx = (idx + 1) % len(frame_paths)
-                    _draw_frame(board, frame_paths[idx])
+                if now - last_tick >= delay:
+                    frame_idx = (frame_idx + 1) % len(current_group)
+                    _draw_frame(board, current_group[frame_idx])
                     last_tick = now
 
                 if pressed and not was_pressed:
@@ -507,13 +551,12 @@ def _show_whisplay_frames(
                 if not pressed and was_pressed:
                     held = now - press_started
                     if held < hold_to_exit:
-                        if auto_play:
-                            auto_play = False
-                            info("Preview paused")
-                        else:
-                            idx = (idx + 1) % len(frame_paths)
-                            _draw_frame(board, frame_paths[idx])
-                            info(f"Stepped to {frame_paths[idx].name}")
+                        group_idx = (group_idx + 1) % len(groups)
+                        current_label, current_group = groups[group_idx]
+                        frame_idx = 0
+                        _draw_frame(board, current_group[frame_idx])
+                        last_tick = now
+                        info(f"Mood -> {current_label}")
                     press_started = 0.0
 
                 was_pressed = pressed
