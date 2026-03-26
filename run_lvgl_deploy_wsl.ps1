@@ -12,6 +12,7 @@ param(
     [switch]$PreviewLocal,
     [switch]$InteractivePreview,
     [double]$HoldToExit = 1.2,
+    [switch]$UpdatePi,
     [switch]$PauseAtEnd,
     [switch]$NoPauseAtEnd
 )
@@ -46,6 +47,10 @@ if ($PreviewLocal) {
 if ($InteractivePreview) {
     $flags += "--interactive-preview"
     $flags += "--hold-to-exit $HoldToExit"
+}
+
+if ($UpdatePi) {
+    $flags += "--update-pi"
 }
 
 $command = @(

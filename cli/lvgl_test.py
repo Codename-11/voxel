@@ -322,6 +322,11 @@ def deploy(args) -> int:
         if preview_result != 0:
             return preview_result
 
+    if getattr(args, "update_pi", False):
+        update_result = update_pi(args)
+        if update_result != 0:
+            return update_result
+
     sync_result = sync(args)
     if sync_result != 0:
         return sync_result
@@ -359,6 +364,34 @@ def deploy(args) -> int:
             client.close()
     except Exception as exc:
         fail(f"Remote playback failed: {exc}")
+        return 1
+
+
+def update_pi(args) -> int:
+    header("Voxel LVGL Update Pi")
+    info("Updating the Pi repo and Python environment before playback.")
+
+    try:
+        client = _ssh_client(args)
+        try:
+            command = "cd /home/pi/voxel && git pull && ~/.local/bin/uv sync --extra pi"
+            _, stdout, stderr = client.exec_command(command, timeout=1200)
+            out = stdout.read().decode("utf-8", "replace")
+            err = stderr.read().decode("utf-8", "replace")
+            code = stdout.channel.recv_exit_status()
+            if out.strip():
+                info(out.strip())
+            if err.strip():
+                warn(err.strip())
+            if code != 0:
+                fail(f"Pi update failed with exit code {code}")
+                return code
+            ok("Pi update complete")
+            return 0
+        finally:
+            client.close()
+    except Exception as exc:
+        fail(f"Pi update failed: {exc}")
         return 1
 
 
