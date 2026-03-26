@@ -380,13 +380,32 @@ def deploy(args) -> int:
     try:
         client = _ssh_client(args)
         try:
-            command = (
+            base_command = (
                 f"cd /home/pi/voxel && "
                 f"voxel lvgl-play --frames-dir {remote_dir} "
                 f"--frame-delay {args.frame_delay} --backlight {args.backlight}"
             )
             if getattr(args, "interactive_preview", False):
-                command += f" --interactive-preview --hold-to-exit {args.hold_to_exit}"
+                command = (
+                    "pkill -f 'voxel lvgl-play --frames-dir' >/dev/null 2>&1 || true; "
+                    f"nohup bash -lc \"{base_command} --interactive-preview --hold-to-exit {args.hold_to_exit}\" "
+                    ">/tmp/voxel-lvgl-play.log 2>&1 </dev/null &"
+                )
+                _, stdout, stderr = client.exec_command(command, timeout=30)
+                out = stdout.read().decode("utf-8", "replace")
+                err = stderr.read().decode("utf-8", "replace")
+                code = stdout.channel.recv_exit_status()
+                if out.strip():
+                    info(out.strip())
+                if err.strip():
+                    warn(err.strip())
+                if code != 0:
+                    fail(f"Remote interactive preview failed to start (exit {code})")
+                    return code
+                ok("Interactive preview started on the Pi; use the hardware button and long-hold to exit")
+                return 0
+
+            command = base_command
             _, stdout, stderr = client.exec_command(command, timeout=600)
             out = stdout.read().decode("utf-8", "replace")
             err = stderr.read().decode("utf-8", "replace")

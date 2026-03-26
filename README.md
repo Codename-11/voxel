@@ -300,6 +300,7 @@ The Windows wrapper now pauses by default at the end of the run so logs remain v
 When `-PreviewLocal` is enabled, the wrapper writes `preview.gif` into the chosen frames directory and opens it on Windows after the WSL render step completes.
 
 When `-InteractivePreview` is enabled, the Pi keeps the LVGL preview running after deploy. Short button presses pause/step the preview, and a long hold exits.
+The interactive preview now starts detached on the Pi, so the local terminal returns immediately instead of waiting for the remote preview process to exit.
 
 Use `-UpdatePi` when the Pi-side Python/playback code changed and you want the wrapper to run `git pull` and `uv sync` on the Pi before playback.
 
