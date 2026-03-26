@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import tarfile
@@ -27,6 +28,7 @@ DEFAULT_DEV_PI_HOST = "172.16.24.33"
 DEFAULT_DEV_PI_USER = "pi"
 DEFAULT_DEV_PI_PASSWORD = "voxel"
 DEFAULT_DEV_FRAMES_DIR = "./out/lvgl-frames"
+BUILD_STAMP = BUILD_DIR / ".source-signature"
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -82,11 +84,39 @@ def _build_native_poc() -> Path:
     binary = BUILD_DIR / "voxel_lvgl_poc"
     if not binary.exists():
         raise RuntimeError(f"Build completed but binary missing: {binary}")
+    BUILD_STAMP.write_text(_native_source_signature(), encoding="utf-8")
     return binary
 
 
 def _cached_binary_path() -> Path:
     return BUILD_DIR / "voxel_lvgl_poc"
+
+
+def _native_source_signature() -> str:
+    hasher = hashlib.sha256()
+    for path in [
+        POC_DIR / "main.c",
+        POC_DIR / "CMakeLists.txt",
+        POC_DIR / "lv_conf.h",
+    ]:
+        hasher.update(path.name.encode("utf-8"))
+        hasher.update(path.read_bytes())
+    hasher.update(LVGL_VERSION.encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def _needs_rebuild(binary: Path) -> tuple[bool, str]:
+    if not binary.exists():
+        return True, "No cached LVGL PoC binary found"
+    if not BUILD_STAMP.exists():
+        return True, "No LVGL build stamp found"
+
+    current = _native_source_signature()
+    previous = BUILD_STAMP.read_text(encoding="utf-8").strip()
+    if current != previous:
+        return True, "Native LVGL sources changed"
+
+    return False, ""
 
 
 def _render_frames(binary: Path, frames: int, frames_dir: Path) -> list[Path]:
@@ -190,9 +220,10 @@ def render(args) -> int:
     binary = _cached_binary_path()
     frames_dir = _frames_dir(getattr(args, "frames_dir", None))
     try:
-        if getattr(args, "rebuild", False) or not binary.exists():
-            if not binary.exists():
-                warn("No cached LVGL PoC binary found; building first.")
+        needs_rebuild, reason = _needs_rebuild(binary)
+        if getattr(args, "rebuild", False) or needs_rebuild:
+            if reason:
+                warn(f"{reason}; building first.")
             binary = _build_native_poc()
             ok(f"Built LVGL PoC: {binary}")
         else:
