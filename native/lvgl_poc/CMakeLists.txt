@@ -25,3 +25,7 @@ endif()
 
 add_executable(voxel_lvgl_poc main.c)
 target_link_libraries(voxel_lvgl_poc PRIVATE lvgl::lvgl)
+
+if(UNIX AND NOT APPLE)
+  target_link_libraries(voxel_lvgl_poc PRIVATE m)
+endif()
