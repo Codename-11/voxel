@@ -45,7 +45,6 @@ if ($PreviewLocal) {
 }
 
 if ($InteractivePreview) {
-    $flags += "--interactive-preview"
     $flags += "--hold-to-exit $HoldToExit"
 }
 
