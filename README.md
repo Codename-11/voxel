@@ -176,7 +176,7 @@ curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://voxel.local:80
 | `/skill` | Full tool reference (SKILL.md) |
 | `/.well-known/mcp` | MCP server status + connection URL (JSON) |
 
-See [`openclaw/SETUP.md`](openclaw/SETUP.md) for the complete integration guide.
+Full agent integration guide: [`AGENTS_SETUP.md`](AGENTS_SETUP.md) (also available at [raw GitHub URL](https://raw.githubusercontent.com/Codename-11/voxel/main/AGENTS_SETUP.md) — works without a running device).
 
 ## Architecture
 

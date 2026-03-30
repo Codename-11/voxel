@@ -22,6 +22,8 @@ This project is managed with **SubFrame**. AI assistants should follow the rules
 
 **`native/lvgl_poc/`: experimental, isolated.** LVGL native renderer proof-of-concept. Not production. CLI commands (`voxel lvgl-*`) exist but this path is exploratory.
 
+**`AGENTS_SETUP.md`: Agent integration guide.** Decision-tree setup for connecting to Voxel via MCP. Works from GitHub ([raw URL](https://raw.githubusercontent.com/Codename-11/voxel/main/AGENTS_SETUP.md)) or from the device (`GET /setup` on port 8081). Read this first if you need to control the Voxel device.
+
 **Key entry points:**
 - `display/service.py` — Display service (production). Run with `uv run dev`.
 - `server.py` — Python WebSocket backend (state, hardware, AI).

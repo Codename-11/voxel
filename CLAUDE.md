@@ -39,6 +39,7 @@ Voxel is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSu
 ```
 voxel/
 ├── server.py                    # Python WebSocket backend (state, hardware, AI)
+├── AGENTS_SETUP.md              # Agent integration guide (MCP setup, decision tree)
 ├── package.json                 # Root package.json (proxies to app/)
 ├── display/                     # PIL-based display engine (production)
 │   ├── service.py               # Display service entry point (uv run dev, --server for voice pipeline)
@@ -253,6 +254,8 @@ Supports switching between agents: Daemon, Soren, Ash, Mira, Jace, Pip.
 The MCP server connects to server.py via WebSocket on port 8080 (same protocol as the display service and React app). No additional dependencies required.
 
 OpenClaw skill definition at `openclaw/SKILL.md` teaches agents about Voxel's capabilities.
+
+**Agent setup guide:** `AGENTS_SETUP.md` (repo root) — decision-tree setup for any AI agent. Also served at `GET /setup` on the device (port 8081, no auth) and available via [GitHub raw URL](https://raw.githubusercontent.com/Codename-11/voxel/main/AGENTS_SETUP.md).
 
 ## Audio Pipeline
 

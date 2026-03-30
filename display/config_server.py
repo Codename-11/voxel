@@ -2549,7 +2549,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         # Agent setup guide — public, no auth
         if parsed.path in ("/setup", "/openclaw/setup"):
-            setup_path = Path(__file__).parent.parent / "openclaw" / "SETUP.md"
+            root = Path(__file__).parent.parent
+            # Prefer AGENTS_SETUP.md (comprehensive), fall back to openclaw/SETUP.md
+            setup_path = root / "AGENTS_SETUP.md"
+            if not setup_path.exists():
+                setup_path = root / "openclaw" / "SETUP.md"
             if setup_path.exists():
                 # Replace DEVICE_IP placeholder with actual IP
                 text = setup_path.read_text(encoding="utf-8")
