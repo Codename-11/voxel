@@ -360,6 +360,7 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
             _gcfg = _load_greeting().get("character", {})
             if _gcfg.get("greeting_enabled", True) and _gcfg.get("greeting"):
                 state.push_transcript("assistant", _gcfg["greeting"])
+                state.trigger_chat_peek(time.time(), duration=6.0)  # longer for greeting
                 log.info("Greeting shown: %s", _gcfg["greeting"][:40])
         except Exception:
             pass

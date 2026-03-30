@@ -117,7 +117,7 @@ character:
   idle_personality: true      # enable reactive moods during idle (battery, connection, time)
   idle_prompt: true           # show "?" hint after prolonged idle
   idle_prompt_interval: 90    # seconds between "?" appearances
-  greeting: "Hey! I'm Voxel. Double-tap to talk, or send a message."
+  greeting: "Hey! I'm Voxel. Double-tap to talk!"
   greeting_enabled: true      # show greeting on first boot / empty chat
   demo_mode: false           # auto-cycle moods/characters/styles for showcase
   demo_cycle_speed: 5        # seconds per mood in demo mode

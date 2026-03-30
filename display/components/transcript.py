@@ -251,7 +251,7 @@ def draw_chat_full(draw: ImageDraw.ImageDraw, state: DisplayState) -> None:
 
 PEEK_H = 40
 PEEK_DURATION = 3.5  # seconds visible
-PEEK_BOTTOM = SCREEN_H - 16  # stay above bottom corner bevel
+PEEK_BOTTOM = SCREEN_H - 28  # stay above bottom corner bevel (40px radius)
 
 
 def draw_chat_peek(draw: ImageDraw.ImageDraw, state: DisplayState,

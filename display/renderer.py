@@ -304,9 +304,7 @@ class PILRenderer:
         # so the status bar and other components reflect reality.
         # The server will overwrite via WebSocket on the next push.
 
-        # View position indicator dots (face/chat views, not during menu)
-        if not self.menu.open:
-            draw_view_dots(draw, state.view)
+        # View dots removed — transitions are obvious on a 240px single-button device
 
         # Speaking waveform pill / listening pulse ring (face views only)
         if not self.menu.open and state.view not in ("chat_full",):
