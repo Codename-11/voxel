@@ -2547,6 +2547,29 @@ class _Handler(BaseHTTPRequestHandler):
             self._json_response(200, {"ok": True, "status": "running"})
             return
 
+        # Agent setup guide — public, no auth
+        if parsed.path in ("/setup", "/openclaw/setup"):
+            setup_path = Path(__file__).parent.parent / "openclaw" / "SETUP.md"
+            if setup_path.exists():
+                # Replace DEVICE_IP placeholder with actual IP
+                text = setup_path.read_text(encoding="utf-8")
+                try:
+                    import socket as _s
+                    ip = _s.gethostbyname(_s.gethostname())
+                except Exception:
+                    ip = "localhost"
+                text = text.replace("DEVICE_IP", ip)
+                body = text.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "public, max-age=300")
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_error(404, "Setup guide not found")
+            return
+
         # Skill file — public, no auth (agent auto-discovery)
         if parsed.path in ("/skill", "/openclaw/skill"):
             skill_path = Path(__file__).parent.parent / "openclaw" / "SKILL.md"
@@ -2596,9 +2619,10 @@ class _Handler(BaseHTTPRequestHandler):
                     "running": mcp_running,
                     "transport": "sse",
                     "url": f"http://{ip}:{mcp_port}/sse",
-                    "tools": 11,
+                    "tools": 20,
                     "resources": 3,
                 },
+                "setup_url": f"http://{ip}:{_server_port}/setup",
                 "skill_url": f"http://{ip}:{_server_port}/skill",
                 "config_url": f"http://{ip}:{_server_port}/",
             }

@@ -141,6 +141,43 @@ Voxel works in layers — each mode adds capabilities on top of the previous:
 
 All modes are additive. MCP and webhooks are disabled by default — enable in `config/local.yaml` or the web settings page under "Integration".
 
+## Agent Setup (MCP)
+
+Connect any AI agent to Voxel in seconds. The device serves setup instructions at a public URL — no auth required.
+
+```bash
+# Fetch the setup guide (replace IP with your device)
+curl http://voxel.local:8081/setup
+
+# Install the skill (teaches agents about Voxel's 20 tools)
+curl http://voxel.local:8081/skill
+```
+
+**OpenClaw:**
+```bash
+# Register MCP server
+mcporter config add voxel --url http://voxel.local:8082/sse
+
+# Install skill (one-time)
+mkdir -p ~/.openclaw/workspace/skills/voxel-device
+curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://voxel.local:8081/skill
+```
+
+**Claude Code:**
+```json
+{ "mcpServers": { "voxel": { "command": "uv", "args": ["run", "python", "-m", "mcp"], "cwd": "/path/to/voxel" } } }
+```
+
+**Discovery endpoints** (public, no auth):
+
+| URL | What |
+|-----|------|
+| `/setup` | Agent setup guide with copy-paste commands |
+| `/skill` | Full tool reference (SKILL.md) |
+| `/.well-known/mcp` | MCP server status + connection URL (JSON) |
+
+See [`openclaw/SETUP.md`](openclaw/SETUP.md) for the complete integration guide.
+
 ## Architecture
 
 PIL renderer writes frames directly to the SPI LCD via the WhisPlay driver on the Pi. On desktop, frames display in a tkinter window. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. The MCP server exposes device tools to external AI agents. React app (`app/`) exists as a browser-based dev UI.
