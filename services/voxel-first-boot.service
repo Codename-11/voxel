@@ -1,0 +1,31 @@
+[Unit]
+Description=Voxel First Boot — Install Whisplay HAT Drivers
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/home/pi/voxel/config/.first-boot-done
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/pi/voxel
+
+# Install Whisplay HAT drivers (WM8960 kernel module, config.txt tuning)
+ExecStart=/usr/local/bin/voxel hw
+
+# Mark first boot as complete so this never runs again
+ExecStartPost=/bin/bash -c 'echo "first_boot_completed: true" >> /home/pi/voxel/config/.setup-state'
+ExecStartPost=/bin/touch /home/pi/voxel/config/.first-boot-done
+ExecStartPost=/bin/chown 1000:1000 /home/pi/voxel/config/.first-boot-done /home/pi/voxel/config/.setup-state
+
+# Disable this service after successful run
+ExecStartPost=/bin/systemctl disable voxel-first-boot.service
+
+# Allow up to 10 minutes for driver compilation
+TimeoutStartSec=600
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voxel-first-boot
+
+[Install]
+WantedBy=multi-user.target

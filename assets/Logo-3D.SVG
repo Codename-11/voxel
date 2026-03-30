@@ -1,0 +1,69 @@
+<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 3D Surface Lighting Gradients -->
+    <linearGradient id="frontSurface" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#252538" />
+      <stop offset="100%" stop-color="#12121e" />
+    </linearGradient>
+    <linearGradient id="topSurface" x1="0%" y1="100%" x2="50%" y2="0%">
+      <stop offset="0%" stop-color="#303048" />
+      <stop offset="100%" stop-color="#1e1e30" />
+    </linearGradient>
+    <linearGradient id="rightSurface" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#1e1e30" />
+      <stop offset="100%" stop-color="#05050a" />
+    </linearGradient>
+
+    <!-- Neon Glow Filters -->
+    <filter id="glow-ambient" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+    </filter>
+    <filter id="glow-outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+    </filter>
+    <filter id="glow-inner" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+    </filter>
+
+    <!-- Base Neon Segment Coordinates -->
+    <g id="neon-lines">
+      <!-- Front Face -->
+      <line x1="54" y1="70" x2="146" y2="70" />
+      <line x1="54" y1="190" x2="146" y2="190" />
+      <line x1="40" y1="84" x2="40" y2="176" />
+      <line x1="160" y1="84" x2="160" y2="176" />
+      <!-- Back Edges -->
+      <line x1="90" y1="46" x2="182" y2="46" />
+      <line x1="196" y1="60" x2="196" y2="152" />
+      <!-- Depth Connecting Edges -->
+      <line x1="54" y1="70" x2="90" y2="46" />
+      <line x1="146" y1="70" x2="182" y2="46" />
+      <line x1="160" y1="84" x2="196" y2="60" />
+      <line x1="160" y1="176" x2="196" y2="152" />
+    </g>
+  </defs>
+
+  <!-- Solid Cube Body -->
+  <g>
+    <!-- Top Face -->
+    <path d="M 40,84 A 14,14 0 0,1 54,70 L 146,70 A 14,14 0 0,1 156,74 L 192,50 A 14,14 0 0,0 182,46 L 90,46 A 14,14 0 0,0 76,60 L 40,84 Z" fill="url(#topSurface)" />
+    <!-- Right Face -->
+    <path d="M 156,74 A 14,14 0 0,1 160,84 L 160,176 A 14,14 0 0,1 146,190 L 182,166 A 14,14 0 0,0 196,152 L 196,60 A 14,14 0 0,0 192,50 L 156,74 Z" fill="url(#rightSurface)" />
+    <!-- Front Face -->
+    <rect x="40" y="70" width="120" height="120" rx="14" fill="url(#frontSurface)" />
+  </g>
+
+  <!-- Neon Tube Layering -->
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <use href="#neon-lines" stroke="#00d4d2" stroke-width="12" opacity="0.15" filter="url(#glow-ambient)" />
+    <use href="#neon-lines" stroke="#00d4d2" stroke-width="8" opacity="0.4" filter="url(#glow-outer)" />
+    <use href="#neon-lines" stroke="#00d4d2" stroke-width="4" opacity="0.8" filter="url(#glow-inner)" />
+    <use href="#neon-lines" stroke="#e0ffff" stroke-width="2.5" />
+  </g>
+
+  <!-- Kawaii Eyes -->
+  <g fill="#ffffff">
+    <rect x="74" y="112" width="14" height="28" rx="7" />
+    <rect x="112" y="112" width="14" height="28" rx="7" />
+  </g>
+</svg>

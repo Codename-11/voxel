@@ -2,7 +2,30 @@
 #
 # Each mood defines eyes, mouth, and body configs.
 # Optional: left_eye / right_eye per-eye overrides, eye_color_override.
-# Python source: face/expressions.py  |  JS mirror: design/src/expressions.js
+#
+# Animation modifiers (display/modifiers.py):
+#   modifiers:
+#     - type: bounce_boost       # multiply bounce amount
+#       factor: 1.4
+#     - type: tilt_oscillation   # sinusoidal tilt
+#       speed: 1.2
+#       amount: 3.5
+#     - type: eye_swap           # periodic big/small eye swap
+#       cycle: 7.0
+#       gaze_influence: 0.3
+#     - type: shake              # random position jitter
+#       range: 2
+#     - type: squint_pulse       # slow squint modulation
+#       speed: 0.8
+#       amount: 0.15
+#     - type: gaze_wander        # lateral gaze drift
+#       speed: 0.6
+#       range: 0.25
+#
+# Composition:
+#   extends: <mood>              # inherit base expression
+#   blend:                       # lerp toward other moods
+#     <mood>: <weight 0-1>
 #
 # Keys use snake_case. Consumers convert to their native convention
 # (e.g. JS loader camelCases automatically).
@@ -28,11 +51,11 @@ neutral:
     scale: 1.0
 
 happy:
-  # Happy squint -- both eyes narrow, big U smile (closed mouth, high smile)
+  # Happy squint -- eyes narrow but still clearly pill-shaped, big U smile
   eyes:
     width: 1.05
-    height: 0.75
-    openness: 0.7
+    height: 0.95
+    openness: 0.75
     pupil_size: 0.4
     gaze_x: 0
     gaze_y: 0
@@ -94,6 +117,13 @@ thinking:
     bounce_amount: 1
     tilt: -4
     scale: 1.0
+  modifiers:
+    - type: tilt_oscillation
+      speed: 1.2
+      amount: 3.5
+    - type: eye_swap
+      cycle: 7.0
+      gaze_influence: 0.3
 
 confused:
   eyes:
@@ -141,6 +171,9 @@ excited:
     bounce_amount: 6
     tilt: 0
     scale: 1.0
+  modifiers:
+    - type: bounce_boost
+      factor: 1.4
 
 sleepy:
   eyes:
@@ -181,6 +214,9 @@ error:
     bounce_amount: 0
     tilt: 0
     scale: 1.0
+  modifiers:
+    - type: shake
+      range: 2
 
 listening:
   eyes:
@@ -213,9 +249,9 @@ sad:
     blink_rate: 1.0
     squint: 0
   left_eye:
-    tilt: -6
-  right_eye:
     tilt: 6
+  right_eye:
+    tilt: -6
   mouth:
     openness: 0
     smile: -0.5
@@ -352,3 +388,15 @@ critical_battery:
     tilt: 14
     scale: 0.95
   eye_color_override: "#a07818"  # dim amber
+
+# ── Composed expressions ──────────────────────────────────────────────
+
+surprised_by_sound:
+  # Surprised base + 35% curious influence (wider eyes, head tilt, gaze wander)
+  extends: surprised
+  blend:
+    curious: 0.35
+  modifiers:
+    - type: gaze_wander
+      speed: 0.6
+      range: 0.2

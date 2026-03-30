@@ -1,16 +1,36 @@
-# React + Vite
+# Voxel — React Dev UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Browser-based development UI for iterating on expressions, styles, and animations. **This is not the production renderer** — the Pi uses the PIL display service (`display/`).
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+# From repo root
+npm run dev        # Vite dev server on :5173
+```
 
-## React Compiler
+Or with the backend for live WebSocket state:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# Terminal 1
+uv run server.py
 
-## Expanding the ESLint configuration
+# Terminal 2
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## What's Here
+
+- **VoxelCube** — Animated cube face with Framer Motion (eyes, mouth, body, moods)
+- **StatusBar** — Battery, WiFi, agent indicator
+- **ChatPanel** — Conversation UI
+- **Dev Panel** — Toggle with backtick (`` ` ``) — mood/style/state controls
+
+## Relationship to Production
+
+The PIL renderer (`display/`) is the production display path. This React app is useful for:
+- Rapid expression/style iteration with HMR
+- Prototyping new animations before porting to PIL
+- Testing WebSocket protocol changes
+
+Changes to `shared/*.yaml` trigger HMR automatically.

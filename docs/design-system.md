@@ -4,7 +4,7 @@ The Voxel design system uses a **shared YAML data layer** with a **React + Frame
 
 1. **Shared data** (`shared/`) — YAML files defining expressions, styles, and mood metadata. Single source of truth for both Python and React.
 2. **React renderer** (`app/`) — The production face engine. Runs in-browser during development, on the Pi via WPE/Cog in production. What you see in the browser IS what runs on the device.
-3. **Pygame renderer** (`face/`) — Fallback only. Implements the same `BaseRenderer` interface for headless/legacy use.
+3. **PIL renderer** (`display/`) — Production renderer for Pi hardware. Renders frames with PIL, pushes to SPI LCD. The old pygame renderer is archived in `_legacy/face/`.
 
 ## Running the App
 
@@ -196,7 +196,7 @@ Floating icons appear beside the cube to reinforce certain moods. Defined in `sh
 
 3. **Test in browser** — `npm run dev`, click through all styles to verify the mood looks correct in kawaii, retro, and minimal.
 
-4. **Port to Python** (if using pygame fallback) — Add the mood to the `Mood` enum and `EXPRESSIONS` dict in `face/expressions.py`.
+4. **Test in PIL renderer** — `uv run dev`, verify the mood renders correctly in the tkinter preview window.
 
 ### Adding a new face style
 
@@ -239,6 +239,16 @@ shared/styles.yaml       →  app/src/load-shared.js  →  app/src/styles.js
 
 Vite watches `shared/` and triggers HMR on changes, so edits to YAML files are reflected in the browser instantly.
 
+## Mood Decorations
+
+Per-mood decorative overlays are rendered by `display/decorations.py` using RGBA compositing. They are drawn after the character and positioned relative to the character's actual face center, not a fixed screen coordinate.
+
+**Position reference:** Each character stores its face center in `_last_face_cx` and `_last_face_cy` (defined in the `Character` base class in `display/characters/base.py`) during its `draw()` call. The decoration system reads these values to place sparkles, tears, sweat drops, etc. in the correct position for any character.
+
+**Available decorations:** sparkles (happy/excited), sweat drops (frustrated), ZZZs (sleepy), tears (sad), "!" (surprised), blush circles (happy), thinking dots. See [Character Design](character-design.md) for the full decoration table.
+
+The renderer (`display/renderer.py`) calls decorations after the character draw pass, compositing the decoration overlay onto the frame.
+
 ## Shared YAML → Python Pipeline
 
 Python loads shared YAML at startup via `shared/__init__.py`:
@@ -249,4 +259,4 @@ shared/styles.yaml       →  shared/__init__.py  →  load_styles()
 shared/moods.yaml        →  shared/__init__.py  →  load_moods()
 ```
 
-The Python `face/expressions.py` dataclasses mirror the YAML structure for the pygame fallback renderer. `server.py` reads `moods.yaml` for state-to-mood mapping and LED behavior.
+The PIL display renderer reads expressions directly from `shared/expressions.yaml`. `server.py` reads `moods.yaml` for state-to-mood mapping and LED behavior.

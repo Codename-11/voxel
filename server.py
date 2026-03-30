@@ -6,9 +6,10 @@ import logging
 import signal
 import sys
 import time
+import os as _os
 
 import websockets
-from websockets.server import serve
+from websockets.asyncio.server import serve, ServerConnection
 
 from config.settings import load_settings, save_local_settings
 from core.log import setup as setup_logging, boot_message, ready_message, shutdown_message
@@ -64,7 +65,7 @@ _ui_state = {
     "agents": settings.get("agents", []),
 }
 
-_clients: set[websockets.WebSocketServerProtocol] = set()
+_clients: set[ServerConnection] = set()
 
 # ── Conversation pipeline state ──────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ async def broadcast(data: dict) -> None:
     )
 
 
-async def send_to(ws: websockets.WebSocketServerProtocol, data: dict) -> None:
+async def send_to(ws: ServerConnection, data: dict) -> None:
     """Send to a specific client."""
     try:
         await ws.send(json.dumps(data))
@@ -122,6 +123,11 @@ async def emit_transcript(role: str, text: str, status: str = "done") -> None:
     })
 
 
+async def emit_reaction(emoji: str) -> None:
+    """Broadcast an emoji reaction to display clients."""
+    await broadcast({"type": "reaction", "emoji": emoji})
+
+
 def set_mood(mood: str) -> None:
     """Update mood and schedule broadcast."""
     _ui_state["mood"] = mood
@@ -136,7 +142,13 @@ def on_state_change(old: State, new: State) -> None:
     _ui_state["mood"] = mood
     log.info(f"State: {old.name} → {new.name} (mood: {mood})")
     try:
-        asyncio.get_event_loop().create_task(push_state())
+        loop = asyncio.get_event_loop()
+        loop.create_task(push_state())
+        loop.create_task(_webhook_event(
+            "state_change",
+            f"State: {old.name} → {new.name}",
+            {"old": old.name, "new": new.name, "mood": mood},
+        ))
     except RuntimeError:
         pass  # Event loop not running yet
 
@@ -145,12 +157,14 @@ sm.on_change(on_state_change)
 
 
 def apply_runtime_settings() -> None:
-    """Apply mutable runtime settings to hardware abstractions when available."""
-    try:
-        from hardware import display
-        display.set_brightness(_ui_state["brightness"] / 100)
-    except Exception as exc:
-        log.debug(f"Brightness apply skipped: {exc}")
+    """Apply mutable runtime settings to hardware abstractions when available.
+
+    On Pi, brightness is controlled by the display service via the WhisPlay
+    driver. The server just stores the value; the display service reads it
+    from config and applies it directly.
+    """
+    log.debug("Runtime settings applied (brightness=%d, volume=%d)",
+              _ui_state["brightness"], _ui_state["volume"])
 
 
 def persist_settings(update: dict) -> None:
@@ -196,10 +210,41 @@ def _init_gateway() -> None:
     token = _setting("gateway.token", "")
     if url and token:
         from core.gateway import OpenClawClient
-        _oclient = OpenClawClient(url, token, _ui_state["agent"])
-        log.info(f"Gateway client: {url}")
+        # System context tells the agent how to format responses
+        # (mood tags, conciseness, emoji prefixes)
+        system_context = ""
+        if _setting("character.system_context_enabled", True):
+            system_context = _setting("character.system_context", "")
+        _oclient = OpenClawClient(url, token, _ui_state["agent"],
+                                  system_context=system_context)
+        log.info(f"Gateway client: {url} (system_context={'yes' if system_context else 'no'})")
     else:
         log.warning("Gateway not configured (missing url or token in config)")
+
+
+_webhook = None  # WebhookClient, initialized at startup
+
+
+def _init_webhook() -> None:
+    """Initialize the outbound webhook client from settings."""
+    global _webhook
+    wh_cfg = settings.get("webhook", {})
+    if wh_cfg.get("enabled") and wh_cfg.get("url"):
+        from core.webhook import WebhookClient
+        _webhook = WebhookClient(
+            url=wh_cfg["url"],
+            token=wh_cfg.get("token", ""),
+            enabled_events=wh_cfg.get("events"),
+            debounce_seconds=wh_cfg.get("debounce_seconds", 5),
+        )
+        log.info("Webhook client: %s", wh_cfg["url"])
+
+
+async def _webhook_event(event_type: str, message: str, data: dict | None = None) -> None:
+    """Send a webhook event if the client is configured."""
+    if _webhook:
+        session_key = f"agent:{_ui_state['agent']}:companion"
+        await _webhook.send(event_type, message, data, session_key)
 
 
 def _init_audio() -> None:
@@ -223,6 +268,77 @@ async def _pipeline_error(msg: str) -> None:
     sm.to_idle()
 
 
+async def _stream_to_display(text: str, history: list[dict] | None = None,
+                             device_state: dict | None = None) -> tuple[str, list]:
+    """Stream gateway response to the display, return final text and tool calls.
+
+    Uses an asyncio.Queue to bridge the synchronous streaming generator
+    (running in a thread) with the async event loop so we can emit partial
+    transcript updates to the display as chunks arrive.
+    """
+    try:
+        from core.gateway import TextChunk, ToolCallStart, ToolCallDone, StreamDone
+    except ImportError:
+        result = _oclient.send_message(text, history=history, device_state=device_state) or ""
+        return result, []
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def _run() -> None:
+        """Run the streaming generator in a thread, pushing events to the queue."""
+        try:
+            for event in _oclient.send_message_stream(text, history=history, device_state=device_state):
+                queue.put_nowait(event)
+        except Exception as e:
+            log.warning("Stream thread error: %s", e)
+        finally:
+            queue.put_nowait(None)  # sentinel
+
+    # Start the streaming thread
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run)
+
+    full_text = ""
+    tool_calls: list[dict] = []
+
+    # Consume events from the queue, emitting partial updates
+    while True:
+        try:
+            event = await asyncio.wait_for(queue.get(), timeout=130)  # slightly over gateway 120s timeout
+        except asyncio.TimeoutError:
+            log.warning("Stream timeout — no events received")
+            break
+        if event is None:
+            break  # stream finished
+        if isinstance(event, TextChunk):
+            full_text += event.text
+            # Emit partial transcript so the display updates progressively
+            await emit_transcript("assistant", full_text, status="partial")
+        elif isinstance(event, ToolCallStart):
+            await broadcast({
+                "type": "tool_call", "id": event.id,
+                "name": event.name, "status": "running",
+            })
+        elif isinstance(event, ToolCallDone):
+            tool_calls.append({
+                "id": event.id, "name": event.name,
+                "arguments": event.arguments,
+            })
+            await broadcast({
+                "type": "tool_call", "id": event.id,
+                "name": event.name, "status": "done",
+            })
+        elif isinstance(event, StreamDone):
+            full_text = event.full_text
+            tool_calls = [
+                {"id": tc.get("id", ""), "name": tc.get("name", ""),
+                 "arguments": tc.get("arguments", "")}
+                for tc in (event.tool_calls or [])
+            ]
+
+    return full_text, tool_calls
+
+
 async def run_voice_pipeline() -> None:
     """Full voice conversation: record → STT → OpenClaw → TTS → playback.
 
@@ -234,8 +350,13 @@ async def run_voice_pipeline() -> None:
     _cancel_event.clear()
     _release_event.clear()
 
+    pipeline_start = time.perf_counter()
+    log.info("Voice pipeline: started")
+
     try:
         # ── LISTENING: record mic ────────────────────────────────
+        log.info("Voice pipeline: LISTENING — recording from mic")
+        t_record_start = time.perf_counter()
         audio.start_recording()
 
         # Wait for button release (or cancellation / timeout)
@@ -243,22 +364,29 @@ async def run_voice_pipeline() -> None:
         try:
             await asyncio.wait_for(_release_event.wait(), timeout=max_secs)
         except asyncio.TimeoutError:
-            log.warning("Max recording time reached")
+            log.warning("Voice pipeline: max recording time reached (%ds)", max_secs)
 
         wav_bytes = await asyncio.to_thread(audio.stop_recording)
+        t_record_ms = (time.perf_counter() - t_record_start) * 1000
+        log.info("Voice pipeline: recording complete — %d bytes in %.0fms", len(wav_bytes), t_record_ms)
 
         if _cancel_event.is_set():
+            log.info("Voice pipeline: cancelled during recording")
             sm.to_idle()
             return
 
         if len(wav_bytes) < MIN_RECORDING_BYTES:
+            log.warning("Voice pipeline: recording too short (%d bytes < %d min)",
+                        len(wav_bytes), MIN_RECORDING_BYTES)
             await _pipeline_error("Too short — try again")
             return
 
         # ── THINKING: transcribe ─────────────────────────────────
+        log.info("Voice pipeline: THINKING — transcribing with STT")
         sm.to_thinking()
         await emit_transcript("user", "…", status="transcribing")
 
+        t_stt_start = time.perf_counter()
         whisper_cfg = settings.get("stt", {}).get("whisper", {})
         user_text = await stt.transcribe(
             wav_bytes,
@@ -266,8 +394,12 @@ async def run_voice_pipeline() -> None:
             model=whisper_cfg.get("model", "whisper-1"),
             language=whisper_cfg.get("language", "en"),
         )
+        t_stt_ms = (time.perf_counter() - t_stt_start) * 1000
+        log.info("Voice pipeline: STT completed in %.0fms — %s",
+                 t_stt_ms, f"'{user_text[:60]}'" if user_text else "empty")
 
         if _cancel_event.is_set():
+            log.info("Voice pipeline: cancelled after STT")
             sm.to_idle()
             return
 
@@ -277,8 +409,10 @@ async def run_voice_pipeline() -> None:
 
         await emit_transcript("user", user_text, status="done")
         _append_chat("user", user_text)
+        log.info("Voice pipeline: user said: '%s'", user_text)
 
         # ── THINKING: send to OpenClaw ───────────────────────────
+        log.info("Voice pipeline: THINKING — sending to gateway (agent=%s)", _ui_state["agent"])
         await emit_transcript("assistant", "…", status="thinking")
 
         if _oclient is None:
@@ -288,9 +422,24 @@ async def run_voice_pipeline() -> None:
         # Ensure gateway is using current agent
         _oclient.set_agent(_ui_state["agent"])
 
-        response_text = await asyncio.to_thread(_oclient.send_message, user_text)
+        # Try streaming (emits partial transcripts), fall back to blocking
+        t_gw_start = time.perf_counter()
+        try:
+            response_text, tool_calls = await _stream_to_display(
+                user_text, history=list(_chat_history), device_state=dict(_ui_state))
+        except Exception as e:
+            log.warning("Voice pipeline: streaming failed, falling back to non-streaming: %s", e)
+            response_text = await asyncio.to_thread(
+                _oclient.send_message, user_text, list(_chat_history), dict(_ui_state)) or ""
+            tool_calls = []
+        t_gw_ms = (time.perf_counter() - t_gw_start) * 1000
+        log.info("Voice pipeline: gateway responded in %.0fms — %d chars, %d tool calls",
+                 t_gw_ms, len(response_text), len(tool_calls))
+        if response_text:
+            log.info("Voice pipeline: agent replied: '%s'", response_text[:200])
 
         if _cancel_event.is_set():
+            log.info("Voice pipeline: cancelled after gateway response")
             sm.to_idle()
             return
 
@@ -298,25 +447,53 @@ async def run_voice_pipeline() -> None:
             await _pipeline_error("No response from agent")
             return
 
+        # Extract mood hint from response
+        try:
+            from core.mood_parser import extract_mood
+            mood, response_text = extract_mood(response_text)
+            if mood:
+                log.debug("Voice pipeline: extracted mood hint: %s", mood)
+                set_mood(mood)
+        except ImportError:
+            pass
+
+        # Extract emoji reaction (before sending to TTS)
+        try:
+            from display.emoji_reactions import parse_reaction
+            emoji, response_text = parse_reaction(response_text)
+            if emoji:
+                log.debug("Voice pipeline: extracted emoji reaction: %s", emoji)
+                await emit_reaction(emoji)
+        except ImportError:
+            pass
+
         await emit_transcript("assistant", response_text, status="done")
         _append_chat("assistant", response_text)
 
         # ── SPEAKING: synthesize and play ────────────────────────
+        log.info("Voice pipeline: SPEAKING — synthesizing TTS")
         sm.to_speaking()
         _ui_state["speaking"] = True
+        _ui_state["amplitude"] = 0.0  # clear residual amplitude
         await push_state()
 
         provider = _setting("audio.tts_provider", "edge")
         voice = _resolve_voice()
+        log.debug("Voice pipeline: TTS provider=%s, voice=%s", provider, voice or "(default)")
 
+        t_tts_start = time.perf_counter()
         audio_data = await tts.synthesize(
             response_text,
             voice=voice,
             provider=provider,
             settings=settings,
         )
+        t_tts_ms = (time.perf_counter() - t_tts_start) * 1000
+        log.info("Voice pipeline: TTS completed in %.0fms — %s",
+                 t_tts_ms, f"{len(audio_data)} bytes" if audio_data else "no audio")
 
         if _cancel_event.is_set():
+            log.info("Voice pipeline: cancelled after TTS")
             _ui_state["speaking"] = False
             sm.to_idle()
             return
@@ -331,10 +508,11 @@ async def run_voice_pipeline() -> None:
                 await asyncio.sleep(0.05)
 
             if _cancel_event.is_set():
+                log.info("Voice pipeline: cancelled during playback")
                 audio.stop_playback()
         else:
             # TTS failed — show text for a few seconds
-            log.warning("TTS returned no audio, showing text only")
+            log.warning("Voice pipeline: TTS returned no audio, showing text only")
             await asyncio.sleep(3)
 
         # ── Done ─────────────────────────────────────────────────
@@ -342,8 +520,19 @@ async def run_voice_pipeline() -> None:
         _ui_state["amplitude"] = 0.0
         sm.to_idle()
 
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.info("Voice pipeline: complete in %.0fms (record=%.0f, stt=%.0f, gateway=%.0f, tts=%.0f)",
+                 total_ms, t_record_ms, t_stt_ms, t_gw_ms, t_tts_ms)
+
+        await _webhook_event("conversation_complete", "Conversation finished", {
+            "user": user_text[:200],
+            "agent_response": response_text[:200],
+            "duration_ms": round(total_ms),
+        })
+
     except asyncio.CancelledError:
-        log.info("Pipeline cancelled")
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.info("Voice pipeline: cancelled after %.0fms", total_ms)
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
         try:
@@ -354,7 +543,8 @@ async def run_voice_pipeline() -> None:
             pass
         sm.to_idle()
     except Exception as e:
-        log.exception("Pipeline unhandled error")
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.exception("Voice pipeline: unhandled error after %.0fms", total_ms)
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
         await _pipeline_error(str(e)[:60])
@@ -370,8 +560,13 @@ async def run_text_pipeline(text: str) -> None:
     _init_audio()
     _cancel_event.clear()
 
+    pipeline_start = time.perf_counter()
+    log.info("Text pipeline: started with %d chars of input", len(text))
+
     try:
         # ── THINKING ─────────────────────────────────────────────
+        log.info("Text pipeline: THINKING — sending to gateway (agent=%s)", _ui_state["agent"])
+        log.info("Text pipeline: user said: '%s'", text[:200])
         sm.to_thinking()
         await emit_transcript("user", text, status="done")
         _append_chat("user", text)
@@ -383,9 +578,25 @@ async def run_text_pipeline(text: str) -> None:
             return
 
         _oclient.set_agent(_ui_state["agent"])
-        response_text = await asyncio.to_thread(_oclient.send_message, text)
+
+        # Try streaming (emits partial transcripts), fall back to blocking
+        t_gw_start = time.perf_counter()
+        try:
+            response_text, tool_calls = await _stream_to_display(
+                text, history=list(_chat_history), device_state=dict(_ui_state))
+        except Exception as e:
+            log.warning("Text pipeline: streaming failed, falling back to non-streaming: %s", e)
+            response_text = await asyncio.to_thread(
+                _oclient.send_message, text, list(_chat_history), dict(_ui_state)) or ""
+            tool_calls = []
+        t_gw_ms = (time.perf_counter() - t_gw_start) * 1000
+        log.info("Text pipeline: gateway responded in %.0fms — %d chars, %d tool calls",
+                 t_gw_ms, len(response_text), len(tool_calls))
+        if response_text:
+            log.info("Text pipeline: agent replied: '%s'", response_text[:200])
 
         if _cancel_event.is_set():
+            log.info("Text pipeline: cancelled after gateway response")
             sm.to_idle()
             return
 
@@ -393,25 +604,53 @@ async def run_text_pipeline(text: str) -> None:
             await _pipeline_error("No response from agent")
             return
 
+        # Extract mood hint from response
+        try:
+            from core.mood_parser import extract_mood
+            mood, response_text = extract_mood(response_text)
+            if mood:
+                log.debug("Text pipeline: extracted mood hint: %s", mood)
+                set_mood(mood)
+        except ImportError:
+            pass
+
+        # Extract emoji reaction (before sending to TTS)
+        try:
+            from display.emoji_reactions import parse_reaction
+            emoji, response_text = parse_reaction(response_text)
+            if emoji:
+                log.debug("Text pipeline: extracted emoji reaction: %s", emoji)
+                await emit_reaction(emoji)
+        except ImportError:
+            pass
+
         await emit_transcript("assistant", response_text, status="done")
         _append_chat("assistant", response_text)
 
         # ── SPEAKING ─────────────────────────────────────────────
+        log.info("Text pipeline: SPEAKING — synthesizing TTS")
         sm.to_speaking()
         _ui_state["speaking"] = True
+        _ui_state["amplitude"] = 0.0  # clear residual amplitude
         await push_state()
 
         provider = _setting("audio.tts_provider", "edge")
         voice = _resolve_voice()
+        log.debug("Text pipeline: TTS provider=%s, voice=%s", provider, voice or "(default)")
 
+        t_tts_start = time.perf_counter()
         audio_data = await tts.synthesize(
             response_text,
             voice=voice,
             provider=provider,
             settings=settings,
         )
+        t_tts_ms = (time.perf_counter() - t_tts_start) * 1000
+        log.info("Text pipeline: TTS completed in %.0fms — %s",
+                 t_tts_ms, f"{len(audio_data)} bytes" if audio_data else "no audio")
 
         if _cancel_event.is_set():
+            log.info("Text pipeline: cancelled after TTS")
             _ui_state["speaking"] = False
             sm.to_idle()
             return
@@ -425,20 +664,35 @@ async def run_text_pipeline(text: str) -> None:
                 await asyncio.sleep(0.05)
 
             if _cancel_event.is_set():
+                log.info("Text pipeline: cancelled during playback")
                 audio.stop_playback()
         else:
+            log.warning("Text pipeline: TTS returned no audio, showing text only")
             await asyncio.sleep(3)
 
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
         sm.to_idle()
 
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.info("Text pipeline: complete in %.0fms (gateway=%.0f, tts=%.0f)",
+                 total_ms, t_gw_ms, t_tts_ms)
+
+        await _webhook_event("conversation_complete", "Conversation finished", {
+            "user": text[:200],
+            "agent_response": response_text[:200],
+            "duration_ms": round(total_ms),
+        })
+
     except asyncio.CancelledError:
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.info("Text pipeline: cancelled after %.0fms", total_ms)
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
         sm.to_idle()
     except Exception as e:
-        log.exception("Text pipeline error")
+        total_ms = (time.perf_counter() - pipeline_start) * 1000
+        log.exception("Text pipeline: unhandled error after %.0fms", total_ms)
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
         await _pipeline_error(str(e)[:60])
@@ -448,6 +702,7 @@ def _cancel_pipeline() -> None:
     """Cancel any running pipeline."""
     global _pipeline_task
     if _pipeline_task and not _pipeline_task.done():
+        log.info("Pipeline: cancelling active pipeline task")
         _cancel_event.set()
         _pipeline_task.cancel()
         _pipeline_task = None
@@ -455,7 +710,7 @@ def _cancel_pipeline() -> None:
 
 # ── WebSocket handler ────────────────────────────────────────────────────────
 
-async def handler(websocket: websockets.WebSocketServerProtocol) -> None:
+async def handler(websocket: ServerConnection) -> None:
     """Handle a single WebSocket client connection."""
     _clients.add(websocket)
     log.info(f"Client connected ({len(_clients)} total)")
@@ -479,7 +734,7 @@ async def handler(websocket: websockets.WebSocketServerProtocol) -> None:
         log.info(f"Client disconnected ({len(_clients)} total)")
 
 
-async def handle_message(data: dict, ws: websockets.WebSocketServerProtocol) -> None:
+async def handle_message(data: dict, ws: ServerConnection) -> None:
     """Handle incoming messages from the frontend."""
     global _pipeline_task
     msg_type = data.get("type", "")
@@ -572,45 +827,31 @@ async def handle_message(data: dict, ws: websockets.WebSocketServerProtocol) -> 
 # ── Hardware polling ─────────────────────────────────────────────────────────
 
 async def hardware_loop() -> None:
-    """Poll hardware inputs and push state changes."""
-    from hardware.platform import IS_PI
+    """Poll hardware state (battery only).
+
+    Button input is handled by the display service, which forwards
+    button events to us via WebSocket. This avoids double-polling
+    the same GPIO pins.
+    """
+    from hw.detect import IS_PI
 
     if IS_PI:
-        from hardware import buttons, led, battery
-        buttons.init()
-        led.init()
-        battery.init()
+        from hw.battery import get_level, init as battery_init
+        battery_init()
 
         while True:
-            btn_events = buttons.poll()
-            for evt in btn_events:
-                from hardware.buttons import ButtonEvent
-                if evt == ButtonEvent.BUTTON_PRESS:
-                    await emit_button("press")
-                    # Trigger pipeline via the same path as WebSocket button
-                    await handle_message({"type": "button", "button": "press"}, None)
-                elif evt == ButtonEvent.BUTTON_RELEASE:
-                    await emit_button("release")
-                    await handle_message({"type": "button", "button": "release"}, None)
-                elif evt == ButtonEvent.BUTTON_LEFT:
-                    await emit_button("left")
-                elif evt == ButtonEvent.BUTTON_RIGHT:
-                    await emit_button("right")
-                elif evt == ButtonEvent.BUTTON_MENU:
-                    await emit_button("menu")
-                    sm.to_menu() if sm.state != State.MENU else sm.to_idle()
-
-            # Battery level
-            batt = battery.get_level()
+            batt = get_level()
             if batt >= 0 and batt != _ui_state["battery"]:
                 _ui_state["battery"] = batt
                 if batt <= 5:
                     set_mood("critical_battery")
+                    await _webhook_event("battery_alert", f"Battery critical: {batt}%", {"level": batt})
                 elif batt <= 20:
                     set_mood("low_battery")
+                    await _webhook_event("battery_alert", f"Battery low: {batt}%", {"level": batt})
                 await push_state()
 
-            await asyncio.sleep(0.05)  # 20Hz polling
+            await asyncio.sleep(1.0)  # Battery changes slowly
     else:
         # Desktop — no hardware to poll, just keep alive
         while True:
@@ -620,9 +861,13 @@ async def hardware_loop() -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
+    # Suppress websockets' noisy handshake failure logs (e.g. port-check probes)
+    logging.getLogger("websockets").setLevel(logging.ERROR)
+
     boot_message()
     apply_runtime_settings()
     _init_gateway()
+    _init_webhook()
 
     host = "0.0.0.0"
     port = 8080
@@ -637,6 +882,14 @@ async def main() -> None:
 
 def shutdown(signum, frame) -> None:
     shutdown_message()
+    # Silence stderr before exit — asyncio's Task.__del__ writes "Task was
+    # destroyed but it is pending" via loop.call_exception_handler() during
+    # GC teardown. These are harmless but noisy. Redirect stderr to devnull
+    # for the final moments of the process.
+    try:
+        sys.stderr = open(_os.devnull, "w")
+    except Exception:
+        pass
     sys.exit(0)
 
 
@@ -645,5 +898,5 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown)
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        shutdown_message()
+    except (KeyboardInterrupt, SystemExit):
+        pass  # shutdown() already logged the message

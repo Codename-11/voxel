@@ -1,0 +1,39 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Neon Glow Filters -->
+    <filter id="flat-glow-outer" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" />
+    </filter>
+    <filter id="flat-glow-inner" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.5" />
+    </filter>
+    
+    <!-- Base Neon Segment Coordinates -->
+    <g id="flat-lines">
+      <!-- Top -->
+      <line x1="22" y1="8" x2="98" y2="8" />
+      <!-- Bottom -->
+      <line x1="22" y1="112" x2="98" y2="112" />
+      <!-- Left -->
+      <line x1="8" y1="22" x2="8" y2="98" />
+      <!-- Right -->
+      <line x1="112" y1="22" x2="112" y2="98" />
+    </g>
+  </defs>
+
+  <!-- Solid Body -->
+  <rect x="8" y="8" width="104" height="104" rx="14" fill="#1a1a2e" />
+  
+  <!-- Neon Tube Layering -->
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <use href="#flat-lines" stroke="#00d4d2" stroke-width="8" opacity="0.3" filter="url(#flat-glow-outer)" />
+    <use href="#flat-lines" stroke="#00d4d2" stroke-width="4" opacity="0.8" filter="url(#flat-glow-inner)" />
+    <use href="#flat-lines" stroke="#e0ffff" stroke-width="2" />
+  </g>
+
+  <!-- Kawaii Eyes -->
+  <g fill="#ffffff">
+    <rect x="36" y="44" width="14" height="32" rx="7" />
+    <rect x="70" y="44" width="14" height="32" rx="7" />
+  </g>
+</svg>

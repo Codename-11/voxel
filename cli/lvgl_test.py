@@ -14,7 +14,7 @@ from PIL import Image
 
 from cli.display import fail, header, info, ok, warn
 from cli.display_test import _load_whisplay_board
-from hardware.platform import probe_hardware
+from hw.detect import probe_hardware
 
 
 ROOT = Path(__file__).resolve().parent.parent

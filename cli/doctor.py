@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from cli.display import ok, warn, fail, info, header, section, kv, console
-from hardware.platform import probe_hardware
+from hw.detect import probe_hardware
 
 
 def _cmd_name(name: str) -> str:
@@ -272,12 +272,33 @@ def run() -> int:
     else:
         info("Battery: N/A (desktop)")
 
+    # ── Setup State ───────────────────────────────────────────
+
+    section("Setup State")
+    setup_state_path = Path(__file__).resolve().parent.parent / "config" / ".setup-state"
+    if setup_state_path.exists():
+        try:
+            import yaml
+            setup_state = yaml.safe_load(setup_state_path.read_text()) or {}
+            for key in ("system_deps", "drivers_installed", "build_complete",
+                        "config_created", "services_installed",
+                        "wifi_configured", "gateway_configured"):
+                val = setup_state.get(key, False)
+                if val:
+                    ok(f"{key}: done")
+                else:
+                    warn(f"{key}: not yet")
+        except Exception as e:
+            warn(f"Could not read setup state: {e}")
+    else:
+        info("No setup state file — run: voxel setup")
+
     # ── Services ──────────────────────────────────────────────
 
     section("Services")
 
     if shutil.which("systemctl"):
-        for svc in ["voxel", "voxel-ui", "voxel-web"]:
+        for svc in ["voxel", "voxel-display"]:
             status = _svc_status(svc)
             if status == "active":
                 ok(f"{svc}: {status}")

@@ -1,0 +1,22 @@
+[Unit]
+Description=Voxel MCP Server (AI Agent Integration)
+After=voxel.service
+Wants=voxel.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/voxel
+ExecStart=/home/pi/.local/bin/uv run mcp-server --transport sse --port 8082
+Restart=on-failure
+RestartSec=5
+
+Environment=HOME=/home/pi
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voxel-mcp
+
+[Install]
+WantedBy=multi-user.target

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from cli.display import fail, header, info, ok, warn
-from hardware.platform import probe_hardware
+from hw.detect import probe_hardware
 
 
 def _driver_candidates() -> list[Path]:

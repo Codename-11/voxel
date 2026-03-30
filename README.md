@@ -1,322 +1,231 @@
-# Voxel
+<p align="center">
+  <img src="assets/Logo-3D.SVG" width="160" alt="Voxel" />
+</p>
 
-> A pocket AI companion with personality.
+<h1 align="center">Voxel</h1>
 
-Voxel is an animated AI companion that lives on a tiny screen in your pocket. A dark cube mascot with glowing cyan accents, expressive eyes, and a voice — connected to your AI agent team through [OpenClaw](https://github.com/openclaw/openclaw).
+<p align="center">
+  Pocket AI companion device — animated cube mascot with voice interaction
+</p>
 
-Press a button, talk, and Voxel responds — with animated expressions, voice, and the full intelligence of your cloud AI agents behind it.
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/platform-Pi%20Zero%202W-c51a4a?logo=raspberrypi&logoColor=white" alt="Pi Zero 2W" />
+  <img src="https://img.shields.io/badge/display-240%C3%97280%20SPI-00d4d2" alt="240x280 SPI LCD" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
+</p>
 
-**Voxel** is the character. The physical device is called the **Relay**.
+---
 
-![Concept Art](assets/character/concept-03-ui-mockup.png)
+**Voxel** is the character — an animated cube mascot with expressive eyes, a mouth, and body language. The physical device is called the **Relay**. Press a button, talk, and Voxel responds with voice, animated expressions, and the intelligence of your cloud AI agents via [OpenClaw](https://github.com/openclaw/openclaw).
 
-## Why
+<p align="center">
+  <img src="assets/character/concept-03-ui-mockup.png" width="240" alt="Voxel on the Relay device" />
+</p>
 
-Most AI assistants are apps on a phone or text in a terminal. Voxel is something different — a dedicated physical companion with a face, emotions, and presence. It's always there, always listening (when you want it to), and always connected to your AI team.
+## Features
 
-Think Wall-E meets a modern AI assistant, running on $30 of hardware.
-
-## What It Does
-
-- **Animated character** — expressive cube mascot with eyes, mouth, and body language. 16 mood states across 3 visual styles.
-- **Voice interaction** — push-to-talk or wake word ("Hey Voxel"). Whisper for speech-to-text, ElevenLabs for voice.
-- **Agent switching** — talk to any agent on your team (Daemon, Soren, Ash, Mira, Jace, Pip) by selecting from the menu.
-- **Mouth sync** — mouth animation driven by audio amplitude in real-time via WebSocket.
-- **Idle behaviors** — slow blinks, gaze drift, gentle breathing animation. Voxel feels alive even when idle.
-- **Live design** — edit expressions and styles in shared YAML, see changes instantly in the browser.
+- **Animated face** on 240x280 IPS LCD -- 16 mood states, 3 visual styles, smooth transitions
+- **Multiple characters** -- Voxel (default), Cube (isometric), BMO (Adventure Time)
+- **Voice interaction** -- push-to-talk via single button, Whisper STT, OpenAI TTS/ElevenLabs/edge-tts
+- **Multiple AI agents** -- switch between Daemon, Soren, Ash, Mira, Jace, Pip via OpenClaw
+- **Web-based settings** -- config UI on port 8081 with QR code access and PIN auth
+- **WiFi onboarding** -- AP mode captive portal on first boot ("Voxel-Setup" hotspot)
+- **Self-update** -- check for and install updates via git from the device menu
+- **MCP integration** -- expose 20 device tools to AI agents: control (mood, speech, LED), query (stats, logs, diagnostics), manage (config, services, updates, WiFi)
+- **Webhook events** -- notify OpenClaw gateway on state changes, battery alerts, conversations
+- **Streaming chat** -- SSE streaming with progressive display, tool call indicators, emoji reactions
+- **System stats** -- CPU temp, RAM, disk, WiFi signal via `/api/stats` endpoint
+- **Light/dark mode** -- web config server supports both themes with auto-detection
+- **Cross-platform dev preview** -- develop on Windows, macOS, or Linux with tkinter preview
 
 ## Hardware (The Relay)
 
-| Component | Details |
-|-----------|---------|
-| **Brain** | Raspberry Pi Zero 2W |
-| **Display** | 1.69" IPS LCD, 240x280px (PiSugar Whisplay HAT) |
-| **Audio** | Dual MEMS microphones + mono speaker |
-| **Input** | Mouse-style buttons (left/right click) |
-| **Feedback** | RGB LED indicator |
-| **Power** | PiSugar 3 battery (1200mAh portable) |
+| Component | Product | Purpose |
+|-----------|---------|---------|
+| Brain | Raspberry Pi Zero 2W | Compute |
+| Display + Audio | PiSugar Whisplay HAT | 1.69" IPS LCD, dual mics, speaker, button, RGB LED |
+| Battery | PiSugar 3 (1200mAh) | Portable power via USB-C charging |
+| Storage | MicroSD card (16GB+) | OS + software |
+| **Total** | | **~$65** |
 
-Total hardware cost: ~$50-60
+See [docs/hardware.md](docs/hardware.md) for detailed specs, pin mapping, and assembly.
 
-## Current Status
+## Quick Start
 
-| Component | Status |
-|-----------|--------|
-| React face renderer (Framer Motion) | Done |
-| 16 moods, 3 styles (kawaii/retro/minimal) | Done |
-| Shared YAML data layer (expressions/styles/moods) | Done |
-| Python WebSocket backend (server.py) | Done |
-| State machine (7 states) | Done |
-| WebSocket frontend hook (useVoxelSocket) | Done |
-| Platform abstraction (desktop/Pi) | Done |
-| OpenClaw gateway client | Done |
-| Dev workflow (backend + frontend HMR) | Done |
-| Voice pipeline (STT → OpenClaw → TTS → mouth sync) | Done |
-| Conversation chat panel + text input fallback | Done |
-| Settings/menu UI + persisted runtime settings | Done |
-| Voxel CLI (`voxel doctor`, `voxel setup`, etc.) | Done |
-| Pi remote-appliance mode (UI on :8081) | Done |
-| WPE/Cog deployment on Pi | In progress - Whisplay hardware verified, direct DRM path failing on current Pi image |
-| LVGL native renderer proof of concept | Done |
-| WSL -> Pi LVGL render/sync/play loop | Done |
-| Wake word detection | Planned |
+### On the Pi (first time)
 
-## Architecture
-
-React frontend + Python WebSocket backend. The React app IS the production UI. On the assembled Relay it runs on the Pi via WPE/Cog (embedded WebKit); before the Whisplay HAT is attached, the same built UI can be served from the Pi and opened in a remote browser.
-
-```
-  React UI (app/)              Python Backend (server.py)
-  ┌─────────────────┐          ┌──────────────────────────┐
-  │ Framer Motion    │◄──ws──►│ State Machine             │
-  │ face animation   │  :8080  │ Hardware (buttons/LED/bat)│
-  │ mood/style/mouth │         │ AI (OpenClaw, STT, TTS)   │
-  └────────┬────────┘          └──────────┬───────────────┘
-           │                              │
-     shared/*.yaml                   shared/*.yaml
-     (expressions, styles, moods)    (moods, expressions)
+```bash
+ssh pi@voxel.local
+curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-```
-voxel/
-├── server.py              # Python WebSocket backend
-├── app/                   # React production UI
-│   ├── src/
-│   │   ├── App.jsx        # Main app + dev panel
-│   │   ├── components/
-│   │   │   └── VoxelCube.jsx  # Animated cube face
-│   │   ├── hooks/
-│   │   │   └── useVoxelSocket.js  # WebSocket client
-│   │   ├── expressions.js # Re-exports from shared YAML
-│   │   └── styles.js      # Re-exports from shared YAML
-│   └── vite.config.js     # Watches shared/ for HMR
-├── shared/                # Single source of truth (YAML)
-│   ├── expressions.yaml   # 16 mood definitions
-│   ├── styles.yaml        # 3 face styles
-│   └── moods.yaml         # Icons, state map, LED behavior
-├── cli/                   # Voxel CLI (voxel setup, doctor, etc.)
-│   ├── app.py             # Command routing
-│   └── doctor.py          # System health diagnostics
-├── core/                  # AI integration (Python)
-│   ├── gateway.py         # OpenClaw API client
-│   ├── stt.py             # Speech-to-text (Whisper API)
-│   ├── tts.py             # Text-to-speech (edge-tts + ElevenLabs)
-│   └── audio.py           # Audio capture/playback + amplitude
-├── face/                  # Renderer abstraction + pygame fallback
-│   ├── base.py            # Abstract renderer interface
-│   └── renderer.py        # Pygame implementation (fallback)
-├── hardware/              # Platform abstraction
-│   ├── platform.py        # Pi vs desktop detection
-│   ├── buttons.py         # GPIO / keyboard
-│   ├── led.py             # RGB LED / mock
-│   └── battery.py         # PiSugar / mock
-├── states/
-│   └── machine.py         # State machine (7 states)
-├── config/
-│   └── default.yaml       # Settings (agents, audio, power)
-└── assets/                # Concept art, fonts, icons
-```
+### Development (any platform)
 
-## Local Development
-
-Develop and preview Voxel on your desktop — no Pi hardware needed. Uses [uv](https://docs.astral.sh/uv/) for Python, npm for the React frontend.
-
-**Prerequisites:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and [Node.js](https://nodejs.org/) (18+).
-
-### Quick Start
+Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager).
 
 ```bash
 git clone https://github.com/Codename-11/voxel.git
 cd voxel
 
-# Windows
-run_dev_windows.bat
+# Local preview (PIL renderer in a tkinter window — same as Pi LCD)
+uv run dev
 
-# macOS / Linux
-./run.sh
+# Auto-reload on file changes
+uv run dev-watch
+
+# Push to Pi hardware
+uv run voxel display-push --logs
 ```
 
-This starts both processes:
-- **Backend:** WebSocket server on `ws://localhost:8080`
-- **Frontend:** Vite dev server at `http://localhost:5173`
+The preview window renders 1:1 with the Pi LCD (240x280, same PIL renderer, corner mask, all components). Spacebar simulates the hardware button.
 
-### Manual Start
+> Voxel works standalone with just the display service. Add a gateway token for AI chat, enable MCP for remote agent control, or enable webhooks for event notifications. See [Operating Modes](#operating-modes).
 
-```bash
-# Terminal 1 — Python backend
-uv run server.py
+> **`uv run dev`** = PIL display preview (what runs on the Pi). This is the primary dev command.
+> **`npm run dev`** = React browser UI (design tool only, NOT the production renderer).
 
-# Terminal 2 — React frontend
-npm run dev
-```
+## Button Controls
 
-### Frontend Only
+Single button (Whisplay HAT). All interaction encoded through timing:
 
-```bash
-npm run dev
-```
+| Pattern | Action | Timing |
+|---------|--------|--------|
+| **Short press** | Cycle views (face / drawer / chat) | < 400ms |
+| **Double-tap** | Push-to-talk (start recording) | Two presses within 400ms, face view only |
+| **Long press** | Menu open / select | Hold > 1s |
+| **Sleep** | Enter sleep mode | Hold > 5s |
+| **Shutdown** | Shutdown Pi (with 3s confirm) | Hold > 10s |
 
-Works standalone without the backend. Falls back to local state with a dev panel for mood/style/speaking controls. Press backtick (`` ` ``) to toggle the dev panel.
+Desktop simulation: spacebar mimics the hardware button with identical timing.
 
-The browser shows a 240x280 pixel device frame — exact match of the Relay's LCD.
+## Configuration
 
-## Expression States (16 Moods)
-
-| Mood | Eyes | Mouth | Body | Icon |
-|------|------|-------|------|------|
-| Neutral | Calm, slow blinks | Gentle smile | Breathing bounce | -- |
-| Happy | Squint-smile | Wide grin | Bouncy | heart |
-| Curious | Wide, head tilt | Slightly open | Lean forward | ? |
-| Thinking | Asymmetric brow raise | Neutral | Slight tilt | brain + cog |
-| Confused | Asymmetric sizes | Rapid blinks | Head tilt | ??? |
-| Excited | Wide-open | Big smile | Fast bounce | !! |
-| Sleepy | Half-closed | Closed | Slow sway | z z Z |
-| Error | X_X | Flat line | Still | ?! |
-| Listening | Wide, focused | Slightly open | Lean forward | ))) |
-| Sad | Droopy tilted brows | Frown | Shrunk | tear |
-| Surprised | Very wide | O-mouth | Scale up | ! |
-| Focused | Narrowed, squinting | Neutral | Still | dots |
-| Frustrated | Angry V-brows | Frown | Tense | # |
-| Working | Slightly narrowed | Neutral | Calm | cog |
-| Low Battery | Droopy amber eyes | Slight frown | Leaning | battery |
-| Critical Battery | Very droopy dim eyes | Deep frown | Leaning | battery |
-
-3 visual styles: **Kawaii** (default, rounded rectangles), **Retro** (iris + teeth, Fallout-inspired), **Minimal** (dots + arcs, lo-fi).
-
-## Tech Stack
-
-**Frontend:**
-- **React 19** + **Framer Motion 12** for animation
-- **Tailwind CSS 4** for styling
-- **Vite 8** for dev/build
-- **js-yaml** for shared YAML loading
-
-**Backend:**
-- **Python 3.11-3.13** (managed by [uv](https://docs.astral.sh/uv/))
-- **websockets** for real-time communication
-- **OpenClaw** gateway API for AI agent access
-- **Whisper** (OpenAI) for speech-to-text
-- **ElevenLabs / edge-tts** for text-to-speech
-
-**Shared:**
-- **YAML** data layer (`shared/`) — single source of truth for both frontend and backend
-
-## Pi Setup
-
-One command installs everything (clones repo, installs uv + Node.js, builds, configures services):
+- **Web UI:** Settings menu on device, or scan QR code to open `http://<device-ip>:8081`
+- **Config files:** `config/default.yaml` (defaults) + `config/local.yaml` (overrides, gitignored)
+- **Required keys:** Gateway token (`gateway.token`), OpenAI API key (`stt.whisper.api_key` — also used by OpenAI TTS)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
-```
-
-After bootstrap, the `voxel` command is available globally:
-
-```bash
-voxel doctor      # Check system health
 voxel config set gateway.token <your-token>
-voxel start       # Start services
-voxel logs        # Watch logs
-voxel status      # Check everything
-voxel update      # Pull latest + rebuild + restart
-voxel display-test # Direct Whisplay display sanity test
-voxel lvgl-build   # Build the LVGL proof of concept
-voxel lvgl-render  # Render LVGL RGB565 frames locally
-voxel lvgl-sync    # Sync rendered LVGL frames to a Pi
-voxel lvgl-play    # Play pre-rendered LVGL frames on the Pi
-voxel lvgl-deploy  # Render, sync, and play in one command
+voxel config set stt.whisper.api_key <your-key>
 ```
 
-### Remote Browser Mode
+## Characters
 
-Before the Whisplay HAT arrives, the Pi serves the UI over HTTP:
+<p align="center">
+  <img src="assets/Logo.SVG" width="64" alt="Voxel flat" />
+  &nbsp;&nbsp;
+  <img src="assets/Logo-3D.SVG" width="64" alt="Voxel 3D" />
+</p>
+
+| Character | Description |
+|-----------|-------------|
+| **Voxel** (default) | Glowing cyan pill eyes — minimal, expressive |
+| **Cube** | Dark charcoal isometric cube with neon edge glow |
+| **BMO** | Adventure Time game console with face |
+
+16 moods defined in `shared/expressions.yaml`, 3 face styles in `shared/styles.yaml` (kawaii, retro, minimal). Smooth lerp transitions between moods.
+
+Characters are defined in `display/characters/` and selected via `config/default.yaml` (`character.default`).
+
+## Operating Modes
+
+Voxel works in layers — each mode adds capabilities on top of the previous:
+
+| Mode | What it does | Requires |
+|------|-------------|----------|
+| **Standalone** | Animated face, button interaction, on-device menu, config web UI | Nothing (works out of the box) |
+| **Connected** | + Chat with AI agents, voice interaction, mood reactions | Gateway URL + token in config |
+| **MCP Enabled** | + External agents can control device (mood, speech, LED, etc.) | `voxel mcp` running |
+| **Webhooks** | + Device pushes events to gateway (battery alerts, state changes) | Webhook URL in config |
+
+All modes are additive. MCP and webhooks are disabled by default — enable in `config/local.yaml` or the web settings page under "Integration".
+
+## Architecture
+
+PIL renderer writes frames directly to the SPI LCD via the WhisPlay driver on the Pi. On desktop, frames display in a tkinter window. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. The MCP server exposes device tools to external AI agents. React app (`app/`) exists as a browser-based dev UI.
+
+```
+  MCP Server (:8082)          Display Service          Python Backend
+  +------------------+        +------------------+     +------------------+
+  | Tools for agents |--ws--->| PIL → LCD/tkinter|<--->| State, AI, HW    |
+  | stdio + SSE      | :8080  | Button, LED, cfg |     | OpenClaw gateway |
+  +------------------+        +------------------+     +------------------+
+```
+
+For full architecture details, protocol docs, and expression system specs, see [CLAUDE.md](CLAUDE.md).
+
+## CLI Commands
+
+After bootstrap, the `voxel` command is available globally on the Pi:
+
+| Command | Description |
+|---------|-------------|
+| `voxel setup` | First-time install (deps, build, services) |
+| `voxel doctor` | Full system health diagnostics |
+| `voxel update` | Pull latest, rebuild, restart services |
+| `voxel build` | Rebuild Python deps + React app |
+| `voxel hw` | Install Whisplay HAT drivers + tune config.txt |
+| `voxel start` | Start services |
+| `voxel stop` | Stop services |
+| `voxel restart` | Restart services |
+| `voxel logs` | Tail service logs |
+| `voxel status` | Service/system/hardware status |
+| `voxel config` | Show config (`config set`/`config get` for changes) |
+| `voxel mcp` | Start MCP server (AI agent integration) |
+| `voxel display-test` | Direct Whisplay display sanity test |
+| `voxel display-push` | Sync display service to Pi and run it |
+| `voxel version` | Show version |
+| `voxel uninstall` | Remove services + caches |
+
+### Development commands (from workstation, all via `uv`)
+
+| Command | Description |
+|---------|-------------|
+| `uv run dev` | Local PIL preview (tkinter window, 1:1 with Pi LCD) |
+| `uv run dev --scale 3` | Larger preview window |
+| `uv run dev-watch` | Local preview with auto-reload on file changes |
+| `uv run voxel display-push` | Sync + run display service on Pi |
+| `uv run voxel display-push --logs` | Push and tail remote logs |
+| `uv run voxel display-push --watch` | Watch for changes, auto-push to Pi |
+| `uv run voxel display-push --install-service` | Set up systemd auto-start on boot |
+| `uv run voxel dev-pair` | Auto-discover and pair with device |
+| `uv run voxel dev-ssh` | SSH into Pi (uses saved creds) |
+| `uv run voxel dev-logs` | Tail Pi logs remotely |
+| `uv run voxel dev-restart` | Restart display service on Pi |
+| `uv run voxel dev-setup` | One-time setup (save SSH + enable dev mode) |
+
+## Development
+
+Uses [uv](https://docs.astral.sh/uv/) for all Python tooling (3.11-3.13). uv manages the venv, dependencies, and script entry points.
 
 ```bash
-voxel start
-voxel status      # Shows the remote UI URL
+# Primary dev commands (all use uv)
+uv run dev                                  # PIL preview window (1:1 with Pi LCD)
+uv run dev --scale 3                        # larger preview
+uv run dev --server                         # with full voice pipeline (spawns server.py)
+uv run dev-watch                            # auto-restart on file changes
+
+# Deploy to Pi
+uv run voxel display-push --host <pi-ip>    # first time (saves SSH config)
+uv run voxel display-push --logs            # push + tail logs
+uv run voxel display-push --install-service # set up systemd auto-start
+
+# Dev convenience
+uv run voxel dev-pair                       # auto-discover + pair with device
+uv run voxel dev-ssh                        # SSH into Pi (uses saved creds)
+uv run voxel dev-logs                       # tail Pi logs remotely
+uv run voxel dev-restart                    # restart display service on Pi
+
+# Start MCP server (for AI agent integration)
+uv run mcp-server                           # SSE on :8082
+uv run python -m mcp                        # stdio (for Claude Code)
+voxel mcp                                   # via CLI on Pi
 ```
 
-Open `http://<pi-ip>:8081` from your laptop or phone. The Pi runs the backend (state machine, AI, hardware), the browser is just the display.
+> **Note:** `npm run dev` starts the React browser UI (design tool for expression iteration). It is NOT the production display renderer. Use `uv run dev` for the actual Pi-equivalent preview.
 
-### Whisplay Mode
-
-When the PiSugar Whisplay HAT is attached:
-
-```bash
-voxel hw          # Install drivers + tune config.txt
-sudo reboot
-```
-
-After reboot, the setup auto-detects Whisplay and switches from remote UI to local Cog rendering on the LCD.
-
-### Display Sanity Test
-
-To verify the Whisplay LCD, backlight, RGB LED, and button input independently of WPE/Cog:
-
-```bash
-voxel display-test
-voxel display-test --button-cycle
-```
-
-This test talks to PiSugar's Python driver directly, so it is useful for separating “hardware works” from “browser backend works”.
-
-### LVGL Native UI PoC
-
-We now have a native LVGL proof of concept that renders RGB565 frames and replays them on the Whisplay panel through the proven PiSugar driver path.
-
-Recommended iteration workflow:
-
-```bash
-# WSL / Linux dev machine
-uv run voxel lvgl-build
-uv run voxel lvgl-render --frames-dir ./out/lvgl-frames
-uv run voxel lvgl-sync --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
-
-# Pi
-voxel lvgl-play --frames-dir ~/voxel/.cache/lvgl-poc-frames
-```
-
-Or as a one-liner from WSL:
-
-```bash
-uv run voxel lvgl-dev
-uv run voxel lvgl-deploy --frames-dir ./out/lvgl-frames --host <pi-ip> --user pi
-```
-
-`uv run voxel lvgl-dev` is the opinionated default: local render, sync to the Pi, and interactive on-device preview with the Whisplay button.
-
-From Windows, you can also launch the WSL flow directly without opening a shell first:
-
-```powershell
-./run_lvgl_deploy_wsl.ps1
-./run_lvgl_deploy_wsl.ps1 -PiHost 172.16.24.33 -Frames 12 -FrameDelay 0.12
-./run_lvgl_deploy_wsl.ps1 -PreviewLocal -PauseAtEnd
-./run_lvgl_deploy_wsl.ps1 -NoPauseAtEnd
-./run_lvgl_deploy_wsl.ps1 -InteractivePreview
-./run_lvgl_deploy_wsl.ps1 -UpdatePi
-```
-
-The Windows wrapper now pauses by default at the end of the run so logs remain visible. Use `-NoPauseAtEnd` if you want it to return immediately.
-
-When `-PreviewLocal` is enabled, the wrapper writes `preview.gif` into the chosen frames directory and opens it on Windows after the WSL render step completes.
-
-When `-InteractivePreview` is enabled, the Pi keeps the LVGL preview running after deploy. Short button presses pause/step the preview, and a long hold exits.
-The interactive preview now starts detached on the Pi, so the local terminal returns immediately instead of waiting for the remote preview process to exit.
-
-Use `-UpdatePi` when the Pi-side Python/playback code changed and you want the wrapper to run `git pull` and `uv sync` on the Pi before playback.
-
-Or via `cmd.exe`:
-
-```bat
-run_lvgl_deploy_wsl.cmd
-```
-
-Under the hood this uses WSL's direct command mode (`wsl.exe -d Ubuntu -- bash -lc "..."`), so you do not have to manually start an interactive Ubuntu shell every time.
-
-## OpenClaw Integration
-
-Voxel connects to an [OpenClaw](https://openclaw.ai) gateway to access your AI agent team. Each agent gets its own session (`agent:{id}:companion`) — separate from Discord, ClawPort, or any other surface.
-
-Switch agents from the settings menu. Default: Daemon.
+Editing `display/` or `shared/*.yaml` files triggers hot-reload with `dev-watch` or `display-push --watch`.
 
 ## License
 

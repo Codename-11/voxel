@@ -1,0 +1,35 @@
+[Unit]
+Description=Voxel Display Service
+After=network.target voxel.service
+Wants=network-online.target voxel.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+
+WorkingDirectory=/home/pi/voxel
+
+# Boot splash — kills the blue screen and shows "Voxel Starting..."
+# The - prefix means failure is non-fatal (won't block main service)
+ExecStartPre=-/home/pi/.local/bin/uv run --no-dev python scripts/boot_splash.py
+
+# Main display service
+# Connect to server.py backend for voice pipeline (STT/TTS/gateway)
+ExecStart=/home/pi/.local/bin/uv run --no-dev python -m display.service --backend whisplay --url ws://localhost:8080
+
+Restart=always
+RestartSec=3
+
+Environment=HOME=/home/pi
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+PrivateDevices=no
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voxel-display
+
+[Install]
+WantedBy=multi-user.target
