@@ -312,10 +312,11 @@ def draw_chat_peek(draw: ImageDraw.ImageDraw, state: DisplayState,
         return tuple(int(v * alpha) for v in c)
 
     bg = BG_USER if is_user else BG_ASSISTANT
-    draw.rectangle([0, slide_y, SCREEN_W - 1, PEEK_BOTTOM], fill=_a(bg))
+    # Background extends to screen bottom (fills below text safe area)
+    draw.rectangle([0, slide_y, SCREEN_W - 1, SCREEN_H - 1], fill=_a(bg))
     draw.line([(0, slide_y), (SCREEN_W - 1, slide_y)], fill=_a(DIVIDER))
     # Accent stripe on left edge
-    draw.rectangle([0, slide_y + 1, 2, PEEK_BOTTOM], fill=_a(accent))
+    draw.rectangle([0, slide_y + 1, 2, SCREEN_H - 1], fill=_a(accent))
     # Label
     draw.text((8, slide_y + 5), label, fill=_a(TEXT_LABEL), font=label_font)
     # Message text

@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+.cache/
+.subframe/
 config/local.yaml
 config/.setup-state
 config/.first-boot-done

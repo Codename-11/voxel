@@ -567,6 +567,18 @@ async def _main(args: argparse.Namespace) -> None:
     backend.init()
     log.info("Display backend: %s", type(backend).__name__)
 
+    # ── Boot splash ───────────────────────────────────────────────────
+    from display.boot_splash import BootSplash
+
+    _splash_version = "0.1.0"
+    try:
+        from importlib.metadata import version as _pkg_version
+        _splash_version = _pkg_version("voxel")
+    except Exception:
+        pass
+    splash = BootSplash(backend)
+    splash.show_title(version=_splash_version)
+
     state = DisplayState()
 
     # Demo mode: CLI flag or config
@@ -580,6 +592,11 @@ async def _main(args: argparse.Namespace) -> None:
             pass
 
     renderer = PILRenderer()
+
+    # Boot splash: Display + Expressions ready
+    splash.add_line("Display", "OK")
+    splash.add_line("Expressions", "OK")
+
     stop = asyncio.Event()
 
     # LED controller — uses WhisPlay board if available, no-op on desktop
@@ -600,6 +617,7 @@ async def _main(args: argparse.Namespace) -> None:
 
     # Ambient audio monitor — deterministic face reactivity from mic input
     ambient = None
+    _audio_status = "SKIP"
     try:
         from config.settings import load_settings as _load_ambient_cfg
         _ambient_cfg = _load_ambient_cfg().get("audio", {})
@@ -613,8 +631,25 @@ async def _main(args: argparse.Namespace) -> None:
                 silence_timeout=_ambient_silence,
             )
             ambient.start()
+            _audio_status = "OK"
     except Exception as e:
         log.debug(f"Ambient monitor not available: {e}")
+    splash.add_line("Audio", _audio_status)
+
+    # Check gateway configuration
+    _gateway_status = "SKIP"
+    try:
+        from config.settings import load_settings as _load_gw_cfg
+        _gw_token = _load_gw_cfg().get("gateway", {}).get("token", "")
+        if _gw_token:
+            _gateway_status = "OK"
+    except Exception:
+        pass
+    splash.add_line("Gateway", _gateway_status)
+
+    # Boot splash: Ready!
+    splash.show_ready(hold=0.5)
+    del splash  # free splash resources
 
     # Check WiFi and start AP mode if not connected (Pi only)
     if IS_PI:
