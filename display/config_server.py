@@ -1005,6 +1005,7 @@ def _build_html(settings: dict) -> str:
       <span id="conn-text">Checking...</span>
     </div>
     <a href="/chat" class="nav-link">Chat</a>
+    <a href="/diagnostics" class="nav-link">Diagnostics</a>
     <button type="button" class="theme-toggle" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle theme"></button>
   </div>
 </div>
@@ -1778,6 +1779,288 @@ def _get_chat_client():
         return None
 
 
+def _build_diagnostics_html() -> str:
+    """Build the hardware diagnostics page HTML."""
+    return f"""<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Voxel — Diagnostics</title>
+{_FAVICON_LINK}
+<style>
+  :root, [data-theme="dark"] {{
+    --bg: #0a0a0f; --bg-card: #12121a; --bg-input: #0e0e16;
+    --bg-hover: #16161e;
+    --border: #1e1e30; --border-input: #282840;
+    --text: #e0e0e8; --text-dim: #666680; --text-muted: #555570;
+    --text-label: #b0b0c4;
+    --accent: #00d4d2; --accent-hover: #00e8e6; --accent-active: #00b0ae;
+    --accent-text: #00d4d2;
+    --danger: #ff5c5c; --danger-bg: #200a0a;
+    --success: #34d381; --success-bg: #0a201a;
+    --warning: #e8b840; --warning-bg: #201a0a;
+    --scrollbar-thumb: #282840; --logo-body: #1a1a2e;
+  }}
+  [data-theme="light"] {{
+    --bg: #f5f5f7; --bg-card: #ffffff; --bg-input: #f8f8fc;
+    --bg-hover: #f0f0f5;
+    --border: #e0e0e8; --border-input: #d0d0dc;
+    --text: #1a1a2e; --text-dim: #666680; --text-muted: #888898;
+    --text-label: #555570;
+    --accent: #008886; --accent-hover: #00a5a3; --accent-active: #007070;
+    --accent-text: #007070;
+    --danger: #dc3545; --danger-bg: #fff0f0;
+    --success: #28a745; --success-bg: #f0fff4;
+    --warning: #c08800; --warning-bg: #fffbf0;
+    --scrollbar-thumb: #c0c0cc; --logo-body: #1a1a2e;
+  }}
+
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 16px 16px 80px; max-width: 520px; margin: 0 auto;
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+    transition: background 0.2s ease, color 0.2s ease;
+  }}
+  ::-webkit-scrollbar {{ width: 6px; }}
+  ::-webkit-scrollbar-track {{ background: var(--bg); }}
+  ::-webkit-scrollbar-thumb {{ background: var(--scrollbar-thumb); border-radius: 3px; }}
+  html {{ scrollbar-color: var(--scrollbar-thumb) var(--bg); }}
+
+  .page-header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }}
+  .logo {{ width: 40px; height: 40px; flex-shrink: 0; }}
+  .logo svg {{ width: 100%; height: 100%; }}
+  .logo svg rect {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
+  h1 {{ color: var(--accent); font-size: 22px; }}
+  .subtitle {{ font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }}
+  .header-actions {{ display: flex; align-items: center; gap: 6px; margin-left: auto; }}
+  .nav-link {{
+    color: var(--text-dim); font-size: 13px; text-decoration: none;
+    padding: 6px 10px; border-radius: 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }}
+  .nav-link:hover {{ color: var(--text); background: var(--bg-card); }}
+  .theme-toggle {{
+    background: none; border: 1px solid var(--border);
+    color: var(--text-dim); cursor: pointer; padding: 5px 8px;
+    border-radius: 6px; font-size: 15px; min-height: auto;
+    width: auto; margin: 0; line-height: 1;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }}
+  .theme-toggle:hover {{ color: var(--text); background: var(--bg-card); }}
+
+  .card {{
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 12px;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }}
+  .card h2 {{ color: var(--accent); font-size: 15px; margin-bottom: 12px; }}
+
+  .check-row {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }}
+  .check-row:last-child {{ border-bottom: none; }}
+  .check-label {{ color: var(--text-label); }}
+  .check-value {{ font-weight: 500; display: flex; align-items: center; gap: 6px; }}
+  .check-ok {{ color: var(--success); }}
+  .check-warn {{ color: var(--warning); }}
+  .check-err {{ color: var(--danger); }}
+  .check-na {{ color: var(--text-muted); }}
+  .check-icon {{ font-size: 16px; }}
+  .loading {{ color: var(--text-muted); font-style: italic; }}
+
+  .test-btn {{
+    background: var(--accent); color: var(--bg); border: none;
+    padding: 12px 24px; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    min-height: 44px; transition: background 0.15s ease, opacity 0.15s ease;
+  }}
+  .test-btn:hover {{ background: var(--accent-hover); }}
+  .test-btn:active {{ background: var(--accent-active); }}
+  .test-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+
+  .test-result {{
+    margin-top: 10px; font-size: 13px; line-height: 1.5;
+    padding: 10px 12px; border-radius: 8px; display: none;
+  }}
+  .test-result.ok {{ display: block; background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }}
+  .test-result.err {{ display: block; background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }}
+  .test-result.running {{ display: block; background: var(--bg-input); color: var(--accent); border: 1px solid var(--border); }}
+
+  .level-bar-wrap {{
+    margin-top: 8px; height: 8px; background: var(--bg-input);
+    border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+  }}
+  .level-bar {{
+    height: 100%; background: var(--accent); border-radius: 4px;
+    transition: width 0.3s ease; width: 0%;
+  }}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="logo">{_LOGO_SVG}</div>
+  <h1>Diagnostics</h1>
+  <div class="header-actions">
+    <a href="/" class="nav-link">Settings</a>
+    <a href="/chat" class="nav-link">Chat</a>
+    <button type="button" class="theme-toggle" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle theme"></button>
+  </div>
+</div>
+<div class="subtitle">Hardware tests and system health</div>
+
+<!-- System Health -->
+<div class="card">
+  <h2>System Health</h2>
+  <div id="health-checks">
+    <div class="loading">Loading system info...</div>
+  </div>
+</div>
+
+<!-- Speaker Test -->
+<div class="card">
+  <h2>Speaker Test</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
+    Plays a 440Hz test tone (0.5s) through the speaker.
+  </p>
+  <button class="test-btn" id="speaker-btn" onclick="testSpeaker()">Test Speaker</button>
+  <div class="test-result" id="speaker-result"></div>
+</div>
+
+<!-- Microphone Test -->
+<div class="card">
+  <h2>Microphone Test</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
+    Records 2 seconds from the microphone and analyzes levels.
+  </p>
+  <button class="test-btn" id="mic-btn" onclick="testMic()">Test Microphone</button>
+  <div class="test-result" id="mic-result"></div>
+  <div class="level-bar-wrap" id="mic-level-wrap" style="display:none">
+    <div class="level-bar" id="mic-level"></div>
+  </div>
+</div>
+
+<script>
+/* Theme */
+function applyTheme(t) {{
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('theme-btn').textContent = t === 'dark' ? '\\u2600' : '\\u263D';
+}}
+function toggleTheme() {{
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('voxel-theme', next);
+  applyTheme(next);
+}}
+applyTheme(localStorage.getItem('voxel-theme') || 'dark');
+
+/* System health */
+async function loadHealth() {{
+  const el = document.getElementById('health-checks');
+  try {{
+    const r = await fetch('/api/diagnostics/system');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    let html = '';
+
+    function row(label, value, status) {{
+      const cls = status === 'ok' ? 'check-ok' : status === 'warn' ? 'check-warn' : status === 'err' ? 'check-err' : 'check-na';
+      const icon = status === 'ok' ? '\\u2713' : status === 'warn' ? '!' : status === 'err' ? '\\u2717' : '\\u2014';
+      return '<div class="check-row"><span class="check-label">' + label + '</span>'
+        + '<span class="check-value ' + cls + '"><span class="check-icon">' + icon + '</span> ' + value + '</span></div>';
+    }}
+
+    html += row('Platform', d.platform || 'Unknown', d.is_pi ? 'ok' : 'ok');
+    html += row('Audio Backend', d.audio_backend || 'None', d.audio_backend !== 'none' ? 'ok' : 'err');
+    html += row('WM8960 (Whisplay Audio)', d.wm8960_detected ? 'Detected' : 'Not detected', d.wm8960_detected ? 'ok' : (d.is_pi ? 'err' : 'na'));
+    html += row('Display Backend', d.display_backend || 'Unknown', 'ok');
+    html += row('Gateway URL', d.gateway_configured ? 'Configured' : 'Not set', d.gateway_configured ? 'ok' : 'warn');
+    html += row('Gateway Token', d.gateway_token_set ? 'Set' : 'Not set', d.gateway_token_set ? 'ok' : 'warn');
+    html += row('OpenAI API Key', d.openai_key_set ? 'Set' : 'Not set', d.openai_key_set ? 'ok' : 'warn');
+    html += row('Battery', d.battery !== null ? d.battery + '%' : 'N/A', d.battery !== null ? (d.battery > 20 ? 'ok' : 'warn') : 'na');
+    html += row('WiFi', d.wifi_connected ? ('Connected: ' + (d.wifi_ssid || '')) : 'Not connected', d.wifi_connected ? 'ok' : 'warn');
+
+    el.innerHTML = html;
+  }} catch(e) {{
+    el.innerHTML = '<div class="check-row"><span class="check-label">Error</span><span class="check-value check-err">' + e.message + '</span></div>';
+  }}
+}}
+
+/* Speaker test */
+async function testSpeaker() {{
+  const btn = document.getElementById('speaker-btn');
+  const res = document.getElementById('speaker-result');
+  btn.disabled = true;
+  btn.textContent = 'Playing...';
+  res.className = 'test-result running';
+  res.style.display = 'block';
+  res.textContent = 'Playing 440Hz tone...';
+  try {{
+    const r = await fetch('/api/diagnostics/speaker-test', {{ method: 'POST' }});
+    const d = await r.json();
+    if (d.ok) {{
+      res.className = 'test-result ok';
+      res.textContent = 'Speaker OK — played ' + d.duration_ms + 'ms tone';
+    }} else {{
+      res.className = 'test-result err';
+      res.textContent = 'Failed: ' + (d.error || 'unknown error');
+    }}
+  }} catch(e) {{
+    res.className = 'test-result err';
+    res.textContent = 'Error: ' + e.message;
+  }} finally {{
+    btn.disabled = false;
+    btn.textContent = 'Test Speaker';
+  }}
+}}
+
+/* Mic test */
+async function testMic() {{
+  const btn = document.getElementById('mic-btn');
+  const res = document.getElementById('mic-result');
+  const levelWrap = document.getElementById('mic-level-wrap');
+  const levelBar = document.getElementById('mic-level');
+  btn.disabled = true;
+  btn.textContent = 'Recording...';
+  res.className = 'test-result running';
+  res.style.display = 'block';
+  res.textContent = 'Recording 2 seconds...';
+  levelWrap.style.display = 'none';
+  try {{
+    const r = await fetch('/api/diagnostics/mic-test', {{ method: 'POST' }});
+    const d = await r.json();
+    if (d.ok) {{
+      res.className = 'test-result ok';
+      res.innerHTML = 'Microphone OK<br>'
+        + 'RMS: ' + d.rms.toFixed(4) + ' &middot; Peak: ' + d.peak.toFixed(4) + '<br>'
+        + 'Noise floor: ' + d.noise_floor + ' &middot; ' + d.bytes + ' bytes recorded';
+      levelWrap.style.display = 'block';
+      const pct = Math.min(d.peak * 100 / 0.5, 100);
+      levelBar.style.width = pct + '%';
+      levelBar.style.background = pct > 80 ? 'var(--danger)' : pct > 40 ? 'var(--warning)' : 'var(--accent)';
+    }} else {{
+      res.className = 'test-result err';
+      res.textContent = 'Failed: ' + (d.error || 'unknown error');
+    }}
+  }} catch(e) {{
+    res.className = 'test-result err';
+    res.textContent = 'Error: ' + e.message;
+  }} finally {{
+    btn.disabled = false;
+    btn.textContent = 'Test Microphone';
+  }}
+}}
+
+loadHealth();
+</script>
+</body>
+</html>"""
+
+
 def _build_chat_html() -> str:
     """Build the chat page HTML."""
     settings = _load_settings()
@@ -2065,6 +2348,7 @@ def _build_chat_html() -> str:
   </div>
   <button type="button" class="theme-toggle" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle theme"></button>
   <a href="/" class="nav-link">Settings</a>
+  <a href="/diagnostics" class="nav-link">Diagnostics</a>
 </div>
 
 <div class="agent-bar">
@@ -2671,10 +2955,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_sse()
             return
 
+        if self.path == "/api/diagnostics/system":
+            self._diagnostics_system()
+            return
+
         parsed_path = urlparse(self.path).path
 
         if parsed_path == "/chat":
             html = _build_chat_html()
+            self._send_html_gz(html)
+            return
+
+        if parsed_path == "/diagnostics":
+            html = _build_diagnostics_html()
             self._send_html_gz(html)
             return
 
@@ -2743,6 +3036,14 @@ class _Handler(BaseHTTPRequestHandler):
         # All other POST endpoints require auth
         if not self._is_authed():
             self._json_response(401, {"ok": False, "error": "Not authenticated"})
+            return
+
+        if self.path == "/api/diagnostics/speaker-test":
+            self._diagnostics_speaker_test()
+            return
+
+        if self.path == "/api/diagnostics/mic-test":
+            self._diagnostics_mic_test()
             return
 
         if self.path == "/wifi/connect":
@@ -3224,6 +3525,199 @@ class _Handler(BaseHTTPRequestHandler):
             self._json_response(200, get_system_stats())
         except Exception as e:
             self._json_response(500, {"error": str(e)})
+
+    def _diagnostics_system(self):
+        """Handle GET /api/diagnostics/system — return system health info."""
+        try:
+            from hw.detect import IS_PI, probe_hardware
+            from core.audio import _pyaudio_available, _sounddevice_available, _pa
+
+            settings = _load_settings()
+            hw = probe_hardware()
+
+            # Audio backend
+            if _pyaudio_available:
+                audio_backend = "pyaudio"
+            elif _sounddevice_available:
+                audio_backend = "sounddevice"
+            else:
+                audio_backend = "none"
+
+            # WM8960 detection
+            wm8960 = hw.has_wm8960_audio
+
+            # Audio device info
+            audio_devices = []
+            if _pyaudio_available and _pa is not None:
+                try:
+                    for i in range(_pa.get_device_count()):
+                        info = _pa.get_device_info_by_index(i)
+                        audio_devices.append({
+                            "index": i,
+                            "name": info.get("name", ""),
+                            "inputs": info.get("maxInputChannels", 0),
+                            "outputs": info.get("maxOutputChannels", 0),
+                        })
+                except Exception:
+                    pass
+
+            # Display backend
+            if _display_state and hasattr(_display_state, "backend_name"):
+                display_backend = _display_state.backend_name
+            elif IS_PI:
+                display_backend = "spi"
+            else:
+                display_backend = "tkinter"
+
+            # Gateway config
+            gw = settings.get("gateway", {})
+            gateway_configured = bool(gw.get("url", ""))
+            gateway_token_set = bool(gw.get("token", ""))
+
+            # API key
+            stt = settings.get("stt", {}).get("whisper", {})
+            openai_key_set = bool(stt.get("api_key", ""))
+
+            # Battery
+            battery = None
+            if _display_state and _display_state.battery is not None:
+                battery = _display_state.battery
+
+            # WiFi
+            wifi = get_wifi_status()
+
+            self._json_response(200, {
+                "is_pi": IS_PI,
+                "platform": "Pi" if IS_PI else "Desktop",
+                "audio_backend": audio_backend,
+                "audio_devices": audio_devices,
+                "wm8960_detected": wm8960,
+                "display_backend": display_backend,
+                "gateway_configured": gateway_configured,
+                "gateway_token_set": gateway_token_set,
+                "openai_key_set": openai_key_set,
+                "battery": battery,
+                "wifi_connected": wifi.get("connected", False),
+                "wifi_ssid": wifi.get("ssid", ""),
+                "wifi_ip": wifi.get("ip", ""),
+            })
+        except Exception as e:
+            log.error("Diagnostics system check failed: %s", e)
+            self._json_response(500, {"ok": False, "error": str(e)})
+
+    def _diagnostics_speaker_test(self):
+        """Handle POST /api/diagnostics/speaker-test — play a 440Hz test tone."""
+        try:
+            import io
+            import math
+            import struct
+            import wave
+            from core.audio import init as audio_init, play_audio, is_playing
+            from core.audio import _pyaudio_available, _sounddevice_available
+
+            # Ensure audio is initialized
+            if not _pyaudio_available and not _sounddevice_available:
+                audio_init()
+
+            from core.audio import _pyaudio_available as pa_avail, _sounddevice_available as sd_avail
+            if not pa_avail and not sd_avail:
+                self._json_response(200, {"ok": False, "error": "No audio backend available"})
+                return
+
+            # Generate 440Hz sine wave, 0.5s, 16-bit mono
+            sample_rate = 16000
+            duration = 0.5
+            frequency = 440.0
+            n_samples = int(sample_rate * duration)
+
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                for i in range(n_samples):
+                    # Fade in/out to avoid clicks (20ms ramps)
+                    t = i / sample_rate
+                    ramp_samples = int(0.02 * sample_rate)
+                    if i < ramp_samples:
+                        envelope = i / ramp_samples
+                    elif i > n_samples - ramp_samples:
+                        envelope = (n_samples - i) / ramp_samples
+                    else:
+                        envelope = 1.0
+                    sample = int(24000 * envelope * math.sin(2 * math.pi * frequency * t))
+                    wf.writeframes(struct.pack("<h", max(-32768, min(32767, sample))))
+
+            wav_bytes = buf.getvalue()
+            play_audio(wav_bytes)
+
+            # Wait for playback to finish (up to 3s)
+            deadline = _time.time() + 3.0
+            while is_playing() and _time.time() < deadline:
+                _time.sleep(0.05)
+
+            self._json_response(200, {"ok": True, "duration_ms": int(duration * 1000)})
+        except Exception as e:
+            log.error("Speaker test failed: %s", e)
+            self._json_response(200, {"ok": False, "error": str(e)})
+
+    def _diagnostics_mic_test(self):
+        """Handle POST /api/diagnostics/mic-test — record 2s and analyze."""
+        try:
+            import io
+            import wave
+            from core.audio import init as audio_init, start_recording, stop_recording
+            from core.audio import _pyaudio_available, _sounddevice_available
+
+            # Ensure audio is initialized
+            if not _pyaudio_available and not _sounddevice_available:
+                audio_init()
+
+            from core.audio import _pyaudio_available as pa_avail, _sounddevice_available as sd_avail
+            if not pa_avail and not sd_avail:
+                self._json_response(200, {"ok": False, "error": "No audio backend available"})
+                return
+
+            start_recording()
+            _time.sleep(2.0)
+            wav_bytes = stop_recording()
+
+            if not wav_bytes or len(wav_bytes) < 100:
+                self._json_response(200, {"ok": False, "error": "No audio data recorded"})
+                return
+
+            # Analyze the WAV data
+            buf = io.BytesIO(wav_bytes)
+            with wave.open(buf, "rb") as wf:
+                raw = wf.readframes(wf.getnframes())
+
+            import numpy as np
+            samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+            rms = float(np.sqrt(np.mean(samples ** 2)))
+            peak = float(np.max(np.abs(samples)))
+
+            # Noise floor estimate
+            if rms < 0.005:
+                noise_floor = "silent"
+            elif rms < 0.02:
+                noise_floor = "low"
+            elif rms < 0.08:
+                noise_floor = "medium"
+            else:
+                noise_floor = "high"
+
+            self._json_response(200, {
+                "ok": True,
+                "duration_s": 2.0,
+                "rms": round(rms, 6),
+                "peak": round(peak, 6),
+                "noise_floor": noise_floor,
+                "bytes": len(wav_bytes),
+            })
+        except Exception as e:
+            log.error("Mic test failed: %s", e)
+            self._json_response(200, {"ok": False, "error": str(e)})
 
     def _json_response(self, code: int, data: dict):
         self.send_response(code)

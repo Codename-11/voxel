@@ -39,8 +39,8 @@ log = logging.getLogger("voxel.display")
 #   Sleep       (hold >5s)                           → enter sleep mode
 #   Shutdown    (hold >10s)                          → shutdown Pi (with confirm)
 
-SHORT_PRESS_THRESHOLD = 0.4   # seconds — max hold for "short" / double-tap window
-MEDIUM_PRESS_THRESHOLD = 0.4  # seconds — lower bound for "medium hold" (= SHORT)
+SHORT_PRESS_THRESHOLD = 0.55  # seconds — max hold for "short" / double-tap window (0.4 too tight for hardware)
+MEDIUM_PRESS_THRESHOLD = 0.55 # seconds — lower bound for "medium hold" (= SHORT)
 LONG_PRESS_THRESHOLD = 1.0    # seconds — menu open (from face view)
 MENU_LONG_PRESS = 0.9         # seconds — menu select (wider window for reliable medium press)
 SLEEP_THRESHOLD = 5.0         # seconds — enter sleep mode
