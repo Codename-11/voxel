@@ -9,7 +9,7 @@ import wave
 from typing import Optional
 
 import numpy as np
-from hardware.platform import IS_PI
+from hw.detect import IS_PI
 
 log = logging.getLogger(f"voxel.{__name__}")
 
@@ -43,24 +43,38 @@ def init() -> None:
     """Initialize audio subsystem."""
     global _pa, _pyaudio_available, _sounddevice_available
 
+    log.info("Audio: initializing (platform=%s)", "Pi" if IS_PI else "desktop")
+
     # Try PyAudio first
     try:
         import pyaudio  # type: ignore
         _pa = pyaudio.PyAudio()
         _pyaudio_available = True
-        log.info(f"Audio: PyAudio initialized ({'Pi HAT' if IS_PI else 'desktop'})")
+        device_count = _pa.get_device_count()
+        log.info("Audio: PyAudio initialized (%s, %d devices found)",
+                 "Pi HAT" if IS_PI else "desktop", device_count)
+        if IS_PI:
+            in_dev = _get_pi_input_device()
+            out_dev = _get_pi_output_device()
+            log.info("Audio: Pi input device=%s, output device=%s",
+                     _device_name(in_dev) if in_dev is not None else "default",
+                     _device_name(out_dev) if out_dev is not None else "default")
         return
     except ImportError:
-        log.debug("PyAudio not available, trying sounddevice...")
+        log.debug("PyAudio not available (not installed), trying sounddevice...")
+    except Exception as e:
+        log.warning("PyAudio init failed: %s, trying sounddevice...", e)
 
     # Fallback: sounddevice
     try:
         import sounddevice  # type: ignore  # noqa: F401
         _sounddevice_available = True
-        log.info(f"Audio: sounddevice initialized ({'Pi HAT' if IS_PI else 'desktop'})")
+        log.info("Audio: sounddevice initialized (%s)", "Pi HAT" if IS_PI else "desktop")
         return
     except ImportError:
-        log.warning("No audio backend available (PyAudio or sounddevice). Audio disabled.")
+        log.debug("sounddevice not available (not installed)")
+
+    log.warning("No audio backend available (install PyAudio or sounddevice). Audio disabled.")
 
 
 def start_recording() -> None:
@@ -76,6 +90,7 @@ def start_recording() -> None:
 
     if _pyaudio_available:
         import pyaudio  # type: ignore
+        input_dev = _get_pi_input_device() if IS_PI else None
         kwargs: dict = dict(
             format=pyaudio.paInt16,
             channels=CHANNELS,
@@ -84,12 +99,14 @@ def start_recording() -> None:
             frames_per_buffer=CHUNK,
             stream_callback=_pyaudio_record_callback,
         )
-        if IS_PI:
-            kwargs["input_device_index"] = _get_pi_input_device()
+        if input_dev is not None:
+            kwargs["input_device_index"] = input_dev
 
         _stream_in = _pa.open(**kwargs)
         _stream_in.start_stream()
-        log.info("Recording started (PyAudio)")
+        log.info("Recording started (PyAudio, device=%s, rate=%dHz, ch=%d)",
+                 _device_name(input_dev) if input_dev is not None else "default",
+                 SAMPLE_RATE, CHANNELS)
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
@@ -103,7 +120,8 @@ def start_recording() -> None:
             callback=_sounddevice_record_callback,
         )
         _stream_in.start()
-        log.info("Recording started (sounddevice)")
+        log.info("Recording started (sounddevice, device=%s, rate=%dHz, ch=%d)",
+                 device or "default", SAMPLE_RATE, CHANNELS)
     else:
         log.warning("Audio not initialized — cannot record")
         _is_recording = False
@@ -128,6 +146,8 @@ def stop_recording() -> bytes:
         _stream_in = None
 
     # Pack frames into WAV
+    num_frames = len(_recording_frames)
+    raw_size = sum(len(f) for f in _recording_frames)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(CHANNELS)
@@ -136,7 +156,9 @@ def stop_recording() -> bytes:
         wf.writeframes(b"".join(_recording_frames))
 
     data = buf.getvalue()
-    log.info(f"Recording stopped — {len(data)} bytes captured")
+    duration = raw_size / (SAMPLE_RATE * CHANNELS * FORMAT_WIDTH) if SAMPLE_RATE > 0 else 0
+    log.info("Recording stopped — %d bytes, %d chunks, ~%.1fs duration",
+             len(data), num_frames, duration)
     return data
 
 
@@ -155,6 +177,15 @@ def play_audio(data: bytes) -> None:
             with wave.open(buf, "rb") as wf:
                 rate = wf.getframerate()
                 ch = wf.getnchannels()
+                n_frames = wf.getnframes()
+                # Some APIs (OpenAI) set nframes to INT32_MAX; calculate from data size
+                if n_frames > 1_000_000_000 and rate > 0:
+                    sw = wf.getsampwidth()
+                    n_frames = max(0, len(data) - 44) // (ch * sw) if sw > 0 else 0
+                duration = n_frames / rate if rate > 0 else 0
+                backend = "PyAudio" if _pyaudio_available else "sounddevice" if _sounddevice_available else "none"
+                log.info("Playback starting (%s): rate=%dHz, ch=%d, duration=%.1fs, %d bytes",
+                         backend, rate, ch, duration, len(data))
 
                 if _pyaudio_available:
                     import pyaudio  # type: ignore
@@ -181,21 +212,31 @@ def play_audio(data: bytes) -> None:
                     import numpy as np
                     frames = wf.readframes(wf.getnframes())
                     arr = np.frombuffer(frames, dtype=np.int16).reshape(-1, ch)
-                    _update_amplitude(frames)
                     device = _PI_DEVICE if IS_PI else None
                     sd.play(arr, samplerate=rate, device=device)
-                    # Poll for completion with stop check
+                    # Track amplitude per-chunk during playback
+                    total_samples = len(arr)
+                    samples_per_chunk = CHUNK
+                    chunk_idx = 0
                     while sd.get_stream().active and not _stop_playback.is_set():
+                        # Estimate current playback position
+                        pos = min(chunk_idx * samples_per_chunk, total_samples - 1)
+                        end = min(pos + samples_per_chunk, total_samples)
+                        if pos < total_samples:
+                            chunk_data = arr[pos:end].tobytes()
+                            _update_amplitude(chunk_data)
+                        chunk_idx += 1
                         threading.Event().wait(0.05)
                     if _stop_playback.is_set():
                         sd.stop()
 
         except Exception as e:
-            log.error(f"Audio playback error: {e}")
+            log.error("Audio playback error: %s (type: %s)", e, type(e).__name__)
         finally:
             with _amp_lock:
                 _amplitude = 0.0
             _playback_done.set()
+            log.debug("Playback finished")
 
     t = threading.Thread(target=_play, daemon=True)
     t.start()
@@ -214,11 +255,14 @@ def stop_playback() -> None:
 def get_amplitude() -> float:
     """Return current playback amplitude (0.0–1.0) for mouth sync."""
     with _amp_lock:
-        return _amplitude
+        return float(_amplitude)
+
+
+_amp_log_counter = 0
 
 
 def _update_amplitude(frame_bytes: bytes) -> None:
-    global _amplitude
+    global _amplitude, _amp_log_counter
     try:
         arr = np.frombuffer(frame_bytes, dtype=np.int16).astype(np.float32)
         rms = np.sqrt(np.mean(arr ** 2))
@@ -226,6 +270,10 @@ def _update_amplitude(frame_bytes: bytes) -> None:
         val = min(rms / 32768.0 * 4.0, 1.0)  # *4 for perceptual boost
         with _amp_lock:
             _amplitude = val
+        # Log amplitude at debug level every ~20 frames (~1s at 20Hz)
+        _amp_log_counter += 1
+        if _amp_log_counter % 20 == 0:
+            log.debug("Amplitude: %.3f (rms=%.0f)", val, rms)
     except Exception:
         pass
 
@@ -249,9 +297,11 @@ def _get_pi_input_device() -> Optional[int]:
         for i in range(_pa.get_device_count()):
             info = _pa.get_device_info_by_index(i)
             if "wm8960" in info["name"].lower() and info["maxInputChannels"] > 0:
+                log.debug("Pi input device found: index=%d, name=%s", i, info["name"])
                 return i
-    except Exception:
-        pass
+        log.warning("No WM8960 input device found among %d devices", _pa.get_device_count())
+    except Exception as e:
+        log.debug("Error scanning Pi input devices: %s", e)
     return None
 
 
@@ -262,10 +312,23 @@ def _get_pi_output_device() -> Optional[int]:
         for i in range(_pa.get_device_count()):
             info = _pa.get_device_info_by_index(i)
             if "wm8960" in info["name"].lower() and info["maxOutputChannels"] > 0:
+                log.debug("Pi output device found: index=%d, name=%s", i, info["name"])
                 return i
-    except Exception:
-        pass
+        log.warning("No WM8960 output device found among %d devices", _pa.get_device_count())
+    except Exception as e:
+        log.debug("Error scanning Pi output devices: %s", e)
     return None
+
+
+def _device_name(index: Optional[int]) -> str:
+    """Get a human-readable device name for a PyAudio device index."""
+    if index is None or _pa is None:
+        return "unknown"
+    try:
+        info = _pa.get_device_info_by_index(index)
+        return f"#{index} '{info['name']}'"
+    except Exception:
+        return f"#{index}"
 
 
 def cleanup() -> None:

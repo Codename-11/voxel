@@ -6,30 +6,53 @@
 
 **Voxel** is the name of both the project and the character. The character is the soul of the device — it's what makes this a companion, not just a voice assistant.
 
-## Visual Design
+## Characters
 
-### Shape
-- **Rounded cube** — isometric 2.5D flat style
-- Not a perfect cube — slightly rounded edges, soft corners
-- Semi-transparent glass-like quality to the body
+The project includes multiple character renderers, all pluggable via `display/characters/`. The **default character is "voxel"** (configured via `character.default` in `config/default.yaml`).
 
-### Color
-- **Body:** Dark charcoal (#1a1a2e to #2d2d44)
-- **Accents:** Glowing cyan/teal (#00d4ff) edge lines
-- **Eyes:** White/cyan with glossy highlights
+### Voxel (default) — `display/characters/voxel.py`
+
+The signature Voxel face. **Eyes only** — no pupils, no highlights, no mouth. All expression is conveyed through eye shape and cuts. Inspired by Deskimon/EMO desktop companions.
+
+**Design:**
+- **Eyes:** Solid glowing vertical pill shapes on the dark background
+- **No mouth** — expression is purely through eye geometry
+- **Accent color theming** — eye color comes from a configurable accent color (cyan/teal by default), with per-mood color overrides (e.g., amber for low battery)
 - **Background:** Deep dark (#0a0a0f)
 
-### Face
-- **Eyes:** Large expressive ovals, ~40% of face width
-- Glossy highlight circles in upper-right of each eye
-- Pupils that track gaze direction
-- Eyelids for blinks and squints
-- **Mouth:** Simple arc/line below eyes
-- Scales from closed line to open oval
-- Width changes with smile/frown amount
+**Expression through tilt cuts:**
+Emotions are expressed by masking portions of the pill-shaped eyes with the background color:
+
+| Expression | Technique |
+|-----------|-----------|
+| Neutral | Full pill shapes |
+| Happy | Bottom half cut (upward crescents ^_^) |
+| Angry | Diagonal top cut, inner edge lower (V-brow) |
+| Sad | Diagonal top cut, outer edge lower (droopy) |
+| Surprised | Taller, rounder pills |
+| Sleepy | Thin horizontal slits |
+| Thinking | Asymmetric (one open, one narrowed) |
+| Error | Red X marks |
+
+**Gaze:** Eyes shift position toward gaze direction. The eye closer to the gaze direction grows larger (perspective size asymmetry), creating a dramatic look effect.
+
+**Glow:** A subtle breathing pulse modulates eye brightness. Speaking amplitude boosts the glow intensity.
+
+### Cube — `display/characters/cube.py`
+
+The original isometric cube mascot. A dark charcoal rounded cube with glowing cyan/teal accent lines on edges, semi-transparent glass quality, isometric 2.5D flat style.
+
+**Face:**
+- **Eyes:** Large expressive ovals, ~40% of face width, with glossy highlights and pupil tracking
+- **Mouth:** Simple arc/line below eyes, scales from closed to open oval
+- **Body:** Isometric cube with edge shimmer idle animation
+
+### BMO — `display/characters/bmo.py`
+
+Adventure Time BMO character with pixel game idle quirks, CRT glitch effects, and speaker vibration.
 
 ### Scale
-The character should fill most of the 240×280 screen, with ~20px padding on sides and ~40px reserved for status bar at bottom. Effective character area: ~200×220px.
+The character should fill most of the 240x280 screen, with ~20px padding on sides and ~40px reserved for status bar at bottom. Effective character area: ~200x220px.
 
 ## Expression System
 
@@ -88,11 +111,84 @@ Each expression is defined by three config objects in `shared/expressions.yaml`.
 
 ## Rendering Approach
 
-The production renderer is **React + Framer Motion** (`app/`). All face elements (eyes, mouth, body, mood icons) are rendered as animated SVG/HTML elements with CSS transforms. Framer Motion handles smooth transitions between mood states (~300ms lerp).
+The production renderer is the **PIL display service** (`display/`). PIL renders frames in Python and pushes them to the SPI LCD on the Pi, or to a tkinter preview window on desktop. The **React + Framer Motion** app (`app/`) is a browser-based dev UI for rapid expression/style iteration, not used in production on the Pi.
 
-On the Pi, **WPE/Cog** (embedded WebKit) renders the React app fullscreen on the LCD. CSS animations are GPU-accelerated.
+**Pygame fallback** (archived in `_legacy/face/`) was used for early prototyping. It used a sprite-based approach with pre-rendered PNG sequences.
 
-**Pygame fallback** (`face/`) exists for headless or legacy use. It uses a sprite-based approach with pre-rendered PNG sequences in `face/sprites/`.
+## Animation System
+
+The PIL renderer includes several animation subsystems (`display/animation.py`) that run at the frame level:
+
+### BreathingState
+Organic scale oscillation applied to body scale before passing to character renderers. All characters benefit automatically without implementing their own breathing logic. The breathing modulates `body.scale` in the expression config.
+
+### GazeDrift (Saccadic Eye Movement)
+Realistic eye movement using saccadic jumps (fast target changes) interspersed with slow drifts. Replaces simple random gaze. Eyes snap to a new position then slowly drift, mimicking how real eyes move.
+
+### BlinkState (Blink Clustering)
+Natural blink patterns with clustering — after one blink, there's a higher probability of a follow-up blink shortly after. Blink rate is still driven by the mood's `blinkRate` config.
+
+### Character Idle Quirks
+Each character implements unique idle animations:
+- **Cube:** Edge shimmer — a traveling glow effect along the cube's accent lines
+- **BMO:** Pixel game on the screen area, CRT glitch effects, cursor blink, button glow + speaker vibration
+
+### Speaking Reactions
+Characters respond to speech amplitude with visual feedback:
+- **Cube:** Scale pulse, edge glow intensity, eye glow
+- **BMO:** Screen brightness modulation, speaker vibration
+
+### Mood-Specific Tweaks
+Characters apply extra animation based on the current mood:
+- **Excited:** Extra bounce amplitude
+- **Thinking:** Tilt oscillation (cube), spinner on screen (BMO)
+- **Error:** Screen shake (cube), static effect (BMO)
+- **Happy:** Hearts on screen (BMO)
+- **Sleepy:** Dimmed screen (BMO)
+
+### Expression Modifiers
+
+Per-mood animation behaviors are now data-driven via `display/modifiers.py` instead of hardcoded in character draw methods. Modifiers are configured in `shared/expressions.yaml` under a `modifiers:` key and applied at render time.
+
+Available modifiers:
+- **bounce_boost** — Multiply bounce amplitude (used by excited: `factor: 1.4`)
+- **tilt_oscillation** — Sinusoidal tilt variation (thinking: `speed: 1.2, amount: 3.5`)
+- **eye_swap** — Periodic big/small eye swap with gaze-driven lateral shift (thinking: `cycle: 7.0`)
+- **shake** — Random position jitter (error: `range: 2`)
+- **squint_pulse** — Slow squint modulation (available for focused)
+- **gaze_wander** — Lateral gaze drift (surprised_by_sound: `speed: 0.6`)
+
+Characters call `apply_modifiers(expr, expr.modifiers, now)` which returns an overrides dict (`bounce_factor`, `extra_tilt`, `gaze_x_offset`, `swap_blend`, `shake_x/y`). Adding a new behavior: write the function in `modifiers.py`, register it, and reference it in YAML.
+
+Expressions also support composition via `extends: <mood>` and `blend: {<mood>: <weight>}`, enabling compound expressions like `surprised_by_sound = surprised + 35% curious`.
+
+## Mood Decorations
+
+Per-mood decorative sub-animations rendered as overlays using RGBA compositing (`display/decorations.py`). These are drawn on top of the character and positioned relative to the character's actual face center (stored in `_last_face_cx`/`_last_face_cy` during `draw()`).
+
+| Mood | Decoration | Description |
+|------|-----------|-------------|
+| happy | sparkles + blush | Floating sparkle particles + pink blush circles on cheeks |
+| excited | sparkles | Dense floating sparkle particles |
+| frustrated | sweat drops | Animated sweat drops near forehead |
+| sleepy | ZZZs | Floating Z characters drifting upward |
+| sad | tears | Tear drops below eyes |
+| surprised | "!" | Flash-in exclamation mark |
+| thinking | dots | Animated thinking dots (ellipsis) |
+
+Key design decision: decorations use the character's face center rather than a fixed screen position, so they work correctly with any character (cube, BMO, future characters) regardless of where the face is drawn.
+
+## Demo Mode
+
+A showcase mode (`display/demo.py`) that auto-cycles through moods, characters, and face styles. Useful for trade shows, retail displays, or development review.
+
+**Config settings** (under `character` section in `config/default.yaml`):
+- `demo_mode: false` — enable/disable
+- `demo_cycle_speed: 5` — seconds between mood changes
+- `demo_include_characters: true` — cycle through characters
+- `demo_include_styles: true` — cycle through face styles
+
+When active, demo mode forces IDLE state and face view. The DemoController is integrated into the renderer loop and runs before mood resolution.
 
 ## Concept Art Reference
 

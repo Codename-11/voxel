@@ -49,7 +49,10 @@ class StateMachine:
         self._previous = old
         self._state = new_state
         self._error_message = error_msg if new_state == State.ERROR else None
-        log.info(f"State: {old.name} → {new_state.name}")
+        if new_state == State.ERROR and error_msg:
+            log.error("State: %s → ERROR (%s)", old.name, error_msg)
+        else:
+            log.info("State: %s → %s", old.name, new_state.name)
         for cb in self._on_change:
             try:
                 cb(old, new_state)

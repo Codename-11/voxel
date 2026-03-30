@@ -1,0 +1,120 @@
+name: Build Pi Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version tag (e.g. 0.1.0)"
+        required: true
+        default: "0.1.0"
+  release:
+    types: [published]
+
+env:
+  IMAGE_NAME: voxel-relay
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Build React app on the host (faster than in ARM chroot) ──────────
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Build React app
+        run: |
+          cd app
+          npm ci
+          npm run build
+          test -f dist/index.html
+
+      # ── Prepare source tree for injection into the image ─────────────────
+
+      - name: Prepare voxel source for image
+        run: |
+          mkdir -p /tmp/voxel-src
+          rsync -a \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='.cache' \
+            --exclude='.claude' \
+            --exclude='.code' \
+            --exclude='out' \
+            --exclude='wsl-setup-check.txt' \
+            ./ /tmp/voxel-src/
+
+      # ── Prepare pi-gen custom stage ──────────────────────────────────────
+      # pi-gen expects stages as directories with numbered substeps.
+      # We symlink our stage into the work area and set up the source
+      # tree path so the 00-run.sh host script can find it.
+
+      - name: Prepare pi-gen stage
+        run: |
+          STAGE_DIR="${GITHUB_WORKSPACE}/scripts/pi-gen/stage-voxel"
+
+          # Ensure all scripts are executable
+          chmod +x "${STAGE_DIR}"/00-install-uv/00-run-chroot.sh
+          chmod +x "${STAGE_DIR}"/01-install-voxel/00-run.sh
+          chmod +x "${STAGE_DIR}"/01-install-voxel/01-run-chroot.sh
+          chmod +x "${STAGE_DIR}"/02-first-boot/00-run-chroot.sh
+
+      # ── Build the image with pi-gen ──────────────────────────────────────
+
+      - name: Build with pi-gen
+        uses: usimd/pi-gen-action@v1
+        with:
+          image-name: ${{ env.IMAGE_NAME }}
+          # stage0 + stage1 + stage2 = Raspberry Pi OS Lite
+          # stage-voxel = our custom stage with all voxel software
+          stage-list: stage0 stage1 stage2 ./scripts/pi-gen/stage-voxel
+          release: bookworm
+          target-architecture: arm64
+          hostname: voxel
+          username: pi
+          password: voxel
+          locale: en_US.UTF-8
+          keyboard-keymap: us
+          keyboard-layout: English (US)
+          timezone: UTC
+          enable-ssh: 1
+          extra-host-dependencies: rsync
+          verbose-output: true
+
+      # ── Compress and upload ──────────────────────────────────────────────
+
+      - name: Compress image
+        run: |
+          IMAGE_VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          cd deploy
+          for img in *.img; do
+            xz -T0 -6 "${img}"
+          done
+          # Rename to include version
+          for xz_file in *.img.xz; do
+            base="${xz_file%.img.xz}"
+            mv "${xz_file}" "${base}-${IMAGE_VERSION}.img.xz"
+          done
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_NAME }}-${{ github.event.inputs.version || github.ref_name }}
+          path: deploy/*.img.xz
+          retention-days: 30
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: deploy/*.img.xz

@@ -8,6 +8,9 @@
     "server": "uv run server.py",
     "install:app": "npm install --prefix app",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
-    "postinstall": "cd app && npm install"
+    "postinstall": "cd app && npm install",
+    "docs:dev": "npm run docs:dev --prefix user-docs",
+    "docs:build": "npm run docs:build --prefix user-docs",
+    "docs:preview": "npm run docs:preview --prefix user-docs"
   }
 }

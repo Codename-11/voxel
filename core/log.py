@@ -1,6 +1,20 @@
-"""Voxel logging — clean, colored, with personality."""
+"""Voxel logging — clean, colored, with personality.
+
+Log levels:
+    DEBUG    — per-frame details, animation params, protocol messages
+    INFO     — state transitions, mood changes, service lifecycle, config
+    WARNING  — fallbacks, degraded functionality, missing optional config
+    ERROR    — failures affecting user experience
+    CRITICAL — service cannot start
+
+Configuration:
+    --verbose / -v       → DEBUG level (CLI flag)
+    VOXEL_LOG_LEVEL env  → DEBUG, INFO, WARNING, ERROR (overrides default)
+    VOXEL_LOG_FILE env   → path to additional log file (always appended)
+"""
 
 import logging
+import os
 import sys
 import time
 import threading
@@ -82,6 +96,51 @@ class VoxelFormatter(logging.Formatter):
         )
 
 
+class SafeHandler(logging.StreamHandler):
+    """StreamHandler that never raises on encoding errors.
+
+    On Windows with cp1252 stderr, non-ASCII characters (arrows, emoji)
+    can cause '--- Logging error ---' lines.  This handler catches the
+    UnicodeEncodeError, replaces the problematic chars, and retries.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)
+        except UnicodeEncodeError:
+            # Replace non-ASCII chars and retry
+            record.msg = record.msg.encode("ascii", errors="replace").decode("ascii")
+            try:
+                super().emit(record)
+            except Exception:
+                pass  # give up silently
+        except Exception:
+            pass  # never crash on logging
+
+
+class PlainFormatter(logging.Formatter):
+    """Plain text formatter for file output (no ANSI codes)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        now = datetime.fromtimestamp(record.created)
+        ts = now.strftime("%Y-%m-%d %H:%M:%S.") + f"{now.microsecond // 1000:03d}"
+
+        label, _ = _LEVEL_STYLES.get(record.levelno, ("???", ""))
+
+        name = record.name
+        if name.startswith("voxel."):
+            name = name[6:]
+
+        msg = record.getMessage()
+
+        if record.exc_info and record.exc_info[0] is not None:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+            msg = f"{msg}\n{record.exc_text}"
+
+        return f"{ts}  [{name}]  {label}  {msg}"
+
+
 # ── Spinner ──────────────────────────────────────────────────────────────────
 
 class Spinner:
@@ -155,22 +214,22 @@ _BOOT_MESSAGES = [
     "Remembering how to smile...",
 ]
 
-# Fun ready messages
+# Fun ready messages (ASCII-safe — emoji cause encoding errors on Windows)
 _READY_MESSAGES = [
-    "Ready! Let's go ✨",
-    "All systems nominal. Hi! 👋",
+    "Ready! Let's go.",
+    "All systems nominal. Hi!",
     "Fully awake. What's up?",
-    "Online and feeling cute 💎",
-    "Cube mode: activated ▣",
+    "Online and feeling cute.",
+    "Cube mode: activated.",
     "Present and accounted for!",
 ]
 
 # Shutdown messages
 _SHUTDOWN_MESSAGES = [
     "Going to sleep... zzz",
-    "Powering down. See you soon! 👋",
+    "Powering down. See you soon!",
     "Saving memories... goodnight.",
-    "Cube mode: deactivated ▣",
+    "Cube mode: deactivated.",
 ]
 
 
@@ -185,30 +244,90 @@ def _pick(messages: list[str]) -> str:
 _initialized = False
 
 
-def setup(level: int = logging.INFO, show_banner: bool = True) -> None:
+def _resolve_level(explicit_level: int | None = None) -> int:
+    """Resolve log level from: explicit arg > VOXEL_LOG_LEVEL env > INFO default."""
+    if explicit_level is not None:
+        return explicit_level
+
+    env = os.environ.get("VOXEL_LOG_LEVEL", "").upper()
+    level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO,
+                 "WARNING": logging.WARNING, "ERROR": logging.ERROR}
+    return level_map.get(env, logging.INFO)
+
+
+def setup(level: int | None = None, show_banner: bool = True) -> None:
     """Initialize the Voxel logging system.
 
     Call once at startup before any logging.
+
+    Args:
+        level: Explicit log level. If None, reads VOXEL_LOG_LEVEL env
+               or defaults to INFO.
+        show_banner: Show the ASCII art banner on stderr.
     """
     global _initialized
     if _initialized:
         return
     _initialized = True
 
+    resolved_level = _resolve_level(level)
+
     # Root "voxel" logger
     root = logging.getLogger("voxel")
-    root.setLevel(level)
+    root.setLevel(resolved_level)
 
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(VoxelFormatter())
-    root.addHandler(handler)
+    # Console handler (stderr, colored, UTF-8 safe)
+    # On Windows the default stderr encoding (cp1252) can't handle unicode
+    # emoji/symbols, causing "--- Logging error ---" lines.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        except Exception:
+            pass
+        # Always rewrap stderr on Windows — even if encoding claims utf-8,
+        # the underlying stream may still be cp1252.
+        import io
+        if hasattr(sys.stderr, 'buffer'):
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8',
+                                          errors='replace', line_buffering=True)
+    elif hasattr(sys.stderr, 'buffer') and getattr(sys.stderr, 'encoding', '') != 'utf-8':
+        import io
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8',
+                                      errors='replace', line_buffering=True)
+
+    console = SafeHandler(sys.stderr)
+    console.setFormatter(VoxelFormatter())
+    root.addHandler(console)
+
+    # Patch lastResort AND the root logger so ANY logger (third-party
+    # libraries, http.server, etc.) uses our safe handler.
+    logging.lastResort = SafeHandler(sys.stderr)
+    py_root = logging.getLogger()
+    if not py_root.handlers:
+        py_root.addHandler(SafeHandler(sys.stderr))
+
+    # Optional file handler (VOXEL_LOG_FILE env or /var/log/voxel.log on Pi)
+    log_file = os.environ.get("VOXEL_LOG_FILE")
+    if log_file:
+        try:
+            fh = logging.FileHandler(log_file, encoding="utf-8")
+            fh.setFormatter(PlainFormatter())
+            # File always gets DEBUG so we can diagnose after the fact
+            fh.setLevel(logging.DEBUG)
+            root.addHandler(fh)
+        except OSError:
+            pass  # non-critical: can't write log file
 
     # Prevent propagation to root logger (avoids duplicate output)
     root.propagate = False
 
-    if show_banner:
+    if show_banner and not os.environ.get("VOXEL_NO_BANNER"):
         sys.stderr.write(_BANNER)
         sys.stderr.flush()
+
+    # Log the effective level so it's visible in output
+    root.info("Log level: %s", logging.getLevelName(resolved_level))
 
 
 def boot_message() -> None:

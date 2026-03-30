@@ -14,10 +14,15 @@
 
 The Whisplay HAT integrates everything onto a single board that matches the Pi Zero footprint:
 
-- **Display:** 1.69" IPS LCD, 240×280 pixels, ST7789 controller, SPI interface
+- **Display:** 1.69" IPS LCD, 240×280 pixels, ST7789 controller, SPI at 100MHz
+  - **Corner radius:** ~40px rounded bevel — content in corners gets clipped by the physical bezel
+  - **Safe area:** Inset text/icons ≥20px from edges at top/bottom rows (see `display/layout.py`)
+  - **Backlight:** Software PWM via Python thread — **must use 100% to avoid visible flicker**. Dimming below 100% causes brightness pulsing from scheduler jitter. Future: use ST7789 panel-level brightness commands (0x51/0x53) or hardware PWM via `pigpio`.
+  - **No TE/VSYNC pin** — cannot sync SPI writes to panel refresh. Full-frame writes at 20 FPS are acceptable.
 - **Audio:** WM8960 codec, dual MEMS microphones, mono speaker output
-- **Input:** Two mouse-style buttons (active-low, GPIO)
-- **LED:** RGB LED indicator
+- **Input:** Single push button (BOARD pin 11, active-HIGH with external pull-down). See [Button Interaction Patterns](#button-interaction-patterns) below.
+- **WiFi:** Single radio (CYW43436) — AP and client modes are mutually exclusive. On first boot with no known WiFi, the display service starts AP mode ("Voxel-Setup" hotspot) and serves a config portal at `http://10.42.0.1:8081`. Uses `nmcli` (NetworkManager) for all WiFi operations — no extra packages needed.
+- **LED:** RGB LED indicator (active-LOW, software PWM)
 - **Connector:** 40-pin GPIO header (stacks on Pi Zero)
 
 ### Pin Mapping
@@ -41,6 +46,31 @@ The Whisplay HAT integrates everything onto a single board that matches the Pi Z
 | I2C SCL | GPIO 3 | WM8960 control |
 
 *Note: Pin mapping may vary by Whisplay HAT revision. Verify with PiSugar docs.*
+
+### Button Interaction Patterns
+
+The Whisplay HAT has a single push button (BOARD pin 11). All interaction is encoded through timing patterns:
+
+| Pattern | Action | Timing | Visual Feedback |
+|---------|--------|--------|-----------------|
+| **Short press** | Cycle views (face / drawer / chat) | < 400ms hold, no second press within 400ms | "Tap" pill (cyan) |
+| **Double-tap** | Push-to-talk (start recording) | Two presses within 400ms, face view only | "Talk" pill (bright green) |
+| **Long press** | Menu open / select | Hold > 1s | Cyan ring fills to 1/10, "Menu" pill (bright cyan) |
+| **Sleep** | Enter sleep mode | Hold > 5s | Blue/indigo ring continues to 5/10, "Sleep" pill (indigo) |
+| **Shutdown** | Shutdown Pi (with confirm) | Hold > 10s | Orange→red ring fills to full, "Shutdown" pill (red) |
+
+**Hold indicator:** While the button is held, a three-zone progress ring appears at the bottom of the screen:
+- **Zone 1 (0-1s):** Cyan arc fills the first 1/10 of the ring, label shows "menu"
+- **Zone 2 (1-5s):** Blue/indigo arc continues filling to 5/10, label shows "sleep"
+- **Zone 3 (5-10s):** Orange→red arc fills the remaining half, label shows "shutdown"
+- Two zone boundary ticks mark the 1s and 5s transition points
+- Center dot changes color at each zone boundary
+
+**Shutdown confirmation:** After releasing at >10s, a full-screen countdown overlay appears (3... 2... 1...) with a pulsing "SHUTTING DOWN" warning. Any button press during the countdown cancels. After the countdown reaches 0, `sudo shutdown -h now` executes.
+
+**Talk mode rules:** Push-to-talk only triggers from the face view (not menu or chat views). While LISTENING, any short press or double-tap stops recording. While SPEAKING, any short press or double-tap cancels playback.
+
+**Desktop simulation:** The spacebar in the tkinter/pygame preview window mimics the hardware button with identical timing logic.
 
 ### Driver Installation
 
@@ -110,17 +140,15 @@ sudo apt update && sudo apt upgrade -y
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-### 3. Remote Browser Mode (fallback without Whisplay)
+### 3. Web Config UI
 
-The install script chooses a UI mode automatically:
-- If Whisplay is detected, it enables local Cog rendering on the Pi's LCD
-- If Whisplay is not detected, it enables a remote web UI on port `8081`
+The display service runs a web config server on port 8081 with a 6-digit PIN shown on the LCD. Open it from your laptop or phone:
 
-This lets you test the Pi runtime headlessly:
-- audio devices and routing on the Pi
-- OpenClaw connectivity
-- menu/settings persistence
-- systemd startup and reboot behavior
+```text
+http://<pi-ip>:8081
+```
+
+This lets you configure settings, check connectivity, and manage the device remotely.
 
 ```bash
 # Edit config (gateway URL, API keys)
@@ -130,12 +158,6 @@ nano ~/voxel/config/local.yaml  # or edit directly
 # Start and check
 voxel start
 voxel status
-```
-
-Open from your laptop or phone:
-
-```text
-http://<pi-ip>:8081
 ```
 
 ### 4. Whisplay Hardware Drivers
@@ -156,7 +178,7 @@ aplay -l
 voxel display-test
 ```
 
-`voxel display-test` is the preferred sanity check because it bypasses WPE/Cog and talks to the Whisplay driver directly.
+`voxel display-test` is the preferred sanity check because it talks to the Whisplay driver directly.
 
 ### 4b. LVGL Native Renderer PoC
 
@@ -215,6 +237,7 @@ voxel lvgl-render # Render LVGL RGB565 frames without playback
 voxel lvgl-sync   # Sync rendered LVGL frames to the Pi
 voxel lvgl-play   # Replay pre-rendered LVGL frames on the Pi
 voxel lvgl-deploy # Render, sync, and play in one command
+voxel dev-pair    # Auto-discover device + pair via PIN
 voxel start       # Start services
 voxel stop        # Stop services
 voxel restart     # Restart services
@@ -229,31 +252,30 @@ voxel version     # Show version
 
 ---
 
-## UI Modes on the Pi
+## Services on the Pi
 
-### Remote browser mode
-
-When Whisplay is not attached, the Pi serves the built React app over HTTP:
+The production deployment uses two systemd services:
 
 | Service | Unit File | What it runs |
 |---------|-----------|-------------|
-| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
-| Remote UI | `voxel-web.service` | `python3 -m http.server 8081 -d /home/pi/voxel/app/dist` — open from another device at `http://<pi-ip>:8081` |
+| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, battery polling, AI pipelines |
+| Display | `voxel-display.service` | `uv run display/service.py --url ws://localhost:8080` — PIL renderer → SPI LCD, button input, config server on port 8081. Depends on and starts after `voxel.service`. |
 
-The remote browser connects back to `ws://<pi-ip>:8080` automatically because the app derives the WebSocket host from the page URL.
+> **Archived services:** `voxel-ui.service` (WPE/Cog browser) and `voxel-web.service` (static HTTP server for remote browser UI) are no longer used. They were from an earlier architecture where the React app was the production renderer. The PIL display service replaced both.
 
-### Whisplay local mode
+## WPE/Cog — Future Optimization (Not Currently Used)
 
-When Whisplay is attached, the setup script enables local Cog rendering:
+> **Current approach:** The display service (`display/service.py`) renders with
+> Python PIL and pushes frames directly to the SPI LCD via the WhisPlay driver —
+> the same proven approach used by PiSugar's reference chatbot. WPE/Cog is a
+> future optimization that would allow the React app to render directly on the Pi
+> LCD, eliminating the need for the PIL renderer. It requires a working
+> framebuffer driver (fbtft or fbcp-ili9341) which has not been validated yet.
 
-| Service | Unit File | What it runs |
-|---------|-----------|-------------|
-| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, hardware I/O, AI pipelines |
-| Local UI | `voxel-ui.service` | `cog file:///home/pi/voxel/app/dist/index.html` — WPE browser rendering the React app fullscreen |
+WPE WebKit is an embedded browser engine built for devices like the Pi. Cog is its minimal launcher — no window decorations, no address bar, just fullscreen content. If enabled, it would render the React + Framer Motion UI on the LCD.
 
-## WPE/Cog — How It Works
-
-WPE WebKit is an embedded browser engine built for devices like the Pi. Cog is its minimal launcher — no window decorations, no address bar, just fullscreen content. This is what renders the React + Framer Motion UI on the LCD.
+<details>
+<summary>WPE/Cog architecture and setup notes (expand for future reference)</summary>
 
 ### Architecture on the Pi
 
@@ -277,8 +299,6 @@ WPE WebKit is an embedded browser engine built for devices like the Pi. Cog is i
 └─────────────────────────────────────┘
 ```
 
-The local UI service waits for the backend to start (`After=voxel.service`), then opens Cog loading the pre-built React app from disk. The app connects to `ws://localhost:8080` for backend state.
-
 ### Display Routing
 
 The Whisplay HAT's LCD is an SPI display (ST7789 controller). How WPE gets pixels to it depends on the driver:
@@ -286,7 +306,7 @@ The Whisplay HAT's LCD is an SPI display (ST7789 controller). How WPE gets pixel
 **Scenario A — DRM connector available (preferred):**
 If the Whisplay driver registers as a DRM device, Cog's DRM platform plugin renders directly to it. This is the zero-overhead path.
 
-Current status note:
+Status notes from earlier testing:
 - On the validated Pi Zero 2W + Whisplay hardware, direct driver rendering works.
 - Direct `cog` DRM startup currently fails on the tested Pi OS image with DRM/session initialization errors.
 - Weston can acquire DRM successfully when `seatd` is running, but `cog -P wl` still aborts on the tested package set because it cannot load `libWPEBackend-default.so`.
@@ -319,13 +339,13 @@ fbcp-ili9341 &
 COG_PLATFORM=drm cog file:///home/pi/voxel/app/dist/index.html
 ```
 
-If using fbcp, add it as a systemd service that starts before `voxel-ui`:
+If using fbcp, add it as a systemd service that starts before the display service:
 
 ```bash
 # /etc/systemd/system/fbcp.service
 [Unit]
 Description=Framebuffer copy (DRM → SPI LCD)
-Before=voxel-ui.service
+Before=voxel-display.service
 
 [Service]
 ExecStart=/usr/local/bin/fbcp-ili9341
@@ -343,6 +363,8 @@ In short:
 - `drm` is the direct kernel graphics path.
 - `wl` is Cog's Wayland platform module, typically used under Weston.
 - `fdo` is the WPE backend library family used underneath that path.
+
+</details>
 
 ### Performance Tuning
 
@@ -371,9 +393,52 @@ hdmi_blanking=2
 |---------|------|-------|
 | Kernel + drivers | ~60MB | Pi OS Lite baseline |
 | server.py | ~40MB | Python + websockets + numpy |
-| WPE/Cog | ~120MB | WebKit renderer + React app |
+| display/service.py | ~50MB | PIL renderer + config server |
 | Audio pipeline | ~30MB | STT/TTS when active |
-| **Total** | **~250MB** | ~260MB headroom + 256MB swap |
+| **Total** | **~180MB** | ~330MB headroom + 256MB swap |
+
+## Device Discovery & Dev Pairing
+
+The display service broadcasts the device's presence on the LAN via UDP so dev machines can auto-discover it.
+
+### How it works
+
+1. **Advertiser (Pi side):** The display service starts a background thread that sends a small JSON heartbeat every 5 seconds via UDP broadcast on port **41234**. The payload includes the device name, IP, config server port, and firmware version.
+
+2. **Discovery (dev side):** `voxel dev-pair` listens on port 41234 for these broadcasts. If multiple devices are found, the user picks one.
+
+3. **Pairing:** The dev machine sends the 6-digit PIN (shown on the device LCD) to the config server's `POST /api/dev/pair` endpoint. On success, the device enables dev mode and returns SSH credentials.
+
+4. **Credentials saved:** SSH host/user/password are saved to `config/local.yaml` so all `dev-*` commands (ssh, logs, restart, display-push) work without re-entering credentials.
+
+### Usage
+
+```bash
+# Auto-discover and pair (interactive)
+voxel dev-pair
+
+# Skip discovery — specify IP directly
+voxel dev-pair --host 192.168.1.42
+
+# Specify a non-default config server port
+voxel dev-pair --host 192.168.1.42 --port 8082
+```
+
+After pairing:
+```bash
+voxel display-push     # sync + run display on device
+voxel dev-logs         # tail device logs
+voxel dev-ssh          # SSH into device
+voxel dev-restart      # restart display service remotely
+```
+
+### Protocol details
+
+- **Transport:** UDP broadcast to `255.255.255.255:41234`
+- **Interval:** Every 5 seconds
+- **Payload:** JSON `{"service":"voxel","name":"voxel","ip":"...","port":8081,"version":"0.1.0","time":...}`
+- **Pairing endpoint:** `POST /api/dev/pair` with `{"pin":"123456","dev_host":"..."}` — returns SSH creds and device info
+- **No extra dependencies:** Uses only Python stdlib (`socket`, `json`, `threading`)
 
 ## Enclosure
 

@@ -2,31 +2,85 @@
 
 ## Overview
 
-Voxel uses a **React + WebSocket + Python** architecture. The React app (`app/`) renders the animated companion face. The Python backend (`server.py`) manages state, hardware, and AI pipelines. They communicate over WebSocket.
+Voxel uses a **PIL display service + WebSocket + Python backend** architecture. The display service (`display/service.py`) renders frames with PIL and pushes RGB565 data to the SPI LCD via the WhisPlay driver on Pi, or to a tkinter preview window on desktop. The Python backend (`server.py`) manages state, hardware, and AI pipelines. They communicate over WebSocket on port 8080.
 
-On the Pi, the same React build can run in two deployment modes:
-- `remote` mode: Pi serves `app/dist` over HTTP and a remote browser is the screen
-- `cog` mode: WPE/Cog renders the app fullscreen on the Whisplay LCD
-
-On desktop, Vite's dev server runs in a browser window.
+The React app (`app/`) is a **browser-based dev tool** for rapid expression/style iteration with HMR — it is NOT the production renderer.
 
 ```
-  React UI (app/)              Python Backend (server.py)
-  ┌─────────────────┐          ┌──────────────────────────┐
-  │ Framer Motion    │◄──ws──►│ State Machine             │
-  │ face animation   │  :8080  │ Hardware (buttons/LED/bat)│
-  │ mood/style/mouth │         │ AI (OpenClaw, STT, TTS)   │
-  └────────┬────────┘          └──────────┬───────────────┘
-           │                              │
-     shared/*.yaml                   shared/*.yaml
-     (expressions, styles, moods)    (moods, expressions)
+  Display Service (display/service.py)       Python Backend (server.py)
+  ┌───────────────────────────────────┐      ┌──────────────────────────┐
+  │ PIL Renderer → characters, menus  │◄─ws─►│ State Machine             │
+  │ Button polling, state management  │ :8080 │ Hardware (battery/LED)    │
+  │ Config server (:8081) + QR code   │      │ AI (OpenClaw, STT, TTS)   │
+  │ WiFi onboarding (AP mode)         │      └──────────────────────────┘
+  ├───────────────────────────────────┤
+  │ Backends:                         │      shared/*.yaml
+  │   Pi:      WhisPlay SPI driver    │      (expressions, styles, moods)
+  │   Desktop: tkinter preview window │
+  └───────────────────────────────────┘
 ```
 
 ## Layers
 
-### 1. React Frontend (`app/`)
+### 1. PIL Display Service (`display/service.py`)
 
-The production face renderer. Built with React 19, Framer Motion 12, Tailwind CSS 4, Vite 8.
+The **production renderer**. Renders frames with Pillow (PIL), compositing characters, menus, overlays, and status indicators into 240x280 images. On Pi, frames are pushed as RGB565 to the SPI LCD via the WhisPlay driver (`display/backends/spi.py`). On desktop, frames display in a tkinter window (`display/backends/tkinter.py`).
+
+| Path | Purpose |
+|------|---------|
+| `display/ambient.py` | Ambient audio monitor (mic RMS for deterministic face reactions) |
+| `display/animation.py` | Lerp, easing, transition helpers |
+| `display/emoji_reactions.py` | Emoji reaction parser, mood mapping, and floating decoration |
+| `display/fonts.py` | Font loading and caching |
+| `display/layout.py` | Screen geometry, safe areas, corner radius |
+| `display/modifiers.py` | Data-driven expression modifier registry (bounce, shake, eye_swap, etc.) |
+| `display/overlay.py` | Shared RGBA overlay compositing helpers |
+| `display/renderer.py` | PILRenderer — composites all layers into frames |
+| `display/state.py` | DisplayState — shared state for all components |
+| `display/characters/` | Pluggable character renderers (cube, bmo) |
+| `display/components/` | UI components: face, menu, status_bar, transcript, button_indicator, shutdown_overlay, qr_overlay, wifi_setup, onboarding |
+| `display/backends/spi.py` | WhisPlay SPI driver (Pi) |
+| `display/backends/tkinter.py` | tkinter preview window (desktop) |
+| `display/backends/pygame.py` | pygame preview window (desktop alt) |
+| `display/config_server.py` | Web config UI on port 8081 (QR + PIN auth) |
+| `display/led.py` | LEDController — WhisPlay RGB LED |
+| `display/wifi.py` | WiFi management — AP mode onboarding, nmcli |
+| `display/dev_panel.py` | Dev control window (mood/state/style GUI) |
+| `display/status_decorations.py` | Connection/battery visual indicators (WiFi arcs, disconnect X, draining icon) |
+| `display/updater.py` | Self-update system (git check + install) |
+
+**Status decorations** (`display/status_decorations.py`) are separate from mood decorations (`display/decorations.py`). They visualize device events: WiFi arcs on connect, an X on disconnect, and a draining battery icon for low power warnings. Status decorations layer on top of mood decorations (both can render simultaneously) and are configurable via `display.status_animations` in config.
+
+#### Modifier System
+
+Expression modifiers (`display/modifiers.py`) replace hardcoded per-mood animation logic with a data-driven registry. Each modifier is a function that adjusts rendering parameters (bounce, tilt, gaze, shake) and is configured per-expression in `shared/expressions.yaml`:
+
+```yaml
+thinking:
+  modifiers:
+    - type: eye_swap
+      cycle: 7.0
+      gaze_influence: 0.3
+    - type: tilt_oscillation
+      speed: 1.2
+      amount: 3.5
+```
+
+Available modifiers: `bounce_boost`, `tilt_oscillation`, `eye_swap`, `shake`, `squint_pulse`, `gaze_wander`. Characters call `apply_modifiers()` once per frame and read the returned overrides dict. Expressions also support `extends` (inheritance) and `blend` (weighted composition).
+
+#### Emoji Reactions
+
+Agents can include leading emoji in responses (e.g. "😊 That sounds great!"). The emoji reaction system (`display/emoji_reactions.py`) parses the emoji, maps it to a mood if known (31 emoji covering 11 moods), and displays a floating emoji decoration above the face that auto-dismisses after 3 seconds. Unmapped emoji still display visually without a mood change.
+
+System events (tool calls, ambient spikes, connection changes, battery warnings) also trigger emoji reactions automatically. For example, a loud ambient noise shows ❗ alongside the surprised mood, and a gateway connection loss shows ❌ with the sad mood. These reinforce state changes with personality.
+
+#### Ambient Monitor
+
+`display/ambient.py` monitors mic input in a background thread (no audio recording — just RMS amplitude). Deterministic reactions without any LLM call: loud spike → surprised, sustained sound → curious, extended silence → sleepy. Beat detection tracks rhythm for body bounce sync. Configurable via `audio.ambient_react`, `audio.ambient_sensitivity`, and `audio.ambient_silence_timeout`.
+
+### 1b. React Browser UI (`app/`) — Dev Tool Only
+
+Browser-based dev UI for rapid expression/style iteration. Built with React 19, Framer Motion 12, Tailwind CSS 4, Vite 8. **Not used in production on the Pi.**
 
 | File | Purpose |
 |------|---------|
@@ -48,7 +102,7 @@ Manages application state and bridges hardware/AI to the frontend.
 | State machine | `states/machine.py` (7 states) |
 | State broadcasting | Push full UI state to all connected clients on change |
 | Runtime settings | `config/settings.py` loads `default.yaml` + `local.yaml`, persists mutable user settings |
-| Hardware polling | 20Hz loop — buttons, battery, LED (on Pi only) |
+| Hardware polling | 20Hz loop — battery (on Pi only; display service handles button input) |
 | Mood mapping | `shared/moods.yaml` defines state-to-mood map |
 
 ### 3. Shared YAML Data Layer (`shared/`)
@@ -72,36 +126,24 @@ Vite watches `shared/` and triggers HMR on YAML changes, so edits to expressions
 |--------|---------|
 | `gateway.py` | OpenClaw chat completions (non-streaming). Session: `agent:{id}:companion` |
 | `stt.py` | Whisper API. Records WAV → uploads → returns transcript |
-| `tts.py` | ElevenLabs (primary) / edge-tts (fallback). Text → audio bytes |
+| `tts.py` | OpenAI TTS / ElevenLabs / edge-tts (fallback). Text → audio bytes |
 | `audio.py` | Audio capture/playback. `get_amplitude()` for mouth sync |
 
-### 5. Face — Renderer Abstraction (`face/`)
-
-| Module | Purpose |
-|--------|---------|
-| `base.py` | `BaseRenderer` abstract class — defines mood/style/audio/frame interface |
-| `renderer.py` | `FaceRenderer` — pygame implementation of BaseRenderer (fallback only) |
-| `character.py` | `VoxelCharacter` — pygame sprite-based cube with all animation logic |
-| `expressions.py` | Python mood dataclasses (mirrors `shared/expressions.yaml`) |
-| `styles.py` | Python style definitions (mirrors `shared/styles.yaml`) |
-| `mouth.py` | Audio amplitude → mouth frame mapping |
-
-**React is the primary renderer.** Pygame exists as a fallback for headless/legacy use. The `BaseRenderer` interface ensures any backend can be swapped in.
-
-### 6. Hardware Abstraction (`hardware/`)
+### 5. Hardware Abstraction (`hw/`)
 
 Platform-detected at startup. Same interface on desktop and Pi.
 
 | Module | Desktop | Pi |
 |--------|---------|-----|
-| `platform.py` | Sets `IS_PI=False` | Sets `IS_PI=True` |
+| `detect.py` | Sets `IS_PI=False` | Sets `IS_PI=True`, `probe_hardware()` |
 | `buttons.py` | Keyboard mapping (Z/X/Space/Esc) | GPIO active-low polling |
-| `led.py` | Visual indicator (logged) | GPIO PWM RGB LED |
 | `battery.py` | Returns 100% always | PiSugar HTTP API |
 
-On the Pi, `server.py` polls hardware at 20Hz and broadcasts state changes to the React frontend via WebSocket.
+LED control is handled by `display/led.py` (`LEDController`) which drives the WhisPlay RGB LED based on device state.
 
-### 7. States (`states/`)
+> **Legacy:** The old pygame renderer (`face/`) and hardware display/LED modules are archived in `_legacy/`.
+
+### 6. States (`states/`)
 
 Finite state machine driving application behavior.
 
@@ -165,13 +207,13 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 1. User presses button (hardware GPIO or WebSocket "button" event)
    → server.py: State IDLE → LISTENING
    → WebSocket push: { mood: "listening", state: "LISTENING" }
-   → React: eyes widen, lean forward, sound wave icon
+   → Display: eyes widen, lean forward, sound wave icon
 
 2. User releases button
    → server.py: State LISTENING → THINKING
    → Audio: stop recording → WAV bytes
    → WebSocket push: { mood: "thinking", state: "THINKING" }
-   → React: asymmetric brow raise, gaze up, brain+cog icon
+   → Display: asymmetric brow raise, gaze up, brain+cog icon
 
 3. STT (Whisper API)
    → WAV bytes → HTTP POST → transcript text
@@ -179,7 +221,7 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 4. Gateway (OpenClaw)
    → transcript → POST /v1/chat/completions → response text
 
-5. TTS (ElevenLabs)
+5. TTS (OpenAI TTS / ElevenLabs / edge-tts)
    → response text → HTTP POST → audio bytes
    → server.py: State THINKING → SPEAKING
    → WebSocket push: { mood: "neutral", state: "SPEAKING", speaking: true }
@@ -187,7 +229,7 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 6. Playback
    → Audio: play through speaker
    → server.py: stream amplitude via WebSocket
-   → React: mouth animation synced to amplitude
+   → Display: mouth animation synced to amplitude
 
 7. Complete
    → server.py: State SPEAKING → IDLE
@@ -196,15 +238,14 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 
 ## Pi Deployment
 
-On the Raspberry Pi, the stack is:
+On the Raspberry Pi, two systemd services run:
 
-1. **server.py** — Python WebSocket backend as a systemd service
-2. One UI transport:
-   `voxel-web.service` for remote-browser testing before hardware arrives
-   `voxel-ui.service` for local Whisplay/Cog rendering
-3. **Hardware drivers** — Whisplay HAT (display, audio, buttons, LED), PiSugar (battery) when attached
+1. **`voxel.service`** — Python WebSocket backend (`server.py`): state machine, AI pipelines, battery polling
+2. **`voxel-display.service`** — PIL display service (`display/service.py`): renders frames to SPI LCD, button input, config server, WiFi onboarding. Connects to `server.py` via `--url ws://localhost:8080` and depends on `voxel.service`.
 
-WPE is GPU-accelerated on the Pi, so CSS/Framer Motion animations perform well even on the Zero 2W.
+Hardware drivers: WhisPlay HAT (SPI display, audio codec, button, RGB LED), PiSugar (battery) when attached.
+
+> **Legacy:** `voxel-ui.service` (WPE/Cog) and `voxel-web.service` (HTTP server for remote browser) are archived in `_legacy/`.
 
 ## Performance Budget
 
@@ -216,9 +257,59 @@ WPE is GPU-accelerated on the Pi, so CSS/Framer Motion animations perform well e
 | WebSocket latency | < 50ms |
 | Audio latency | < 200ms |
 
+## Setup & Onboarding
+
+First-boot flow on Pi:
+1. `setup.sh` bootstraps: clones repo, installs uv, runs `voxel setup` (includes `voxel hw`)
+2. User reboots (required for Whisplay kernel modules)
+3. `voxel-display.service` auto-starts, checks `config/.setup-state`
+4. If no WiFi: AP mode ("Voxel-Setup") with config portal on LCD
+5. If no gateway token: shows "scan to configure" QR screen
+6. After config: normal face mode
+
+Setup state tracked in `config/.setup-state` (YAML checkpoints).
+
+Two production services: `voxel.service` (backend) + `voxel-display.service` (display).
+
+## Dev Panel
+
+On desktop, `uv run dev` opens a dev panel control window (`display/dev_panel.py`) alongside the preview window. The panel provides GUI controls for changing moods, states, styles, and triggering test actions without keyboard shortcuts. Pass `--no-panel` to disable it.
+
+Keyboard shortcuts are also available in the preview window itself: number keys `1`-`9`/`0` for moods, `m` for menu, `c` for cycling views, `t` for transcript, `p` for demo mode, `n` for noise spike simulation, and spacebar for hardware button simulation.
+
+## Logging
+
+All logging goes through `core/log.py`, which provides colored console output (stderr) and optional file output.
+
+**Configuration:**
+- `--verbose` / `-v` CLI flag sets DEBUG level
+- `VOXEL_LOG_LEVEL` env var: `DEBUG`, `INFO` (default), `WARNING`, `ERROR`
+- `VOXEL_LOG_FILE` env var: path to an additional log file (always captures DEBUG, appended)
+
+**Log levels:**
+- `DEBUG` — per-frame details, animation parameters, protocol messages
+- `INFO` — state transitions, mood changes, service lifecycle, config
+- `WARNING` — fallbacks, degraded functionality, missing optional config
+- `ERROR` — failures affecting user experience
+- `CRITICAL` — service cannot start
+
+All loggers use the `voxel.*` namespace (e.g., `voxel.display`, `voxel.core`). Module prefixes are shortened in output for readability.
+
+## Testing
+
+Test suite in `tests/` using pytest (config in `pyproject.toml`). Run with `uv run pytest`.
+
+| Test file | Coverage |
+|-----------|----------|
+| `test_mood_pipeline.py` | Mood transitions, battery reactions, manual lockout (5s), connection changes, demo mode blocking |
+| `test_state_lifecycle.py` | DisplayState defaults, transcript management, blink/gaze/breathing animation state, idle prompts |
+| `test_characters.py` | All characters x all moods render without error, tilt cuts, accent color correctness |
+
+Tests have a 10-second timeout. No hardware or network access required.
+
 ## File Conventions
 
-- All hardware access through `hardware/` abstraction — never import RPi.GPIO directly
+- All hardware access through `hw/` abstraction — never import RPi.GPIO directly
 - Config values from YAML — no magic numbers in code
 - Shared data in `shared/*.yaml` — never duplicate expression/style/mood definitions
 - Type hints on all public Python functions

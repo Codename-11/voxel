@@ -68,7 +68,16 @@ class PerEyeOverride:
 
 @dataclass
 class Expression:
-    """Complete expression definition."""
+    """Complete expression definition.
+
+    Supports composition:
+      - ``modifiers``: list of animation modifier configs applied per-frame
+        (see ``display/modifiers.py`` for available types).
+      - ``extends``: name of a base expression to inherit from.
+      - ``blend``: dict of ``{mood_name: weight}`` to lerp on top of
+        the base, enabling composed expressions like
+        ``surprised_by_sound = surprised + 35% curious``.
+    """
     name: str = ""
     eyes: EyeConfig = field(default_factory=EyeConfig)
     mouth: MouthConfig = field(default_factory=MouthConfig)
@@ -76,9 +85,27 @@ class Expression:
     left_eye: Optional[PerEyeOverride] = None
     right_eye: Optional[PerEyeOverride] = None
     eye_color_override: Optional[str] = None
+    modifiers: list[dict] = field(default_factory=list)
 
 
 # ── Style dataclasses ────────────────────────────────────────────────────────
+
+def _parse_radius(value) -> float:
+    """Parse a CSS border-radius value to a float fraction.
+
+    Handles: 0.28, "40%", "35% / 50%" (takes first value).
+    Percentages are converted to 0.0-1.0 fractions.
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    # "35% / 50%" -> take first part
+    if "/" in s:
+        s = s.split("/")[0].strip()
+    if s.endswith("%"):
+        return float(s[:-1]) / 100.0
+    return float(s)
+
 
 def _parse_color(value: str) -> tuple:
     """Convert a color string to an (r, g, b) or (r, g, b, a) tuple.
@@ -182,11 +209,108 @@ def _build_per_eye(data: Optional[dict]) -> Optional[PerEyeOverride]:
     )
 
 
+def _build_expression(mood_name: str, data: dict) -> Expression:
+    """Build a single Expression from raw YAML data (no extends/blend)."""
+    eyes_d = data.get("eyes", {})
+    mouth_d = data.get("mouth", {})
+    body_d = data.get("body", {})
+
+    return Expression(
+        name=mood_name,
+        eyes=EyeConfig(
+            width=float(eyes_d.get("width", 1.0)),
+            height=float(eyes_d.get("height", 1.0)),
+            openness=float(eyes_d.get("openness", 1.0)),
+            pupil_size=float(eyes_d.get("pupil_size", 0.4)),
+            gaze_x=float(eyes_d.get("gaze_x", 0.0)),
+            gaze_y=float(eyes_d.get("gaze_y", 0.0)),
+            blink_rate=float(eyes_d.get("blink_rate", 3.0)),
+            squint=float(eyes_d.get("squint", 0.0)),
+        ),
+        mouth=MouthConfig(
+            openness=float(mouth_d.get("openness", 0.0)),
+            smile=float(mouth_d.get("smile", 0.3)),
+            width=float(mouth_d.get("width", 1.0)),
+        ),
+        body=BodyConfig(
+            bounce_speed=float(body_d.get("bounce_speed", 0.5)),
+            bounce_amount=float(body_d.get("bounce_amount", 2.0)),
+            tilt=float(body_d.get("tilt", 0.0)),
+            scale=float(body_d.get("scale", 1.0)),
+        ),
+        left_eye=_build_per_eye(data.get("left_eye")),
+        right_eye=_build_per_eye(data.get("right_eye")),
+        eye_color_override=data.get("eye_color_override"),
+        modifiers=data.get("modifiers", []),
+    )
+
+
+def _lerp_field(a: float, b: float, t: float) -> float:
+    return a + (b - a) * t
+
+
+def _blend_expression(base: Expression, overlay: Expression,
+                      weight: float) -> Expression:
+    """Blend *overlay* onto *base* by *weight* (0..1).
+
+    Used for composed expressions like ``surprised_by_sound``.
+    Modifiers from both expressions are concatenated.
+    """
+    w = max(0.0, min(1.0, weight))
+
+    def _le(a, b):
+        return _lerp_field(a, b, w)
+
+    eyes = EyeConfig(
+        width=_le(base.eyes.width, overlay.eyes.width),
+        height=_le(base.eyes.height, overlay.eyes.height),
+        openness=_le(base.eyes.openness, overlay.eyes.openness),
+        pupil_size=_le(base.eyes.pupil_size, overlay.eyes.pupil_size),
+        gaze_x=_le(base.eyes.gaze_x, overlay.eyes.gaze_x),
+        gaze_y=_le(base.eyes.gaze_y, overlay.eyes.gaze_y),
+        blink_rate=_le(base.eyes.blink_rate, overlay.eyes.blink_rate),
+        squint=_le(base.eyes.squint, overlay.eyes.squint),
+    )
+    mouth = MouthConfig(
+        openness=_le(base.mouth.openness, overlay.mouth.openness),
+        smile=_le(base.mouth.smile, overlay.mouth.smile),
+        width=_le(base.mouth.width, overlay.mouth.width),
+    )
+    body = BodyConfig(
+        bounce_speed=_le(base.body.bounce_speed, overlay.body.bounce_speed),
+        bounce_amount=_le(base.body.bounce_amount, overlay.body.bounce_amount),
+        tilt=_le(base.body.tilt, overlay.body.tilt),
+        scale=_le(base.body.scale, overlay.body.scale),
+    )
+    # Blend per-eye: take overlay's if present, else base's
+    left_eye = overlay.left_eye if overlay.left_eye else base.left_eye
+    right_eye = overlay.right_eye if overlay.right_eye else base.right_eye
+    # Eye color: overlay wins if set
+    eye_color = overlay.eye_color_override or base.eye_color_override
+    # Modifiers: concat (base first, overlay second)
+    mods = list(base.modifiers) + list(overlay.modifiers)
+
+    return Expression(
+        name=base.name,
+        eyes=eyes,
+        mouth=mouth,
+        body=body,
+        left_eye=left_eye,
+        right_eye=right_eye,
+        eye_color_override=eye_color,
+        modifiers=mods,
+    )
+
+
 def load_expressions() -> dict[str, Expression]:
     """Load all expression/mood definitions from expressions.yaml.
 
     Returns a dict keyed by mood name (snake_case lowercase),
     e.g. {"neutral": Expression(...), "happy": Expression(...), ...}.
+
+    Supports composition via YAML keys:
+      - ``extends: <mood>`` — inherit from another expression
+      - ``blend: {<mood>: <weight>}`` — lerp toward another expression
 
     Results are cached after the first call.
     """
@@ -195,40 +319,52 @@ def load_expressions() -> dict[str, Expression]:
         return _expressions_cache
 
     raw = _load_yaml("expressions.yaml")
-    result: dict[str, Expression] = {}
+
+    # First pass: build standalone expressions (no extends/blend)
+    standalone: dict[str, Expression] = {}
+    deferred: list[tuple[str, dict]] = []
 
     for mood_name, data in raw.items():
-        eyes_d = data.get("eyes", {})
-        mouth_d = data.get("mouth", {})
-        body_d = data.get("body", {})
+        if data.get("extends") or data.get("blend"):
+            deferred.append((mood_name, data))
+        else:
+            standalone[mood_name] = _build_expression(mood_name, data)
 
-        expr = Expression(
-            name=mood_name,
-            eyes=EyeConfig(
-                width=float(eyes_d.get("width", 1.0)),
-                height=float(eyes_d.get("height", 1.0)),
-                openness=float(eyes_d.get("openness", 1.0)),
-                pupil_size=float(eyes_d.get("pupil_size", 0.4)),
-                gaze_x=float(eyes_d.get("gaze_x", 0.0)),
-                gaze_y=float(eyes_d.get("gaze_y", 0.0)),
-                blink_rate=float(eyes_d.get("blink_rate", 3.0)),
-                squint=float(eyes_d.get("squint", 0.0)),
-            ),
-            mouth=MouthConfig(
-                openness=float(mouth_d.get("openness", 0.0)),
-                smile=float(mouth_d.get("smile", 0.3)),
-                width=float(mouth_d.get("width", 1.0)),
-            ),
-            body=BodyConfig(
-                bounce_speed=float(body_d.get("bounce_speed", 0.5)),
-                bounce_amount=float(body_d.get("bounce_amount", 2.0)),
-                tilt=float(body_d.get("tilt", 0.0)),
-                scale=float(body_d.get("scale", 1.0)),
-            ),
-            left_eye=_build_per_eye(data.get("left_eye")),
-            right_eye=_build_per_eye(data.get("right_eye")),
-            eye_color_override=data.get("eye_color_override"),
-        )
+    result = dict(standalone)
+
+    # Second pass: resolve extends/blend
+    for mood_name, data in deferred:
+        base_name = data.get("extends")
+        if base_name and base_name in result:
+            expr = result[base_name]
+            # Copy base, rename
+            expr = Expression(
+                name=mood_name,
+                eyes=expr.eyes,
+                mouth=expr.mouth,
+                body=expr.body,
+                left_eye=expr.left_eye,
+                right_eye=expr.right_eye,
+                eye_color_override=expr.eye_color_override,
+                modifiers=list(expr.modifiers),
+            )
+        else:
+            expr = _build_expression(mood_name, data)
+
+        # Apply blends
+        blend_cfg = data.get("blend", {})
+        if isinstance(blend_cfg, dict):
+            for overlay_name, weight in blend_cfg.items():
+                overlay = result.get(overlay_name)
+                if overlay:
+                    expr = _blend_expression(expr, overlay, float(weight))
+                    expr.name = mood_name  # preserve name after blend
+
+        # Override modifiers from the composed expression's own YAML
+        own_mods = data.get("modifiers")
+        if own_mods:
+            expr.modifiers = list(expr.modifiers) + own_mods
+
         result[mood_name] = expr
 
     _expressions_cache = result
@@ -267,8 +403,8 @@ def load_styles() -> dict[str, FaceStyle]:
                 highlight_color=_parse_color(eye_d.get("highlight_color", "rgba(255, 255, 255, 0.9)")),
                 fill_color=_parse_color(eye_d.get("fill_color", "#f0f0f0")),
                 glow_color=_parse_color(eye_d.get("glow_color", "rgba(240, 240, 240, 0.15)")),
-                border_radius=float(eye_d.get("border_radius", 0.28)),
-                closed_radius=float(eye_d.get("closed_radius", 0.35)),
+                border_radius=_parse_radius(eye_d.get("border_radius", 0.28)),
+                closed_radius=_parse_radius(eye_d.get("closed_radius", 0.35)),
                 iris_color=_parse_color(eye_d.get("iris_color", "#0a0a12")),
                 iris_size=float(eye_d.get("iris_size", 0.55)),
             ),

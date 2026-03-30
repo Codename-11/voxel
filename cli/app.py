@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 
 from cli.display import header, section, info, ok, warn, fail, kv, cyan, bold, dim, console, banner, print_commands
-from hardware.platform import probe_hardware
+from hw.detect import probe_hardware
 
 VOXEL_DIR = Path(__file__).resolve().parent.parent
-SERVICES = ["voxel", "voxel-ui", "voxel-web"]
+SERVICES = ["voxel", "voxel-display"]
 
 
 def _run(cmd: list[str] | str, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
@@ -33,29 +33,13 @@ def _svc_state(name: str) -> str:
 
 
 def _active_services() -> list[str]:
-    """Return list of service names that should be managed."""
-    active = ["voxel"]
+    """Return list of service names that should be managed.
 
-    # Respect explicit config first, then fall back to auto-detection.
-    mode = "auto"
-    try:
-        from config.settings import load_settings
-
-        mode = str(load_settings().get("display", {}).get("mode", "auto")).lower()
-    except Exception:
-        pass
-
-    probe = probe_hardware()
-
-    if mode == "cog":
-        active.append("voxel-ui")
-    elif mode == "remote":
-        active.append("voxel-web")
-    elif probe.recommended_display_mode == "cog":
-        active.append("voxel-ui")
-    else:
-        active.append("voxel-web")
-    return active
+    Production stack:
+      - voxel          (server.py — backend, WebSocket, AI pipelines)
+      - voxel-display  (display/service.py — PIL renderer, SPI LCD, config UI)
+    """
+    return list(SERVICES)
 
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -119,20 +103,40 @@ def cmd_lvgl_dev(args: argparse.Namespace) -> int:
     return dev(args)
 
 
+def _setup_state_path() -> Path:
+    return VOXEL_DIR / "config" / ".setup-state"
+
+
+def _load_setup_state() -> dict:
+    """Load the setup state checkpoint file."""
+    path = _setup_state_path()
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+        return yaml.safe_load(path.read_text()) or {}
+    except Exception:
+        return {}
+
+
+def _save_setup_state(update: dict) -> None:
+    """Merge updates into the setup state checkpoint file."""
+    import yaml
+    state = _load_setup_state()
+    state.update(update)
+    _setup_state_path().write_text(yaml.dump(state, default_flow_style=False))
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
+    from hw.detect import IS_PI
+
     # System packages
+    section("System Dependencies")
     info("Installing system dependencies...")
     _run("sudo apt update", shell=True)
     _run("sudo apt install -y git portaudio19-dev libasound2-dev python3-dev ffmpeg", shell=True)
-
-    # Check if cog is available (Pi-specific)
-    try:
-        _run(["apt-cache", "show", "cog"], capture_output=True, check=True)
-        _run("sudo apt install -y cog", shell=True)
-    except subprocess.CalledProcessError:
-        info("cog package not available (normal on desktop)")
 
     # Node.js
     if not shutil.which("node"):
@@ -140,10 +144,19 @@ def cmd_setup(args: argparse.Namespace) -> int:
         _run("curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -", shell=True)
         _run("sudo apt install -y nodejs", shell=True)
     else:
-        ok(f"Node.js already installed")
+        ok("Node.js already installed")
+
+    _save_setup_state({"system_deps": True})
+
+    # Hardware drivers (Pi only — includes Whisplay HAT, config.txt, swap)
+    if IS_PI:
+        section("Hardware Drivers")
+        cmd_hw(args)
+        _save_setup_state({"drivers_installed": True})
 
     # Build
     cmd_build(args)
+    _save_setup_state({"build_complete": True})
 
     # Config
     local_yaml = VOXEL_DIR / "config" / "local.yaml"
@@ -152,16 +165,27 @@ def cmd_setup(args: argparse.Namespace) -> int:
         info("Created config/local.yaml")
     else:
         ok("config/local.yaml exists")
+    _save_setup_state({"config_created": True})
 
     # Services
     cmd_install_services(args)
+    _save_setup_state({"services_installed": True})
 
     ok("Setup complete!")
     console.print()
-    info("Next steps:")
-    console.print(f"    {dim('1.')} Edit config:  {cyan('nano config/local.yaml')}")
-    console.print(f"    {dim('2.')} Check health:  {cyan('voxel doctor')}")
-    console.print(f"    {dim('3.')} Start:         {cyan('voxel start')}")
+
+    if IS_PI:
+        info("Reboot to activate hardware drivers:")
+        console.print(f"    {cyan('sudo reboot')}")
+        console.print()
+        info("After reboot, the device will auto-start and guide you through:")
+        console.print(f"    {dim('1.')} WiFi setup  {dim('(if not connected)')}")
+        console.print(f"    {dim('2.')} Configuration  {dim('(scan QR on screen)')}")
+        console.print(f"    {dim('3.')} Ready to use!")
+    else:
+        info("Next steps:")
+        console.print(f"    {dim('1.')} Preview display: {cyan('uv run dev')}")
+        console.print(f"    {dim('2.')} Check health:    {cyan('voxel doctor')}")
     console.print()
     return 0
 
@@ -171,7 +195,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     section("Build")
 
     info("Python dependencies...")
-    from hardware.platform import IS_PI
+    from hw.detect import IS_PI
     extra = " --extra pi" if IS_PI else ""
     _run(f"uv sync{extra}", shell=True, cwd=VOXEL_DIR)
 
@@ -264,8 +288,9 @@ def cmd_install_services(args: argparse.Namespace) -> int:
         return 0
 
     section("Services")
-    for svc_file in ["voxel.service", "voxel-ui.service", "voxel-web.service"]:
-        src = VOXEL_DIR / svc_file
+    svc_dir = VOXEL_DIR / "services"
+    for svc_file in ["voxel.service", "voxel-display.service"]:
+        src = svc_dir / svc_file
         if src.exists():
             _run(f"sudo cp {src} /etc/systemd/system/", shell=True)
     _run("sudo systemctl daemon-reload", shell=True)
@@ -453,6 +478,56 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Export or import device backup, or factory reset."""
+    action = getattr(args, "backup_command", None)
+
+    if action == "export":
+        from config.settings import export_backup
+        import json
+        backup = export_backup()
+        out_path = getattr(args, "output", None) or "voxel-backup.json"
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(backup, f, indent=2)
+        ok(f"Backup exported to {out_path}")
+        info(f"Contains {len(backup.get('local_settings', {}))} setting sections")
+        return 0
+
+    elif action == "import":
+        import json
+        path = args.file
+        if not Path(path).exists():
+            fail(f"File not found: {path}")
+            return 1
+        with open(path, "r", encoding="utf-8") as f:
+            backup = json.load(f)
+        from config.settings import import_backup
+        import_backup(backup)
+        ok(f"Backup restored from {path}")
+        info("Restart services for changes to take effect")
+        return 0
+
+    elif action == "factory-reset":
+        if not getattr(args, "yes", False):
+            console.print("  [bold red]WARNING:[/] This will delete ALL user settings.")
+            confirm = input("  Continue with factory reset? [y/N] ").strip().lower()
+            if confirm not in ("y", "yes"):
+                info("Cancelled.")
+                return 0
+        from config.settings import factory_reset
+        factory_reset()
+        ok("Factory reset complete")
+        info("Device will need reconfiguration (WiFi, gateway token, etc.)")
+        return 0
+
+    else:
+        header("Backup & Restore")
+        info("voxel backup export [-o file]    Export settings to JSON")
+        info("voxel backup import <file>       Restore from backup file")
+        info("voxel backup factory-reset [-y]  Delete all user config")
+        return 0
+
+
 def _get_version() -> str:
     try:
         from importlib.metadata import version
@@ -463,6 +538,264 @@ def _get_version() -> str:
 
 def cmd_version(args: argparse.Namespace) -> int:
     banner(_get_version())
+    return 0
+
+
+def cmd_display_push(args: argparse.Namespace) -> int:
+    from cli.display_push import push, push_watch, _resolve_ssh, _save_dev_ssh, _load_dev_ssh
+
+    if getattr(args, "save_ssh", False):
+        host, user, password = _resolve_ssh(args)
+        _save_dev_ssh(host, user, password)
+        return 0
+
+    if getattr(args, "watch", False):
+        return push_watch(args)
+    return push(args)
+
+
+def cmd_dev_ssh(args: argparse.Namespace) -> int:
+    """SSH into Pi using saved credentials."""
+    from cli.display_push import _resolve_ssh
+
+    host, user, _password = _resolve_ssh(args)
+    info(f"Connecting to {user}@{host}...")
+    subprocess.run(["ssh", f"{user}@{host}"])
+    return 0
+
+
+def cmd_dev_logs(args: argparse.Namespace) -> int:
+    """Tail Pi display logs remotely."""
+    from cli.display_push import _resolve_ssh, _ssh_client, _tail_logs_paramiko
+
+    host, user, password = _resolve_ssh(args)
+    info(f"Connecting to {user}@{host}...")
+    try:
+        client = _ssh_client(host, user, password)
+    except Exception as e:
+        fail(f"SSH connection failed: {e}")
+        return 1
+    _tail_logs_paramiko(client)
+    return 0
+
+
+def cmd_dev_restart(args: argparse.Namespace) -> int:
+    """Restart display service on Pi remotely."""
+    from cli.display_push import _resolve_ssh, _ssh_client
+
+    host, user, password = _resolve_ssh(args)
+    info(f"Connecting to {user}@{host}...")
+    try:
+        client = _ssh_client(host, user, password)
+    except Exception as e:
+        fail(f"SSH connection failed: {e}")
+        return 1
+
+    try:
+        info("Restarting display service on Pi...")
+        client.exec_command("pkill -f 'python.*display\\.service' || true")
+        import time; time.sleep(0.5)
+        _, stdout, _ = client.exec_command(
+            "cd /home/pi/voxel && "
+            "nohup ~/.local/bin/uv run python -m display.service "
+            "--backend whisplay "
+            "> /tmp/voxel-display.log 2>&1 &"
+        )
+        import time; time.sleep(1.0)
+        _, stdout, _ = client.exec_command("pgrep -f 'python.*display\\.service' | head -1")
+        pid = stdout.read().decode().strip()
+        if pid:
+            ok(f"Display service restarted (PID {pid})")
+        else:
+            warn("Display service may not have started — check logs")
+    except Exception as e:
+        fail(f"Restart failed: {e}")
+        return 1
+    finally:
+        client.close()
+    return 0
+
+
+def cmd_dev_pair(args: argparse.Namespace) -> int:
+    """Pair with a Voxel device — auto-discover or specify IP, enter PIN."""
+    from cli.display_push import _save_dev_ssh
+    from display.advertiser import discover_devices
+
+    host = getattr(args, "host", None)
+    config_port = getattr(args, "port", None) or 8081
+
+    if not host:
+        # Auto-discover
+        info("Scanning for Voxel devices on network...")
+        devices = discover_devices(timeout=5.0)
+
+        if not devices:
+            warn("No Voxel devices found. Make sure the device is on and connected to the same network.")
+            info("You can also specify the IP manually: voxel dev-pair --host <ip>")
+            return 1
+
+        if len(devices) == 1:
+            device = devices[0]
+            host = device["ip"]
+            config_port = device.get("port", config_port)
+            info(f"Found: {device['name']} at {host} (v{device.get('version', '?')})")
+        else:
+            # Multiple devices — let user pick
+            for i, d in enumerate(devices):
+                info(f"  [{i+1}] {d['name']} at {d['ip']} (v{d.get('version', '?')})")
+            choice = input("  Select device [1]: ").strip() or "1"
+            try:
+                device = devices[int(choice) - 1]
+            except (ValueError, IndexError):
+                fail("Invalid selection")
+                return 1
+            host = device["ip"]
+            config_port = device.get("port", config_port)
+
+    # Request pairing approval on device
+    import json
+    import urllib.request
+
+    from display.config_server import get_local_ip
+    dev_ip = get_local_ip()
+
+    info("Requesting approval on device...")
+    info("  Tap the button on Voxel to approve, or hold to deny")
+
+    approved = False
+    try:
+        pair_req_url = f"http://{host}:{config_port}/api/dev/pair/request"
+        req_pair = urllib.request.Request(
+            pair_req_url,
+            data=json.dumps({"dev_host": dev_ip}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        resp = urllib.request.urlopen(req_pair, timeout=35)
+        result = json.loads(resp.read())
+        approved = result.get("approved", False)
+        if result.get("timeout"):
+            warn("Approval timed out on device")
+            return 1
+    except Exception as e:
+        warn(f"Could not reach device: {e}")
+        info("Falling back to manual PIN entry")
+        approved = True  # skip approval if device doesn't support it
+
+    if not approved:
+        fail("Pairing denied on device")
+        return 1
+
+    ok("Approved on device!")
+
+    # Get PIN from user
+    pin = input(f"  Enter PIN shown on device display: ").strip()
+
+    if not pin:
+        fail("No PIN entered")
+        return 1
+
+    # Call pairing API
+    import json
+    import urllib.request
+
+    from display.config_server import get_local_ip
+
+    url = f"http://{host}:{config_port}/api/dev/pair"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"pin": pin, "dev_host": get_local_ip()}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        result = json.loads(resp.read())
+    except Exception as e:
+        fail(f"Pairing failed: {e}")
+        return 1
+
+    if not result.get("ok"):
+        fail(f"Pairing failed: {result.get('error', 'unknown')}")
+        return 1
+
+    # Save SSH credentials locally
+    _save_dev_ssh(result["host"], result["user"], result.get("password"))
+
+    ok(f"Paired with Voxel at {result['host']}")
+    info(f"  SSH: {result['user']}@{result['host']}")
+    info(f"  Config: http://{result['host']}:{result.get('config_port', 8081)}")
+    info(f"  Dev mode enabled on device")
+    info("")
+    info("  You can now use:")
+    info("    voxel display-push     -- sync + run on device")
+    info("    voxel dev-logs         -- tail device logs")
+    info("    voxel dev-ssh          -- SSH into device")
+
+    return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """Start the MCP server for AI agent integration."""
+    cmd = [sys.executable, "-m", "mcp"]
+
+    transport = getattr(args, "transport", None) or "sse"
+    cmd.extend(["--transport", transport])
+
+    port = getattr(args, "port", None) or 8082
+    cmd.extend(["--port", str(port)])
+
+    ws_url = getattr(args, "ws_url", None) or "ws://localhost:8080"
+    cmd.extend(["--ws-url", ws_url])
+
+    info(f"Starting Voxel MCP server ({transport} on :{port})...")
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def cmd_dev_setup(args: argparse.Namespace) -> int:
+    """One-time dev setup — save SSH creds + enable dev mode on Pi."""
+    from cli.display_push import _resolve_ssh, _save_dev_ssh, _ssh_client
+
+    host, user, password = _resolve_ssh(args)
+    _save_dev_ssh(host, user, password)
+
+    info(f"Connecting to {user}@{host} to enable dev mode...")
+    try:
+        client = _ssh_client(host, user, password)
+    except Exception as e:
+        fail(f"SSH connection failed: {e}")
+        return 1
+
+    try:
+        # Enable dev mode in local.yaml on Pi
+        cmd = (
+            "cd /home/pi/voxel && "
+            "python3 -c \""
+            "from config.settings import save_local_settings; "
+            "save_local_settings({'dev': {'enabled': True}}); "
+            "print('ok')\""
+        )
+        _, stdout, stderr = client.exec_command(cmd)
+        result = stdout.read().decode().strip()
+        if "ok" in result:
+            ok("Dev mode enabled on Pi (dev.enabled: true in local.yaml)")
+        else:
+            err_out = stderr.read().decode().strip()
+            warn(f"Could not set dev mode on Pi: {err_out or 'unknown error'}")
+    except Exception as e:
+        fail(f"Dev setup failed: {e}")
+        return 1
+    finally:
+        client.close()
+
+    ok("Dev setup complete!")
+    info("  SSH credentials saved to config/local.yaml")
+    info("  Dev mode enabled on Pi")
     return 0
 
 
@@ -535,6 +868,45 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_dev.add_argument("--preview-local", action="store_true", help="Generate and open a local preview GIF before syncing")
     p_lvgl_dev.add_argument("--hold-to-exit", type=float, help="Seconds to hold the button before exiting interactive preview")
     p_lvgl_dev.add_argument("--update-pi", action="store_true", help="Run git pull and uv sync on the Pi before playback")
+    # ── Display push commands ──
+    p_dp = sub.add_parser("display-push", help="Sync display service to Pi and run it")
+    p_dp.add_argument("--host", help="Pi SSH host (default: 172.16.24.33)")
+    p_dp.add_argument("--user", help="Pi SSH user (default: pi)")
+    p_dp.add_argument("--password", help="Pi SSH password")
+    p_dp.add_argument("--backlight", type=int, default=70, help="Backlight percent")
+    p_dp.add_argument("--update", action="store_true", help="git pull + uv sync on Pi first")
+    p_dp.add_argument("--watch", action="store_true", help="Watch for changes and re-push automatically")
+    p_dp.add_argument("--logs", action="store_true", help="Attach to live display logs after push")
+    p_dp.add_argument("--save-ssh", action="store_true", help="Save SSH config to local.yaml for future use")
+    p_dp.add_argument("--install-service", action="store_true", help="Install systemd service for auto-start on boot")
+
+    # ── Dev convenience commands ──
+    _dev_ssh_flags = [
+        ("--host", {"help": "Pi SSH host"}),
+        ("--user", {"help": "Pi SSH user"}),
+        ("--password", {"help": "Pi SSH password"}),
+    ]
+
+    p_dev_ssh = sub.add_parser("dev-ssh", help="SSH into Pi using saved credentials")
+    for flag, kw in _dev_ssh_flags:
+        p_dev_ssh.add_argument(flag, **kw)
+
+    p_dev_logs = sub.add_parser("dev-logs", help="Tail Pi display logs remotely")
+    for flag, kw in _dev_ssh_flags:
+        p_dev_logs.add_argument(flag, **kw)
+
+    p_dev_restart = sub.add_parser("dev-restart", help="Restart display service on Pi remotely")
+    for flag, kw in _dev_ssh_flags:
+        p_dev_restart.add_argument(flag, **kw)
+
+    p_dev_pair = sub.add_parser("dev-pair", help="Pair with a Voxel device (auto-discover + PIN)")
+    p_dev_pair.add_argument("--host", help="Device IP (skip auto-discovery)")
+    p_dev_pair.add_argument("--port", type=int, default=8081, help="Config server port")
+
+    p_dev_setup = sub.add_parser("dev-setup", help="One-time dev setup — save SSH creds + enable dev mode")
+    for flag, kw in _dev_ssh_flags:
+        p_dev_setup.add_argument(flag, **kw)
+
     sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
@@ -560,7 +932,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_uninstall = sub.add_parser("uninstall", help="Remove Voxel services and caches")
     p_uninstall.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
 
+    p_backup = sub.add_parser("backup", help="Backup, restore, or factory reset")
+    backup_sub = p_backup.add_subparsers(dest="backup_command")
+    p_bk_export = backup_sub.add_parser("export", help="Export settings to JSON file")
+    p_bk_export.add_argument("-o", "--output", help="Output file (default: voxel-backup.json)")
+    p_bk_import = backup_sub.add_parser("import", help="Restore from backup file")
+    p_bk_import.add_argument("file", help="Backup JSON file to import")
+    p_bk_reset = backup_sub.add_parser("factory-reset", help="Delete all user configuration")
+    p_bk_reset.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
+
     sub.add_parser("version", help="Show version")
+
+    p_mcp = sub.add_parser("mcp", help="Start MCP server (AI agent integration)")
+    p_mcp.add_argument("--transport", choices=["stdio", "sse"], default="sse")
+    p_mcp.add_argument("--port", type=int, default=8082)
+    p_mcp.add_argument("--ws-url", default="ws://localhost:8080")
 
     return parser
 
@@ -576,6 +962,12 @@ COMMANDS = {
     "lvgl-deploy": cmd_lvgl_deploy,
     "lvgl-preview": cmd_lvgl_preview,
     "lvgl-dev": cmd_lvgl_dev,
+    "display-push": cmd_display_push,
+    "dev-ssh": cmd_dev_ssh,
+    "dev-logs": cmd_dev_logs,
+    "dev-restart": cmd_dev_restart,
+    "dev-pair": cmd_dev_pair,
+    "dev-setup": cmd_dev_setup,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,
@@ -587,7 +979,9 @@ COMMANDS = {
     "status": cmd_status,
     "config": cmd_config,
     "uninstall": cmd_uninstall,
+    "backup": cmd_backup,
     "version": cmd_version,
+    "mcp": cmd_mcp,
 }
 
 

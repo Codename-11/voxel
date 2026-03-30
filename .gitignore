@@ -1,7 +1,11 @@
 __pycache__/
 *.pyc
 .venv/
+.cache/
+.subframe/
 config/local.yaml
+config/.setup-state
+config/.first-boot-done
 .env
 *.egg-info/
 dist/
@@ -9,3 +13,6 @@ build/
 uv.lock
 app/node_modules/
 app/dist/
+user-docs/node_modules/
+user-docs/.vitepress/dist/
+user-docs/.vitepress/cache/
