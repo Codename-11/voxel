@@ -43,23 +43,26 @@ After setup completes and the device reboots, the face appears on the LCD and th
 
 ### Option A: OpenClaw (SSE transport — network)
 
+**Quickest — one command each:**
 ```bash
-# Register MCP server (replace DEVICE_IP)
+# 1. Register MCP server via mcporter (syncs to cursor, claude-code, codex too)
 mcporter config add voxel --url http://DEVICE_IP:8082/sse
 
-# Install skill from device (preferred — has resolved IPs)
+# 2. Install skill (teaches agents about Voxel's tools)
 mkdir -p ~/.openclaw/workspace/skills/voxel-device
 curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://DEVICE_IP:8081/skill
 ```
 
-**Or install skill from GitHub** (works without a running device):
+**Install skill from GitHub** (works without a running device):
 ```bash
 mkdir -p ~/.openclaw/workspace/skills/voxel-device
 curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md \
   https://raw.githubusercontent.com/Codename-11/voxel/main/openclaw/SKILL.md
 ```
 
-**Or add to `~/.openclaw/openclaw.json` manually:**
+**Manual config** (if mcporter isn't available):
+
+Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "mcpServers": {
@@ -70,6 +73,19 @@ curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md \
   }
 }
 ```
+
+Or add to mcporter config directly (`~/.npm-global/lib/node_modules/mcporter/config/mcporter.json` or wherever mcporter is installed):
+```json
+{
+  "mcpServers": {
+    "voxel": {
+      "description": "Voxel AI companion device — 20 tools for mood, speech, LED, logs, config, services.",
+      "baseUrl": "http://DEVICE_IP:8082/sse"
+    }
+  }
+}
+```
+mcporter syncs to: cursor, claude-code, claude-desktop, codex (configured via its `imports` array).
 
 ### Option B: Claude Code (stdio transport — local)
 

@@ -43,14 +43,26 @@ uv run python -m mcp
 
 ### Connecting from OpenClaw
 
-Register the Voxel MCP server via mcporter:
-
+**Via mcporter** (recommended — syncs to cursor, claude-code, claude-desktop, codex):
 ```bash
 mcporter config add voxel --url http://voxel.local:8082/sse
 ```
 
-Or manually in `~/.openclaw/openclaw.json`:
+**Install the skill** (teaches agents about Voxel's 20 tools):
+```bash
+# From device (preferred — resolves IPs automatically)
+mkdir -p ~/.openclaw/workspace/skills/voxel-device
+curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://voxel.local:8081/skill
 
+# Or from GitHub (no device needed)
+mkdir -p ~/.openclaw/workspace/skills/voxel-device
+curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md \
+  https://raw.githubusercontent.com/Codename-11/voxel/main/openclaw/SKILL.md
+```
+
+**Manual config** (if mcporter isn't available):
+
+Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "mcpServers": {
