@@ -197,6 +197,10 @@ class PILRenderer:
         if state.button_pressed and not self._was_button_pressed and state.state == "IDLE":
             self._attention_time = now
             self._attention_active = True
+            # Lock out idle personality so it doesn't immediately override
+            self._mood_override_until = now + 1.0
+            # Reset idle timer — user is interacting, not idle anymore
+            self._idle.reset_idle_timer(now)
         self._was_button_pressed = state.button_pressed
 
         if self._attention_active:

@@ -61,7 +61,7 @@ fi
 # ── 4. Python deps (needed for the voxel CLI) ───────────────────────────────
 
 info "Syncing Python dependencies..."
-sudo apt-get install -y -qq python3-dev 2>/dev/null || true
+sudo apt-get install -y -qq python3-dev libportaudio2 portaudio19-dev 2>/dev/null || true
 
 if uname -m | grep -qE '^(aarch64|arm)'; then
     uv sync --extra pi

@@ -61,6 +61,17 @@ class IdlePersonality:
         # Cooldown so we don't spam transitions
         self._last_reaction_time: float = 0.0
 
+    def reset_idle_timer(self, now: float) -> None:
+        """Reset idle timer on user interaction (button press, pairing, etc.).
+
+        This prevents the device from staying permanently sleepy after
+        5+ minutes of idle when the user interacts with it.
+        """
+        self._idle_since = now
+        if self._reactive_mood == "sleepy":
+            self._reactive_mood = None
+            self._reactive_until = 0.0
+
     def update_ex(self, state: DisplayState, now: float) -> tuple[str | None, bool]:
         """Return (mood, urgent) — mood override and whether it's a device reaction.
 
