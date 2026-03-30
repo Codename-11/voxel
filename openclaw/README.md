@@ -60,19 +60,21 @@ curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md \
   https://raw.githubusercontent.com/Codename-11/voxel/main/openclaw/SKILL.md
 ```
 
-**Manual config** (if mcporter isn't available):
+**Manual config** (if mcporter CLI isn't available):
 
-Add to `~/.openclaw/openclaw.json`:
+Add to mcporter's config file:
 ```json
 {
   "mcpServers": {
     "voxel": {
-      "baseUrl": "http://voxel.local:8082/sse",
-      "headers": {}
+      "description": "Voxel AI companion — 20 MCP tools",
+      "baseUrl": "http://voxel.local:8082/sse"
     }
   }
 }
 ```
+
+> **Note:** MCP servers are managed by mcporter, NOT `~/.openclaw/openclaw.json`. Adding `mcpServers` to openclaw.json will break the gateway.
 
 ### Connecting from Claude Code
 

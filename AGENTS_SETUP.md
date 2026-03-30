@@ -60,21 +60,9 @@ curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md \
   https://raw.githubusercontent.com/Codename-11/voxel/main/openclaw/SKILL.md
 ```
 
-**Manual config** (if mcporter isn't available):
+**Manual config** (if mcporter CLI isn't available):
 
-Add to `~/.openclaw/openclaw.json`:
-```json
-{
-  "mcpServers": {
-    "voxel": {
-      "baseUrl": "http://DEVICE_IP:8082/sse",
-      "headers": {}
-    }
-  }
-}
-```
-
-Or add to mcporter config directly (`~/.npm-global/lib/node_modules/mcporter/config/mcporter.json` or wherever mcporter is installed):
+Add to mcporter's config file (location varies — typically `~/.npm-global/lib/node_modules/mcporter/config/mcporter.json`):
 ```json
 {
   "mcpServers": {
@@ -86,6 +74,8 @@ Or add to mcporter config directly (`~/.npm-global/lib/node_modules/mcporter/con
 }
 ```
 mcporter syncs to: cursor, claude-code, claude-desktop, codex (configured via its `imports` array).
+
+> **Note:** Do NOT add `mcpServers` to `~/.openclaw/openclaw.json` — that key is invalid there and will break the gateway. MCP servers are managed by mcporter, not the gateway config.
 
 ### Option B: Claude Code (stdio transport — local)
 
