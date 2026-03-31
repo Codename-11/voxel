@@ -1,0 +1,39 @@
+#!/bin/bash
+# Voxel pre-push validation
+# Catches syntax errors and import issues before they reach CI
+
+set -e
+
+echo "[voxel] Running pre-push checks..."
+
+# 1. Python syntax check on all .py files
+echo "  Checking Python syntax..."
+find display/ cli/ core/ states/ hw/ mcp/ shared/ server.py -name '*.py' | while read f; do
+    python -c "import ast; ast.parse(open('$f', encoding='utf-8').read())" 2>&1 || {
+        echo "  FAIL: Syntax error in $f"
+        exit 1
+    }
+done
+
+# 2. Import smoke test (the same check CI does)
+echo "  Checking imports..."
+uv run python -c "
+from hw.detect import IS_PI, probe_hardware
+from display.service import main
+from display.renderer import PILRenderer
+from display.state import DisplayState
+from core.gateway import OpenClawClient
+from config.settings import load_settings
+" 2>&1 || {
+    echo "  FAIL: Import check failed"
+    exit 1
+}
+
+# 3. Run tests (quick)
+echo "  Running tests..."
+uv run pytest tests/ -q --timeout=10 2>&1 || {
+    echo "  FAIL: Tests failed"
+    exit 1
+}
+
+echo "[voxel] All pre-push checks passed."

@@ -251,22 +251,22 @@ def cmd_hw(args: argparse.Namespace) -> int:
         else:
             warn(f"Could not install {header_pkg} — driver compilation may fail")
 
-    # Whisplay drivers
-    cache_dir = VOXEL_DIR / ".cache" / "whisplay" / "Driver"
-    whisplay_py = cache_dir / "WhisPlay.py"
-    need_clone = not whisplay_py.exists()
+    # WhisPlay.py display driver — vendored in hw/WhisPlay.py
+    vendored_driver = VOXEL_DIR / "hw" / "WhisPlay.py"
+    if vendored_driver.exists():
+        ok("WhisPlay.py display driver: vendored in hw/")
+    else:
+        warn("WhisPlay.py display driver missing from hw/ — display may not work")
 
-    if need_clone:
-        info("Installing Whisplay HAT drivers...")
+    # WM8960 audio codec kernel module (requires cloning the Whisplay repo)
+    # Check if wm8960 is already loaded
+    code = _run("grep -qi wm8960 /proc/asound/cards 2>/dev/null", shell=True).returncode
+    if code == 0:
+        ok("WM8960 audio codec already installed")
+    else:
+        info("Installing WM8960 audio codec driver...")
         tmp = VOXEL_DIR / ".tmp-whisplay"
         _run(f"git clone --depth 1 https://github.com/PiSugar/Whisplay.git {tmp}", shell=True)
-
-        # Cache WhisPlay.py (Python SPI display driver) before cleanup
-        src_driver = tmp / "Driver" / "WhisPlay.py"
-        if src_driver.exists():
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_driver, whisplay_py)
-            ok(f"WhisPlay.py cached at {cache_dir}")
 
         # Install WM8960 audio codec kernel module
         driver_script = tmp / "Driver" / "install_wm8960_drive.sh"
@@ -276,8 +276,6 @@ def cmd_hw(args: argparse.Namespace) -> int:
         else:
             warn("Whisplay driver script not found in repo")
         shutil.rmtree(tmp, ignore_errors=True)
-    else:
-        ok("Whisplay drivers already installed")
 
     # config.txt tuning
     config_txt = Path("/boot/firmware/config.txt")

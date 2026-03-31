@@ -231,6 +231,44 @@ def run() -> int:
         kv("Cog", "installed" if probe.has_cog else "not installed")
         kv("Auto UI", probe.recommended_display_mode)
 
+    # Display driver
+    section("Display Driver")
+    whisplay_driver = Path(__file__).resolve().parent.parent / "hw" / "WhisPlay.py"
+    if whisplay_driver.exists():
+        ok("WhisPlay.py display driver: vendored in hw/")
+    elif is_pi:
+        # Check legacy cache location
+        cache = Path.home() / "voxel" / ".cache" / "whisplay" / "Driver" / "WhisPlay.py"
+        if cache.exists():
+            ok("WhisPlay.py display driver: cached")
+        else:
+            fail("WhisPlay.py display driver: NOT FOUND — display won't work")
+            failures += 1
+    else:
+        info("WhisPlay.py display driver: N/A (desktop)")
+
+    if is_pi:
+        # Kernel headers (needed for DKMS driver recompilation)
+        code, out = _run(["dpkg", "-s", "raspberrypi-kernel-headers"])
+        if code == 0:
+            ok("Kernel headers: raspberrypi-kernel-headers installed")
+        else:
+            code2, kernel = _run(["uname", "-r"])
+            header_pkg = f"linux-headers-{kernel}" if code2 == 0 else "linux-headers-$(uname -r)"
+            code3, _ = _run(["dpkg", "-s", header_pkg])
+            if code3 == 0:
+                ok(f"Kernel headers: {header_pkg} installed")
+            else:
+                warn(f"Kernel headers: not installed — driver recompilation may fail")
+                warn(f"  Install with: sudo apt install raspberrypi-kernel-headers")
+
+        # Boot splash binary
+        splash_bin = Path("/usr/local/bin/voxel-splash")
+        if splash_bin.exists():
+            ok("Boot splash binary: /usr/local/bin/voxel-splash")
+        else:
+            warn("Boot splash binary: not found — run 'make install' in native/boot_splash/")
+
     # Audio device
     if is_pi:
         if probe.has_wm8960_audio:
@@ -298,7 +336,7 @@ def run() -> int:
     section("Services")
 
     if shutil.which("systemctl"):
-        for svc in ["voxel", "voxel-display"]:
+        for svc in ["voxel-splash", "voxel-guardian", "voxel", "voxel-display"]:
             status = _svc_status(svc)
             if status == "active":
                 ok(f"{svc}: {status}")

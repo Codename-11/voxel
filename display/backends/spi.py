@@ -41,12 +41,30 @@ def _patch_gpio_edge_detect(module: Any) -> None:
 
 
 def _load_whisplay_module() -> Any:
-    """Import the WhisPlay module, searching known locations."""
+    """Import the WhisPlay module, searching known locations.
+
+    Priority order:
+      1. Vendored copy at hw/WhisPlay.py (always available)
+      2. Already importable (e.g. installed globally)
+      3. VOXEL_WHISPLAY_DRIVER env override
+      4. Legacy cache/clone locations (fallback)
+    """
+    import sys
+
+    # 1. Vendored copy in hw/ (preferred — ships with the repo)
+    vendored_dir = Path(__file__).resolve().parent.parent.parent / "hw"
+    if (vendored_dir / "WhisPlay.py").exists():
+        if str(vendored_dir) not in sys.path:
+            sys.path.insert(0, str(vendored_dir))
+        return importlib.import_module("WhisPlay")
+
+    # 2. Already importable
     try:
         return importlib.import_module("WhisPlay")
     except ImportError:
         pass
 
+    # 3. Env override and legacy locations
     home = Path.home()
     candidates = [
         Path(os.getenv("VOXEL_WHISPLAY_DRIVER", "")),
@@ -55,7 +73,6 @@ def _load_whisplay_module() -> Any:
         Path.cwd() / "Whisplay" / "Driver",
         Path(__file__).resolve().parent.parent.parent / ".cache" / "whisplay" / "Driver",
     ]
-    import sys
     for p in candidates:
         if p.is_dir() and (p / "WhisPlay.py").exists():
             if str(p) not in sys.path:

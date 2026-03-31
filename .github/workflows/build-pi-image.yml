@@ -86,7 +86,7 @@ jobs:
           # stage-voxel = our custom stage with all voxel software
           stage-list: stage0 stage1 stage2 ./scripts/pi-gen/stage-voxel
           release: bookworm
-          target-architecture: arm64
+          pi-gen-version: arm64
           hostname: voxel
           username: pi
           password: voxel
