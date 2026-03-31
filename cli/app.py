@@ -252,10 +252,23 @@ def cmd_hw(args: argparse.Namespace) -> int:
             warn(f"Could not install {header_pkg} — driver compilation may fail")
 
     # Whisplay drivers
-    if not Path("/dev/fb1").exists():
+    cache_dir = VOXEL_DIR / ".cache" / "whisplay" / "Driver"
+    whisplay_py = cache_dir / "WhisPlay.py"
+    need_clone = not whisplay_py.exists()
+
+    if need_clone:
         info("Installing Whisplay HAT drivers...")
         tmp = VOXEL_DIR / ".tmp-whisplay"
         _run(f"git clone --depth 1 https://github.com/PiSugar/Whisplay.git {tmp}", shell=True)
+
+        # Cache WhisPlay.py (Python SPI display driver) before cleanup
+        src_driver = tmp / "Driver" / "WhisPlay.py"
+        if src_driver.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_driver, whisplay_py)
+            ok(f"WhisPlay.py cached at {cache_dir}")
+
+        # Install WM8960 audio codec kernel module
         driver_script = tmp / "Driver" / "install_wm8960_drive.sh"
         if driver_script.exists():
             # Pipe 'y' to accept the interactive prompt
