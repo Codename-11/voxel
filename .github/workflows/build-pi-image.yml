@@ -69,6 +69,13 @@ jobs:
           chmod +x "${STAGE_DIR}"/01-install-voxel/01-run-chroot.sh
           chmod +x "${STAGE_DIR}"/02-first-boot/00-run-chroot.sh
 
+      # ── Set up QEMU for ARM64 cross-compilation ─────────────────────────
+
+      - name: Set up QEMU for ARM64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       # ── Build the image with pi-gen ──────────────────────────────────────
 
       - name: Build with pi-gen
