@@ -45,7 +45,7 @@ def draw_shutdown_overlay(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
 
     # ── Pulsing "SHUTTING DOWN" title ──
     pulse = 0.5 + 0.5 * math.sin(now * 6.0)  # ~1Hz pulse
-    title_font = get_font(16)
+    title_font = get_font(20)
     title = "SHUTTING DOWN"
     title_color = (
         int(RED_DIM[0] + (RED_BRIGHT[0] - RED_DIM[0]) * pulse),
@@ -89,7 +89,7 @@ def draw_shutdown_overlay(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
     draw.text(((SCREEN_W - dw) // 2, 185), dots, fill=WHITE_DIM, font=dots_font)
 
     # ── "Press to cancel" hint ──
-    hint_font = get_font(11)
+    hint_font = get_font(14)
     hint = "press to cancel"
     hw = text_width(hint_font, hint)
     # Gentle blink

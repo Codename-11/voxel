@@ -140,15 +140,9 @@ class CubeCharacter(Character):
     def draw(self, draw: ImageDraw.ImageDraw, img: Image.Image,
              expr: Expression, style: FaceStyle,
              blink_factor: float, gaze_x: float, gaze_y: float,
-             amplitude: float, now: float,
-             compact: bool = False) -> None:
+             amplitude: float, now: float) -> None:
         body = expr.body
         scale = body.scale
-
-        # Compact mode: shift face up and scale down for chat drawer
-        compact_cy_offset = -35 if compact else 0
-        compact_scale = 0.80 if compact else 1.0
-        scale *= compact_scale
         bounce_amount = body.bounce_amount
 
         # ── Character-specific expression tweaks ───────────────────────
@@ -175,7 +169,7 @@ class CubeCharacter(Character):
 
         # Bounce animation
         bounce_y = math.sin(now * body.bounce_speed * 2 * math.pi) * bounce_amount
-        body_cy = int(CY + bounce_y) + STATUS_H + shake_y + compact_cy_offset
+        body_cy = int(CY + bounce_y) + STATUS_H + shake_y
 
         # Tilt
         tilt_rad = math.radians(tilt_val)

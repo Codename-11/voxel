@@ -26,6 +26,40 @@ log = logging.getLogger("voxel.mcp")
 SERVER_INFO = {
     "name": "voxel",
     "version": "0.1.0",
+    "instructions": (
+        "Voxel is a pocket AI companion device (Raspberry Pi + LCD + speaker + mic).\n\n"
+        "## Connectivity\n"
+        "Call get_device_state first. Check the '_connected' field:\n"
+        "- true: All 20 MCP tools work (mood, speech, LED, config, etc.)\n"
+        "- false: Backend unreachable. Control tools return [DEVICE OFFLINE]. "
+        "System tools (get_logs, run_diagnostic) may work if on the Pi itself.\n\n"
+        "## Alternative Interfaces\n"
+        "If MCP is unavailable, the device has two other control interfaces:\n\n"
+        "**REST API (port 8081, config server)** — no auth for public endpoints:\n"
+        "- GET /api/health — health check\n"
+        "- GET /api/stats — system stats (CPU, RAM, disk, WiFi)\n"
+        "- GET /api/chat/history — conversation history\n"
+        "- POST /api/chat {text} — send a chat message to the AI agent\n"
+        "- POST /api/chat/agent {agent} — switch active agent\n"
+        "- POST /api/mcp/start — start MCP server\n"
+        "- POST /api/mcp/stop — stop MCP server\n"
+        "- GET /api/mcp/status — MCP running/port/enabled\n"
+        "- GET /.well-known/mcp — MCP discovery JSON\n"
+        "- GET /setup — agent setup guide\n"
+        "- GET /skill — tool/skill definitions\n"
+        "Note: Most POST endpoints require session auth (PIN login). "
+        "Public endpoints: /api/health, /api/stats, /setup, /skill, /.well-known/mcp\n\n"
+        "**WebSocket (port 8080, backend)** — full bidirectional control:\n"
+        "- Send JSON: {type: 'set_mood', mood: 'happy'}\n"
+        "- Send JSON: {type: 'text_input', text: 'hello'}\n"
+        "- Send JSON: {type: 'set_agent', agent: 'daemon'}\n"
+        "- Receive: state pushes, transcripts, reactions, tool calls\n\n"
+        "## When to Use What\n"
+        "- MCP tools (this server): primary interface, richest tool set\n"
+        "- REST API: when MCP is down but device is on the network\n"
+        "- WebSocket: for real-time streaming or if you need raw protocol access\n\n"
+        "Destructive tools (reboot_device, install_update) require 'confirm: true'."
+    ),
 }
 
 SERVER_CAPABILITIES = {
@@ -101,19 +135,42 @@ class VoxelBridge:
                 # Append individual transcript messages to local history
                 self.history.append(data)
 
+    @property
+    def connected(self) -> bool:
+        """Whether the WebSocket bridge is connected to the backend."""
+        return self._ws is not None
+
     async def send_command(self, cmd: dict) -> None:
-        """Send a JSON command to the backend."""
+        """Send a JSON command to the backend.
+
+        Raises ConnectionError if not connected so tool handlers can
+        return a helpful message to the calling agent.
+        """
         if self._ws is None:
-            log.warning("Cannot send command — not connected to backend")
-            return
+            raise ConnectionError(
+                "Device backend not reachable. Is the Pi on and voxel.service running? "
+                "If running locally, start the backend with: uv run dev --server"
+            )
         try:
             await self._ws.send(json.dumps(cmd))
         except Exception as exc:
-            log.warning("Failed to send command: %s", exc)
+            raise ConnectionError(f"Lost connection to device backend: {exc}") from exc
 
     async def get_state(self) -> dict:
-        """Return the latest device state snapshot."""
-        return dict(self.state)
+        """Return the latest device state snapshot.
+
+        Returns a dict with a '_connected' field indicating backend status.
+        If not connected, returns minimal info so agents know the state.
+        """
+        state = dict(self.state)
+        state["_connected"] = self.connected
+        if not self.connected and not state.get("mood"):
+            state["_note"] = (
+                "Backend not connected. Device may be off or backend not running. "
+                "Control tools will fail. Query tools using direct system calls "
+                "(get_system_stats, get_logs) may work if running on the Pi."
+            )
+        return state
 
     async def close(self) -> None:
         """Shut down the bridge."""

@@ -160,7 +160,7 @@ def draw_listening_indicator(draw: ImageDraw.ImageDraw, state: DisplayState, now
 
     # "Talk" label below
     from display.fonts import get_font, text_width
-    font = get_font(11)
+    font = get_font(14)
     label = "Talk"
     tw = text_width(font, label)
     label_alpha = 0.6 + 0.3 * pulse

@@ -1,6 +1,8 @@
 """Animation helpers — pure math, no pygame dependency.
 
 Ported from face/character.py lerp helpers, blink state, and gaze drift.
+Enhanced with Disney-research asymmetric blinks, blink clustering,
+and pink-noise microsaccadic jitter for lifelike eye movement.
 """
 
 from __future__ import annotations
@@ -8,7 +10,7 @@ from __future__ import annotations
 import math
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from shared import (
@@ -97,6 +99,7 @@ def lerp_expression(a: Expression, b: Expression, t: float) -> Expression:
         left_eye=lerp_per_eye(a.left_eye, b.left_eye, t),
         right_eye=lerp_per_eye(a.right_eye, b.right_eye, t),
         eye_color_override=b.eye_color_override if t >= 0.5 else a.eye_color_override,
+        modifiers=b.modifiers if t >= 0.5 else a.modifiers,
     )
 
 
@@ -134,7 +137,19 @@ class BreathingState:
 
 @dataclass
 class BlinkState:
-    """Periodic blinks with clustering.
+    """Periodic blinks with asymmetric timing and clustering.
+
+    Disney/Pixar research finding: eyelids close faster than they open.
+    Close phase ~42ms, open phase ~108ms (150ms total at default duration).
+    This makes blinks feel natural and "alive" rather than mechanical.
+
+    Blink phase advances using delta-time (dt) so animation speed is
+    frame-rate independent — blinks take the same wall-clock time whether
+    running at 20 FPS on the Pi or 60 FPS on desktop.
+
+    Blink clustering: real humans blink in bursts of 2-3 with short gaps
+    (0.15-0.35s), then pause for 3-8s. This pattern is more realistic
+    than evenly-spaced blinks.
 
     Config: character.idle_blink_interval (seconds between blinks, scales expression blink_rate)
     """
@@ -144,41 +159,104 @@ class BlinkState:
     BLINK_DURATION: float = 0.15
     _cluster_remaining: int = 0
 
-    def update(self, now: float, blink_rate: float) -> None:
+    # Asymmetric timing: close is fast, open is slow (Disney research).
+    # close_fraction is the proportion of the blink spent closing.
+    # 0.28 means closing takes 28% of the duration (~42ms at 150ms total),
+    # opening takes the remaining 72% (~108ms). This creates the snappy
+    # close + gentle open that makes animated characters feel alive.
+    CLOSE_FRACTION: float = 0.28
+
+    def update(self, now: float, blink_rate: float, dt: float = 0.05) -> None:
         if self.blink_phase >= 0:
-            self.blink_phase += 1.0 / (self.BLINK_DURATION * 20)  # 20 FPS
+            self.blink_phase += dt / self.BLINK_DURATION
             if self.blink_phase >= 1.0:
                 self.blink_phase = -1.0
                 if self._cluster_remaining > 0:
                     self._cluster_remaining -= 1
-                    self.next_blink = now + random.uniform(0.2, 0.4)
-                elif random.random() < 0.3:
-                    self._cluster_remaining = random.randint(0, 1)
-                    self.next_blink = now + random.uniform(0.2, 0.4)
+                    # Short gap within a cluster
+                    self.next_blink = now + random.uniform(0.15, 0.35)
+                elif random.random() < 0.35:
+                    # Start a new cluster of 1-2 additional blinks
+                    self._cluster_remaining = random.randint(1, 2)
+                    self.next_blink = now + random.uniform(0.15, 0.35)
                 else:
                     self._cluster_remaining = 0
-                    # interval_scale lets config tune blink frequency
+                    # Long pause between clusters (3-8s scaled by blink rate)
                     interval = 10.0 / max(blink_rate, 0.1) * self.interval_scale
                     self.next_blink = now + interval + random.uniform(-0.5, 0.5)
         elif now >= self.next_blink:
             self.blink_phase = 0.0
 
     def get_openness_factor(self) -> float:
-        """Returns 0.0 (fully closed) to 1.0 (fully open)."""
+        """Returns 0.0 (fully closed) to 1.0 (fully open).
+
+        Uses asymmetric timing: fast close, slow open. The closing phase
+        uses the first CLOSE_FRACTION of the blink_phase, and the opening
+        phase uses the remainder. Each sub-phase is normalized to 0-1 and
+        uses ease-in-out for smooth motion.
+        """
         if self.blink_phase < 0:
             return 1.0
-        if self.blink_phase < 0.5:
-            blink_close = self.blink_phase * 2.0
+
+        cf = self.CLOSE_FRACTION
+
+        if self.blink_phase < cf:
+            # Closing phase (fast): normalize to 0..1
+            t = self.blink_phase / cf
+            # Ease-in for snappy start
+            blink_close = t * t
         else:
-            blink_close = (1.0 - self.blink_phase) * 2.0
+            # Opening phase (slow): normalize to 0..1
+            t = (self.blink_phase - cf) / (1.0 - cf)
+            # Ease-out for gentle finish
+            blink_close = 1.0 - (t * t)
+
         return 1.0 - blink_close * 0.95
 
 
 # ── Gaze drift ──────────────────────────────────────────────────────────────
 
 @dataclass
+class PinkNoiseJitter:
+    """Approximate 1/f (pink) noise for microsaccadic eye jitter.
+
+    Real eyes exhibit tiny involuntary movements even during fixation.
+    These microsaccades follow a 1/f power spectrum — neither pure random
+    (white noise, too jittery) nor pure sinusoidal (too mechanical).
+
+    Implementation: simple recursive filter that accumulates white noise
+    through a leaky integrator, producing correlated noise with more
+    low-frequency content. The amplitude is very small (±0.02 range)
+    to stay subtle and lifelike.
+    """
+    _accum_x: float = 0.0
+    _accum_y: float = 0.0
+    _decay: float = 0.92        # how much previous value persists (higher = more low-freq)
+    _amplitude: float = 0.018   # maximum jitter magnitude
+    _drive: float = 0.08        # white noise injection strength
+
+    def sample(self, dt: float) -> tuple[float, float]:
+        """Return a (jitter_x, jitter_y) offset pair."""
+        # Leaky integrator: accumulate white noise, decay toward zero.
+        # This produces correlated noise with a 1/f-like spectrum.
+        # Use dt-adjusted decay so behavior is frame-rate independent
+        # (same jitter character at 20 FPS on Pi and 60 FPS on desktop).
+        decay = self._decay ** (dt * 30.0) if dt > 0 else self._decay
+        self._accum_x = self._accum_x * decay + random.gauss(0, self._drive)
+        self._accum_y = self._accum_y * decay + random.gauss(0, self._drive)
+
+        # Soft-clamp to amplitude range
+        jx = max(-self._amplitude, min(self._amplitude, self._accum_x))
+        jy = max(-self._amplitude, min(self._amplitude, self._accum_y))
+        return (jx, jy)
+
+
+@dataclass
 class GazeDrift:
     """Saccadic eye movement — fast snaps between fixation points.
+
+    Enhanced with pink-noise microsaccadic jitter during fixation for
+    subtle, lifelike eye tremor that prevents the "dead stare" look.
 
     Config: character.gaze_drift_speed (0.1 = very slow/rare, 1.0 = fast/frequent)
     """
@@ -190,6 +268,7 @@ class GazeDrift:
     next_change: float = 0.0
     _saccade_active: bool = False
     _fixation_time: float = 0.0
+    _jitter: PinkNoiseJitter = field(default_factory=PinkNoiseJitter)
 
     def update(self, now: float, dt: float) -> None:
         if now >= self.next_change:
@@ -203,7 +282,7 @@ class GazeDrift:
             self._saccade_active = True
 
         if self._saccade_active:
-            snap_speed = 12.0 * dt
+            snap_speed = min(12.0 * dt, 1.0)  # clamp to prevent overshoot on lag spikes
             self.current_x += (self.target_x - self.current_x) * snap_speed
             self.current_y += (self.target_y - self.current_y) * snap_speed
             # Saccade complete when close enough to target
@@ -215,11 +294,14 @@ class GazeDrift:
                 self._saccade_active = False
                 self._fixation_time = now
         else:
-            # Holding fixation — smooth micro-drift (not random per-frame)
+            # Holding fixation — sinusoidal micro-drift + pink noise jitter.
+            # The sinusoidal component provides slow organic movement,
+            # while the pink noise adds subtle involuntary tremor.
             elapsed = now - self._fixation_time
             drift = 0.012
-            self.current_x = self.target_x + math.sin(elapsed * 2.3) * drift
-            self.current_y = self.target_y + math.sin(elapsed * 3.1) * drift * 0.7
+            jx, jy = self._jitter.sample(dt)
+            self.current_x = self.target_x + math.sin(elapsed * 2.3) * drift + jx
+            self.current_y = self.target_y + math.sin(elapsed * 3.1) * drift * 0.7 + jy
 
 
 # ── Mood transition ─────────────────────────────────────────────────────────

@@ -71,11 +71,10 @@ Every frame follows this exact sequence inside `PILRenderer.render()`:
 │                                                               │
 │  4. Compose frame (PIL Image 240x280)                         │
 │     ├── Background fill (dark)                                │
-│     ├── Status bar (top 48px)                                 │
+│     ├── Status bar (top 60px)                                 │
 │     ├── View content:                                         │
 │     │   ├── "face": Character.draw() + decorations + peek     │
-│     │   ├── "chat_drawer": Character + drawer overlay         │
-│     │   └── "chat_full": Full-screen chat history             │
+│     │   └── "chat": Full-screen chat history                  │
 │     ├── View transition cross-fade (if switching)             │
 │     ├── Menu overlay (with fade-in)                           │
 │     ├── Button indicator (progress ring + flash pills)        │
@@ -111,20 +110,22 @@ neutral ──(mood change)──→ happy
 
 ### BlinkState
 
-Periodic eye blinks with realistic clustering. Controls a `blink_factor` (0.0 = closed, 1.0 = open) that characters use to modulate eye height.
+Delta-time based blinks with asymmetric timing and clustering. Controls a `blink_factor` (0.0 = closed, 1.0 = open) that characters use to modulate eye height. Frame-rate independent -- blinks take the same wall-clock time whether running at 20 FPS on the Pi or 60 FPS on desktop.
 
-- **Blink duration:** 150ms
+- **Blink duration:** 150ms wall-clock
+- **Asymmetric timing:** Close phase is 28% of duration (~42ms, fast snap), open phase is 72% (~108ms, gentle ease) -- based on Disney/Pixar animation research
 - **Interval:** `10 / blink_rate` seconds (blink_rate from expression YAML)
-- **Clustering:** 30% chance of a double/triple blink (0.2-0.4s gap)
+- **Clustering:** 35% chance of starting a cluster after any blink, 1-2 extra blinks per cluster at 150-350ms intervals
 - **Suppressed** when eyes are already nearly closed (sleepy moods)
 
 ### GazeDrift
 
-Saccadic eye movement — fast snaps between fixation points with slow micro-drift during fixation.
+Saccadic eye movement -- fast snaps between fixation points with slow micro-drift and pink noise microsaccadic jitter during fixation.
 
 - **Saccade speed:** 12x delta-time (fast snap to new target)
 - **Fixation duration:** 2-6s (scaled by `gaze_drift_speed` config)
 - **Micro-drift:** Sinusoidal 0.012px during fixation (subtle organic movement)
+- **Pink noise jitter:** Leaky-integrator 1/f noise (amplitude ±0.018) adds involuntary microsaccadic tremor during fixation, preventing "dead stare"
 - **Range:** ±0.2 to ±0.4 (scales with speed setting)
 
 ### BreathingState
@@ -405,8 +406,8 @@ UI components live in `display/components/`. Each renders a specific overlay or 
 | Face | `face.py` | Composites eyes and mouth via the active character |
 | Menu | `menu.py` | Settings and navigation overlay |
 | Status Bar | `status_bar.py` | Battery level, WiFi status, active agent |
-| Transcript | `transcript.py` | Chat message overlay and drawer |
-| Button Indicator | `button_indicator.py` | Three-zone progress ring and flash pills |
+| Transcript | `transcript.py` | Chat message overlay and peek bubble |
+| Button Indicator | `button_indicator.py` | Four-zone progress ring and flash pills |
 | Speaking Pill | `speaking_pill.py` | Waveform pill during speech, mic indicator |
 | Shutdown Overlay | `shutdown_overlay.py` | Countdown (3... 2... 1...) before shutdown |
 | QR Overlay | `qr_overlay.py` | QR code for config URL |
@@ -436,9 +437,9 @@ State is updated from the WebSocket connection to the Python backend (`server.py
 
 ```
 ┌──────────────────────────────┐ 0
-│  Status Bar (48px)           │
+│  Status Bar (60px)           │
 │  Agent  State·icon  Bat% wifi│
-├──────────────────────────────┤ 48
+├──────────────────────────────┤ 60
 │                              │
 │    ┌────────────────────┐    │
 │    │                    │    │
@@ -457,7 +458,7 @@ State is updated from the WebSocket connection to the Python backend (`server.py
 - **Resolution:** 240x280 pixels
 - **Corner radius:** ~40px (physical bezel clips corners)
 - **Safe area:** Inset content 20px+ from edges at top and bottom rows
-- **Status bar:** Top 48px
+- **Status bar:** Top 60px
 - **Face:** Center area, fills most of the screen
 - **Button indicator:** Bottom of screen
 
@@ -519,6 +520,10 @@ These endpoints require no authentication, allowing agents to discover Voxel aut
 **Architecture:** The MCP server connects to server.py via WebSocket on port 8080 (same protocol as the display service). It translates MCP tool calls into WS commands. 20 tools are exposed across three categories: control (mood, speech, LED), query (stats, logs, diagnostics), and manage (config, services, updates, WiFi). MCP tools have exactly the same capabilities as the web chat — no privileged access, no separate API.
 
 See `openclaw/README.md` for setup instructions.
+
+## Boot Animation
+
+The display service plays a ~3-second "wake up" eye animation on startup (`display/boot_animation.py`), before entering the main render loop. Six phases: glow pulse, closed-eye bars appear, bars slide apart to eye positions, eyes blink open (left first, then right, with asymmetric timing), brief look-around with perspective eye sizing, then settle to center. Configured via `character.boot_animation: true` (default). After the animation, an optional gateway greeting can overlay a short text message from the AI agent (`character.greeting_enabled`).
 
 ## Constraints
 

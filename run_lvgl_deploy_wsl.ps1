@@ -1,8 +1,8 @@
 param(
     [string]$Distro = "Ubuntu",
-    [string]$PiHost = "172.16.24.33",
+    [string]$PiHost = "",        # Pi IP (required)
     [string]$User = "pi",
-    [string]$Password = "voxel",
+    [string]$Password = "",      # Pi SSH password (required)
     [string]$FramesDir = "./out/lvgl-frames",
     [int]$Frames = 24,
     [double]$FrameDelay = 0.18,

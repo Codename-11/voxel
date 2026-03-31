@@ -211,7 +211,7 @@ class TestButtonFlash:
         assert state._button_flash_until == 0.0
 
     def test_flash_types(self, state: DisplayState):
-        for event in ("short_press", "double_tap", "long_press", "sleep", "shutdown"):
+        for event in ("short_press", "start_recording", "long_press", "sleep", "shutdown"):
             now = time.time()
             state.button_flash = event
             state._button_flash_until = now + 0.5
@@ -219,7 +219,7 @@ class TestButtonFlash:
 
     def test_flash_not_cleared_before_expiry(self, state: DisplayState):
         now = time.time()
-        state.button_flash = "double_tap"
+        state.button_flash = "start_recording"
         state._button_flash_until = now + 0.5
 
         frame_time = now + 0.3
@@ -227,7 +227,7 @@ class TestButtonFlash:
             state.button_flash = ""
             state._button_flash_until = 0.0
 
-        assert state.button_flash == "double_tap", "Flash should persist before expiry"
+        assert state.button_flash == "start_recording", "Flash should persist before expiry"
 
 
 # ── 5. BlinkState ──────────────────────────────────────────────────────────
@@ -341,11 +341,13 @@ class TestGazeDrift:
             gd.update(now=now, dt=0.033)
         assert gd._saccade_active is False
 
-        # Now in fixation — micro-drift should produce small offsets
+        # Now in fixation — micro-drift + pink noise jitter should
+        # produce small offsets. Sinusoidal drift is ±0.012 and pink
+        # noise jitter adds up to ±0.018, so total can reach ~0.03.
         target_x = gd.target_x
         gd.update(now=now + 1.0, dt=0.033)
         drift = abs(gd.current_x - target_x)
-        assert drift <= 0.015, f"Micro-drift should be small, got {drift}"
+        assert drift <= 0.035, f"Micro-drift should be small, got {drift}"
         assert drift > 0 or True, "Some drift is expected but may be zero at specific phase"
 
 
@@ -573,7 +575,7 @@ class TestChatPeek:
 
     def test_trigger_only_on_face_view(self, state: DisplayState):
         now = time.time()
-        state.view = "chat_full"
+        state.view = "chat"
         state.trigger_chat_peek(now, duration=2.0)
         assert state._peek_until == 0.0, "Should not trigger peek when not in face view"
 
@@ -587,7 +589,8 @@ class TestChatPeek:
         now = time.time()
         state.view = "face"
         state.trigger_chat_peek(now)
-        assert state._peek_until == pytest.approx(now + 2.0), "Default peek duration should be 2s"
+        duration = state._peek_until - now
+        assert duration == pytest.approx(4.0), "Default peek duration should be 4s"
 
 
 # ── 12. State field interactions ──────────────────────────────────────────

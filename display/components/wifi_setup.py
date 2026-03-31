@@ -17,10 +17,10 @@ BG = (16, 16, 24)
 def draw_wifi_setup(draw: ImageDraw.ImageDraw, img: Image.Image,
                     ap_ssid: str, ap_password: str, portal_url: str) -> None:
     """Draw the WiFi AP onboarding screen on the LCD."""
-    font_title = get_font(18)
-    font_main = get_font(16)
-    font_sm = get_font(13)
-    font_pin = get_font(20)
+    font_title = get_font(20)
+    font_main = get_font(18)
+    font_sm = get_font(14)
+    font_pin = get_font(24)
 
     draw.rectangle([0, 0, SCREEN_W - 1, SCREEN_H - 1], fill=BG)
 

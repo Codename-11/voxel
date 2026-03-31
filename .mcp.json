@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "voxel-device": {
+      "type": "http",
+      "url": "http://${VOXEL_DEVICE_IP:-localhost}:8082/sse"
+    },
+    "voxel-local": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "mcp"]
+    }
+  }
+}

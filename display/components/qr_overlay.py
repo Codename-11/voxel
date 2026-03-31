@@ -50,10 +50,10 @@ def draw_setup_screen(draw: ImageDraw.ImageDraw, img: Image.Image,
     scanning gives instant access. The displayed text URL is plain (requires
     PIN entry when typed manually).
     """
-    font_title = get_font(16)
+    font_title = get_font(20)
     font_url = get_font(16)
-    font_pin = get_font(22)
-    font_hint = get_font(13)
+    font_pin = get_font(26)
+    font_hint = get_font(14)
 
     # Background
     draw.rectangle([0, 0, SCREEN_W - 1, SCREEN_H - 1], fill=BG)

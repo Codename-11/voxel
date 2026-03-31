@@ -18,12 +18,12 @@ from display.layout import SCREEN_W, SCREEN_H, STATUS_H
 
 # ── Sizing ────────────────────────────────────────────────────────────────
 
-FONT_SIZE = 13       # compact for 240px width
-FONT_SIZE_SM = 11    # labels/hints
-LINE_HEIGHT = 18     # ~1.4x font size
+FONT_SIZE = 18       # compact for 240px width
+FONT_SIZE_SM = 14    # labels/hints
+LINE_HEIGHT = 24     # ~1.4x font size
 PAD_X = 6            # outer horizontal padding
 BUBBLE_PAD_X = 8     # inner bubble horizontal padding
-BUBBLE_PAD_Y = 5     # inner bubble vertical padding
+BUBBLE_PAD_Y = 7     # inner bubble vertical padding
 BUBBLE_GAP = 4       # vertical gap between bubbles
 BUBBLE_RADIUS = 10   # corner radius for bubbles
 MAX_BUBBLE_W = SCREEN_W - PAD_X * 2 - 20  # max bubble width (~208px)
@@ -201,7 +201,7 @@ def draw_transcript_overlay(draw: ImageDraw.ImageDraw,
         # Role label
         label = "You" if is_user else ("" if entry.role == "tool" else state.agent.capitalize())
         if label:
-            draw.text((PAD_X, y), label, fill=TEXT_LABEL, font=get_font(9))
+            draw.text((PAD_X, y), label, fill=TEXT_LABEL, font=get_font(12))
             y += 12
 
         lines = wrap_text(font, text, SCREEN_W - 20)
@@ -214,125 +214,143 @@ def draw_transcript_overlay(draw: ImageDraw.ImageDraw,
         y += 2
 
 
-# ── Chat drawer (peek from bottom, ~45% of screen) ───────────────────────
-
-DRAWER_REST = 140
-DRAWER_HIDDEN = 280
-
-
-def draw_chat_drawer(draw: ImageDraw.ImageDraw, state: DisplayState,
-                     slide_y: int = DRAWER_REST) -> None:
-    """Draw a chat drawer that peeks up from the bottom with bubble layout."""
-    top = slide_y
-    if top >= 280:
-        return
-
-    draw.rectangle([0, top, SCREEN_W - 1, 279], fill=BG)
-    draw.line([(0, top), (SCREEN_W - 1, top)], fill=DIVIDER, width=1)
-
-    # Handle grip
-    draw.rounded_rectangle([105, top + 4, 135, top + 7], radius=2, fill=DIVIDER)
-
-    _render_messages(draw, state, top + 12, 275)
-
-
 # ── Full chat view (replaces face entirely) ───────────────────────────────
 
 CHAT_TOP = STATUS_H + 2
 
 
-def draw_chat_full(draw: ImageDraw.ImageDraw, state: DisplayState) -> None:
+def draw_chat(draw: ImageDraw.ImageDraw, state: DisplayState) -> None:
     """Draw full-screen chat history with bubble layout."""
     draw.rectangle([0, CHAT_TOP, SCREEN_W - 1, 279], fill=BG)
     _render_messages(draw, state, CHAT_TOP + 4, 272)
 
 
-# ── Chat notification peek (slides up briefly on new message) ─────────────
+# ── Peek bubble overlay on face view ──────────────────────────────────────
 
-PEEK_H = 40
-PEEK_DURATION = 3.5  # seconds visible
-PEEK_BOTTOM = SCREEN_H - 28  # stay above bottom corner bevel (40px radius)
+PEEK_DURATION = 4.0    # seconds visible
+PEEK_SLIDE_IN = 0.3    # seconds to slide up
+PEEK_FADE_OUT = 0.5    # seconds to fade out before dismissing
+PEEK_PAD_X = 12        # horizontal padding from screen edge
+PEEK_PAD_Y = 8         # inner vertical padding
+PEEK_RADIUS = 12       # bubble corner radius
+PEEK_BOTTOM = SCREEN_H - 10  # bottom edge of peek area (above corner bevel)
+PEEK_FONT_SIZE = 16    # readable but not dominant
 
 
-def draw_chat_peek(draw: ImageDraw.ImageDraw, state: DisplayState,
-                   now: float) -> None:
-    """Draw a notification bar of the latest message at the bottom."""
+def draw_peek_bubble(draw: ImageDraw.ImageDraw, img, state: DisplayState,
+                     now: float) -> None:
+    """Draw a semi-transparent peek bubble at the bottom of the face view.
+
+    Shows 1-2 lines of the latest transcript entry, with a slide-up
+    entrance and fade-out dismissal. Drawn on top of everything.
+    """
     if now >= state._peek_until:
         return
 
     remaining = state._peek_until - now
     elapsed = PEEK_DURATION - remaining
 
-    # Fade in/out
-    if remaining < 0.4:
-        alpha = remaining / 0.4
+    # Slide-up entrance (0 -> 1 over PEEK_SLIDE_IN)
+    # Fade-out exit (1 -> 0 over PEEK_FADE_OUT at the end)
+    if elapsed < PEEK_SLIDE_IN:
+        progress = elapsed / PEEK_SLIDE_IN
+        alpha = progress  # fades in as it slides up
+    elif remaining < PEEK_FADE_OUT:
+        progress = 1.0
+        alpha = remaining / PEEK_FADE_OUT
     else:
-        alpha = min(elapsed / 0.12, 1.0)
+        progress = 1.0
+        alpha = 1.0
 
-    if alpha <= 0:
+    if alpha <= 0.01:
         return
 
     if not state.transcripts:
         return
 
     entry = state.transcripts[-1]
-    font = get_font(FONT_SIZE)
-    label_font = get_font(9)
+    font = get_font(PEEK_FONT_SIZE)
     is_user = entry.role == "user"
-
-    if entry.role == "tool":
-        label = "Tool"
-        text_color = TEXT_TOOL
-        accent = (80, 60, 140)
-    elif is_user:
-        label = "You"
-        text_color = TEXT_USER
-        accent = (0, 160, 155)
-    else:
-        label = state.agent.capitalize()
-        text_color = TEXT_ASSISTANT
-        accent = (0, 212, 210)
 
     text = entry.text
     if entry.status == "partial":
         text += "\u258c"
 
-    # Truncate to fit one line (leave room for accent stripe + padding)
-    max_w = SCREEN_W - 24
-    if text_width(font, text) > max_w:
-        while text_width(font, text + "..") > max_w and len(text) > 1:
-            text = text[:-1]
-        text += ".."
+    # Word-wrap to fit bubble (max 2 lines)
+    inner_w = SCREEN_W - PEEK_PAD_X * 2 - 16
+    lines = wrap_text(font, text, inner_w)
+    if len(lines) > 2:
+        # Truncate to 2 lines, add ellipsis to second line
+        lines = lines[:2]
+        second = lines[1]
+        while text_width(font, second + "...") > inner_w and len(second) > 1:
+            second = second[:-1]
+        lines[1] = second + "..."
 
-    slide_y = int(PEEK_BOTTOM - PEEK_H * alpha)
-    if slide_y >= PEEK_BOTTOM - 2:
-        return  # not enough room to draw
+    if not lines:
+        return
 
-    def _a(c: tuple) -> tuple:
-        return tuple(int(v * alpha) for v in c)
+    # Measure bubble size
+    line_h = PEEK_FONT_SIZE + 6
+    bubble_h = len(lines) * line_h + PEEK_PAD_Y * 2
+    bubble_w = SCREEN_W - PEEK_PAD_X * 2
 
-    bg = BG_USER if is_user else BG_ASSISTANT
-    # Background extends to screen bottom (fills below text safe area)
-    draw.rectangle([0, slide_y, SCREEN_W - 1, SCREEN_H - 1], fill=_a(bg))
-    draw.line([(0, slide_y), (SCREEN_W - 1, slide_y)], fill=_a(DIVIDER))
-    # Accent stripe on left edge
-    draw.rectangle([0, slide_y + 1, 2, SCREEN_H - 1], fill=_a(accent))
-    # Label
-    draw.text((8, slide_y + 5), label, fill=_a(TEXT_LABEL), font=label_font)
-    # Message text
-    draw.text((8, slide_y + 18), text, fill=_a(text_color), font=font)
+    # Slide-up animation: bubble rises from below screen to its rest position
+    rest_top = PEEK_BOTTOM - bubble_h
+    start_top = SCREEN_H + 4  # start just off-screen
+    # Ease-out for slide
+    ease = 1.0 - (1.0 - progress) ** 2
+    bubble_top = int(start_top + (rest_top - start_top) * ease)
+    bubble_left = PEEK_PAD_X
+
+    if bubble_top >= SCREEN_H:
+        return
+
+    # Draw using RGBA overlay for semi-transparency
+    from PIL import Image as _PILImage
+    overlay = _PILImage.new("RGBA", img.size, (0, 0, 0, 0))
+    from PIL import ImageDraw as _PILDraw
+    ov_draw = _PILDraw.Draw(overlay)
+
+    # Semi-transparent dark background
+    bg_alpha = int(180 * alpha)
+    ov_draw.rounded_rectangle(
+        [bubble_left, bubble_top, bubble_left + bubble_w, bubble_top + bubble_h],
+        radius=PEEK_RADIUS,
+        fill=(10, 10, 15, bg_alpha),
+    )
+
+    # Text color: white at 90% for assistant, cyan at 70% for user
+    if is_user:
+        text_alpha = int(178 * alpha)  # 70% of 255
+        text_color = (0, 212, 210, text_alpha)
+    else:
+        text_alpha = int(230 * alpha)  # 90% of 255
+        text_color = (255, 255, 255, text_alpha)
+
+    # Draw text lines
+    ty = bubble_top + PEEK_PAD_Y
+    for line in lines:
+        tx = bubble_left + 8
+        ov_draw.text((tx, ty), line, fill=text_color, font=font)
+        ty += line_h
+
+    # Composite overlay onto the main image
+    img_rgba = img.convert("RGBA")
+    img_rgba = _PILImage.alpha_composite(img_rgba, overlay)
+    img.paste(img_rgba.convert("RGB"))
 
 
 # ── View position indicator dots ──────────────────────────────────────────
 
-VIEW_ORDER = ["face", "chat_drawer", "chat_full"]
+VIEW_ORDER = ["face", "chat"]
 DOT_Y = SCREEN_H - 8
 DOT_SPACING = 12
 DOT_R = 2
 
 
 def draw_view_dots(draw: ImageDraw.ImageDraw, current_view: str) -> None:
-    """Draw three dots indicating current view position."""
+    """Draw two dots indicating current view position."""
     n = len(VIEW_ORDER)
     total_w = (n - 1) * DOT_SPACING
     start_x = (SCREEN_W - total_w) // 2

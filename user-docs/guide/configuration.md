@@ -83,7 +83,7 @@ Changes made via `voxel config set` are written to `config/local.yaml`.
 
 ```yaml
 gateway:
-  url: "http://172.16.24.250:18789"  # OpenClaw gateway URL
+  url: "http://GATEWAY_HOST:18789"   # OpenClaw gateway URL
   token: ""                           # Auth token
   default_agent: "daemon"             # Agent to use on startup
 ```
@@ -130,7 +130,7 @@ stt:
 tts:
   openai:
     model: tts-1               # tts-1 (fast), tts-1-hd (quality), gpt-4o-mini-tts (newest)
-    voice: alloy               # alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer
+    voice: nova                # alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer
     api_key: ""                # falls back to stt.whisper.api_key / OPENAI_API_KEY
   elevenlabs:
     api_key: ""                        # or set ELEVENLABS_API_KEY env var
@@ -147,7 +147,7 @@ tts:
 
 ```yaml
 display:
-  mode: auto          # auto, remote, or cog
+  mode: auto          # auto or whisplay (PIL->SPI on Pi, tkinter on desktop)
   width: 240
   height: 280
   fps: 30
@@ -160,12 +160,15 @@ display:
 
 ```yaml
 character:
-  default: cube                 # cube or bmo
+  default: voxel                # voxel (default), cube, or bmo
   idle_blink_interval: 3.5      # seconds between random blinks
   gaze_drift_speed: 0.5         # eye wander speed when idle
   mouth_sensitivity: 0.6        # audio amplitude to mouth mapping
   breathing_speed: 0.3          # idle bounce speed
   system_context_enabled: true  # send system prompt to AI
+  boot_animation: true          # play wake-up eye animation on startup (~3s)
+  greeting_enabled: true        # request a greeting from the gateway agent on startup
+  greeting_prompt: "You just woke up. Give a very brief greeting..."
 ```
 
 ### Power Management
@@ -193,7 +196,7 @@ dev:
   enabled: false           # show dev indicators, skip web auth
   advertise: true          # broadcast presence on LAN (UDP 41234)
   ssh:
-    host: ""               # Pi SSH host (set by dev-pair or display-push)
+    host: ""               # Pi SSH host (set by dev-pair or dev-push)
     user: pi
     password: ""
 ```

@@ -78,29 +78,52 @@ Pin mapping may vary by Whisplay HAT revision. Verify with the PiSugar documenta
 
 ## Button Interaction Patterns
 
-All interaction is encoded through a single button using timing patterns:
+All interaction is encoded through a single button using hold duration. There is no double-tap.
 
-| Pattern | Action | Timing | Visual Feedback |
+### From Face View (IDLE)
+
+| Gesture | Action | Timing | Visual Feedback |
 |---------|--------|--------|-----------------|
-| Short press | Cycle views (face / drawer / chat) | < 400ms hold, no second press within 400ms | "Tap" pill (cyan) |
-| Double-tap | Push-to-talk (start recording) | Two presses within 400ms, face view only | "Talk" pill (bright green) |
-| Long press | Menu open / select | Hold > 1s | Cyan ring fills to 1/10, "Menu" pill |
-| Sleep | Enter sleep mode | Hold > 5s | Blue/indigo ring continues to 5/10, "Sleep" pill |
-| Shutdown | Shutdown Pi (with confirm) | Hold > 10s | Orange-to-red ring fills to full, "Shutdown" pill |
+| Tap | Toggle view (face / chat) | < 400ms, fires instantly on release | "Tap" pill (cyan) |
+| Hold | Start recording (push-to-talk) | > 400ms (still held), stays recording until release | Pulsing ring + "Talk" label (green) |
+
+Once recording starts at 400ms, the button stays in recording state until release. There is no menu/sleep/shutdown override while recording -- the hold is exclusively for voice input.
+
+### From Chat View
+
+| Gesture | Action | Timing | Visual Feedback |
+|---------|--------|--------|-----------------|
+| Tap | Toggle view (face / chat) | < 400ms, fires instantly on release | "Tap" pill (cyan) |
+| Hold | Open menu | > 1s (fires at threshold) | Ring fills to 1/10, "Menu" pill |
+| Hold | Sleep | > 5s (fires at threshold) | Ring continues to 5/10, "Sleep" pill |
+| Hold | Shutdown with confirm | > 10s (fires at threshold) | Orange-to-red ring fills to full, "Shutdown" pill |
+
+### Inside Menu
+
+| Gesture | Action | Timing |
+|---------|--------|--------|
+| Tap | Move to next item | < 500ms |
+| Hold | Select / enter | > 500ms (fires at threshold) |
+| Idle | Auto-close menu | 5s with no input |
+
+"Back" is the last item in every menu/submenu. For value items (volume, brightness), taps cycle preset values (0/25/50/75/100), hold confirms.
 
 ### Hold Indicator
 
-While the button is held, a three-zone progress ring appears at the bottom of the screen:
+While the button is held (from non-face views), a four-zone progress ring appears at the bottom of the screen:
 
-- **Zone 1 (0-1s):** Cyan arc fills the first 1/10 of the ring. Label shows "menu".
-- **Zone 2 (1-5s):** Blue/indigo arc continues filling to 5/10. Label shows "sleep".
-- **Zone 3 (5-10s):** Orange-to-red arc fills the remaining half. Label shows "shutdown".
+- **Zone 0 (0-0.4s):** Subtle pulsing dot. No label (waiting to determine tap vs hold).
+- **Zone 1 (0.4-1s):** Cyan ring fills with pulsing center dot. "Talk" label (face view only: recording active).
+- **Zone 2 (1-5s):** Brighter cyan continues. "Menu" label (menu opened at 1s threshold).
+- **Zone 3 (5-10s):** Orange-to-red. "Sleep" then "Shutdown" labels.
 
-Two zone boundary ticks mark the 1s and 5s transitions. The center dot changes color at each zone boundary.
+Tick marks at 1s and 5s zone boundaries. Center dot changes color at each zone.
+
+Long-hold actions (menu, sleep, shutdown) fire the moment the threshold is crossed while the button is still held. They do not wait for release. From the face view, the hold is reserved exclusively for recording.
 
 ### Shutdown Confirmation
 
-After releasing the button at >10s, a full-screen countdown overlay appears:
+When the 10s threshold is crossed, a full-screen countdown overlay appears:
 
 - 3... 2... 1... with a pulsing "SHUTTING DOWN" warning
 - Any button press during the countdown cancels the shutdown
@@ -108,11 +131,11 @@ After releasing the button at >10s, a full-screen countdown overlay appears:
 
 ### Talk Mode Rules
 
-Push-to-talk only triggers from the face view — not from menu or chat views. While LISTENING, any short press or double-tap stops recording. While SPEAKING, any short press or double-tap cancels playback.
+Push-to-talk activates when the button is held past 400ms, from the face view only (not menu or chat views). While LISTENING, a tap stops recording. While SPEAKING, a tap cancels playback. A 500ms minimum recording guard prevents accidental cancellation from button bounce.
 
 ### Desktop Simulation
 
-In the tkinter or pygame preview window, the **spacebar** simulates the hardware button with identical timing logic.
+In the tkinter or pygame preview window, the **spacebar** feeds into the exact same button state machine as the Pi GPIO hardware.
 
 ## LED Patterns
 

@@ -24,9 +24,9 @@ FRAME_DIR = ROOT / ".cache" / "lvgl-poc-frames"
 LVGL_DIR = ROOT / ".cache" / "lvgl-src"
 LVGL_VERSION = "v8.3.11"
 LVGL_URL = f"https://github.com/lvgl/lvgl/archive/refs/tags/{LVGL_VERSION}.tar.gz"
-DEFAULT_DEV_PI_HOST = "172.16.24.33"
+DEFAULT_DEV_PI_HOST = ""   # set via dev-pair or --host
 DEFAULT_DEV_PI_USER = "pi"
-DEFAULT_DEV_PI_PASSWORD = "voxel"
+DEFAULT_DEV_PI_PASSWORD = ""  # set via dev-pair or --password
 DEFAULT_DEV_FRAMES_DIR = "./out/lvgl-frames"
 BUILD_STAMP = BUILD_DIR / ".source-signature"
 

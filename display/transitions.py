@@ -1,7 +1,7 @@
 """View transition manager — smooth cross-fade between display views.
 
-Manages transitions between face, chat_drawer, and chat_full views,
-plus fade-in for overlays (menu, pairing, shutdown).
+Manages transitions between face and chat views, plus fade-in for
+overlays (menu, pairing, shutdown).
 
 At 20 FPS, a 0.3s transition = ~6 frames — enough for visible smoothness.
 """
@@ -89,54 +89,6 @@ class ViewTransition:
         """Force-complete any in-progress transition."""
         self._progress = 1.0
         self._current_view = self._target_view
-
-
-class DrawerSlide:
-    """Animates a vertical slide for the chat drawer.
-
-    Slides from hidden_y (off-screen) to rest_y (open position) and back.
-    Uses ease-out for opening (decelerates) and ease-in for closing (accelerates).
-    """
-
-    def __init__(self, rest_y: int = 140, hidden_y: int = 280,
-                 duration: float = 0.25) -> None:
-        self._rest_y = rest_y
-        self._hidden_y = hidden_y
-        self._duration = duration
-        self._is_open = False
-        self._start_time: float = 0.0
-        self._progress: float = 0.0  # 0=hidden, 1=open
-
-    def set_open(self, is_open: bool, now: float) -> None:
-        """Signal the drawer to open or close."""
-        if is_open == self._is_open:
-            return
-        self._is_open = is_open
-        self._start_time = now
-        # Invert progress so animation continues from current position
-        self._progress = 1.0 - self._progress
-
-    def update(self, now: float) -> int:
-        """Update and return the current top Y position."""
-        if self._duration <= 0:
-            return self._rest_y if self._is_open else self._hidden_y
-
-        elapsed = now - self._start_time
-        raw = min(1.0, elapsed / self._duration)
-        self._progress = raw
-
-        if self._is_open:
-            # Opening: ease-out (decelerate into rest position)
-            t = 1.0 - (1.0 - raw) ** 2
-            return int(self._hidden_y + (self._rest_y - self._hidden_y) * t)
-        else:
-            # Closing: ease-in (accelerate off-screen)
-            t = raw * raw
-            return int(self._rest_y + (self._hidden_y - self._rest_y) * t)
-
-    @property
-    def is_animating(self) -> bool:
-        return self._progress < 1.0
 
 
 class OverlayFade:

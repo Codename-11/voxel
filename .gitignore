@@ -10,6 +10,7 @@ config/.first-boot-done
 *.egg-info/
 dist/
 build/
+out/
 uv.lock
 app/node_modules/
 app/dist/

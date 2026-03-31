@@ -41,6 +41,15 @@ After setup completes and the device reboots, the face appears on the LCD and th
 
 ## Connect MCP
 
+All clients get the same 20 tools. Device discovery at `http://DEVICE_IP:8081/.well-known/mcp`.
+
+| Client | Transport | Config | Setup |
+|--------|-----------|--------|-------|
+| Claude Code | SSE (remote) or stdio (local) | `.mcp.json` + `VOXEL_DEVICE_IP` env var | Auto via project `.mcp.json` |
+| Codex CLI | stdio | Manual config | `uv run python -m mcp` |
+| OpenClaw | SSE via mcporter | `mcporter config add voxel --url http://DEVICE_IP:8082/sse` | + skill install |
+| Any MCP client | SSE | `http://DEVICE_IP:8082/sse` | Standard MCP SSE |
+
 ### Option A: OpenClaw (SSE transport — network)
 
 **Quickest — one command each:**

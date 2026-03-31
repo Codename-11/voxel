@@ -52,7 +52,7 @@ class DisplayState:
     transcripts: list[TranscriptEntry] = field(default_factory=list)
     max_transcripts: int = 20
 
-    # View mode: "face" (default), "chat_drawer" (peek from bottom), "chat_full"
+    # View mode: "face" (default) or "chat" (full-screen chat history)
     view: str = "face"
 
     # Transcript overlay — shows temporarily during conversation, then auto-hides
@@ -65,7 +65,7 @@ class DisplayState:
     # Zone 1: 0.0-0.1 = menu (1s), Zone 2: 0.1-0.5 = sleep (5s), Zone 3: 0.5-1.0 = shutdown (10s)
     button_hold: float = 0.0
     button_pressed: bool = False
-    # Brief flash after release: "short_press", "double_tap", "long_press", "sleep", "shutdown" for ~0.5s, then ""
+    # Brief flash after release/action: "short_press", "start_recording", "long_press", "sleep", "shutdown" for ~0.5s, then ""
     button_flash: str = ""
     _button_flash_until: float = 0.0
 
@@ -105,16 +105,20 @@ class DisplayState:
     idle_prompt_visible: bool = False
     _idle_prompt_alpha: float = 0.0  # 0.0-1.0 for fade animation
 
-    # Chat notification peek
-    _peek_until: float = 0.0      # timestamp when peek should end
+    # Chat peek bubble overlay on face view
+    _peek_until: float = 0.0      # timestamp when peek bubble should dismiss
     _peek_triggered: bool = False  # prevent re-triggering for same message
+
+    # Gateway greeting overlay (fade-in, hold, fade-out text below eyes)
+    greeting_text: str = ""
+    greeting_time: float = 0.0  # timestamp when greeting was set
 
     # Frame timing (set each frame by the render loop)
     time: float = 0.0
     dt: float = 0.0
 
-    def trigger_chat_peek(self, now: float, duration: float = 3.5) -> None:
-        """Trigger a brief drawer peek from the bottom."""
+    def trigger_chat_peek(self, now: float, duration: float = 4.0) -> None:
+        """Trigger a peek bubble overlay on the face view."""
         if self.view == "face":  # only peek on face view
             self._peek_until = now + duration
 

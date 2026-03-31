@@ -21,14 +21,15 @@ CORNER_RADIUS = 40  # pixels — content in corners beyond this gets clipped
 
 # ── Status bar ──────────────────────────────────────────────────────────────
 
-STATUS_H = 48       # top bar height
+STATUS_H = 60       # top bar height
 
 # ── Decoration icon zones ──────────────────────────────────────────────────
 # Above-face area used for mood/status overlay icons.  Keep mood and
 # status decorations on separate rows to avoid visual collision.
 
 ICON_Y = STATUS_H + 22          # mood decoration row (thinking dots, "!!", "???", etc.)
-STATUS_ICON_Y = STATUS_H + 42   # status decoration row (WiFi arcs, battery icon)
+STATUS_ICON_Y = STATUS_H + 58   # status decoration row (WiFi arcs, battery icon)
+                                 # Spaced below ICON_Y + emoji height (36px) to avoid overlap
 
 # ── Safe content insets (accounts for rounded corners) ──────────────────────
 # The corners are rounded, so content near edges needs horizontal inset

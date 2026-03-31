@@ -209,7 +209,7 @@ sudo chmod +x /usr/local/bin/voxel
 - The device broadcasts on UDP port 41234 — some networks block broadcast traffic
 - Use `--host <ip>` to skip auto-discovery
 
-### `display-push` connection refused
+### `dev-push` connection refused
 
 - Run `voxel dev-pair` first to save SSH credentials
 - Verify the device IP has not changed (DHCP lease may have expired)

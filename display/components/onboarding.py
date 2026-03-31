@@ -88,10 +88,10 @@ def draw_configure_screen(draw: ImageDraw.ImageDraw, img: Image.Image,
                           config_url: str, access_pin: str = "") -> None:
     """Draw the 'scan to configure' screen — shown after WiFi is connected
     but before API keys are set."""
-    font_title = get_font(18)
-    font_main = get_font(16)
-    font_pin = get_font(22)
-    font_hint = get_font(12)
+    font_title = get_font(20)
+    font_main = get_font(18)
+    font_pin = get_font(26)
+    font_hint = get_font(14)
 
     draw.rectangle([0, 0, SCREEN_W - 1, SCREEN_H - 1], fill=BG)
 
@@ -141,7 +141,7 @@ def draw_ready_screen(draw: ImageDraw.ImageDraw) -> None:
     """Draw the 'ready' screen — shown briefly after onboarding completes."""
     font_lg = get_font(24)
     font_sm = get_font(14)
-    font_hint = get_font(12)
+    font_hint = get_font(14)
 
     draw.rectangle([0, 0, SCREEN_W - 1, SCREEN_H - 1], fill=BG)
 

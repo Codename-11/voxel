@@ -60,10 +60,10 @@ thinking:
   modifiers:
     - type: eye_swap
       cycle: 7.0
-      gaze_influence: 0.3
+      gaze_influence: 0.1
     - type: tilt_oscillation
-      speed: 1.2
-      amount: 3.5
+      speed: 0.8
+      amount: 2.5
 ```
 
 Available modifiers: `bounce_boost`, `tilt_oscillation`, `eye_swap`, `shake`, `squint_pulse`, `gaze_wander`. Characters call `apply_modifiers()` once per frame and read the returned overrides dict. Expressions also support `extends` (inheritance) and `blend` (weighted composition).
@@ -124,7 +124,7 @@ Vite watches `shared/` and triggers HMR on YAML changes, so edits to expressions
 
 | Module | Purpose |
 |--------|---------|
-| `gateway.py` | OpenClaw chat completions (non-streaming). Session: `agent:{id}:companion` |
+| `gateway.py` | OpenClaw chat completions (SSE streaming, fallback to non-streaming). Session: `agent:{id}:companion` |
 | `stt.py` | Whisper API. Records WAV → uploads → returns transcript |
 | `tts.py` | OpenAI TTS / ElevenLabs / edge-tts (fallback). Text → audio bytes |
 | `audio.py` | Audio capture/playback. `get_amplitude()` for mouth sync |
@@ -151,7 +151,7 @@ Finite state machine driving application behavior.
          ┌─────────┐
          │  IDLE   │◄──────────────────┐
          └────┬────┘                   │
-              │ button press           │ response done
+              │ hold >400ms (face view)│ response done
          ┌────▼────┐            ┌──────┴──────┐
          │LISTENING│            │  SPEAKING   │
          └────┬────┘            └──────▲──────┘
@@ -165,7 +165,7 @@ Finite state machine driving application behavior.
          └─────────┘
 
 Any state ──── long idle ──► SLEEPING
-Any state ──── menu button ──► MENU ──► previous state
+Chat view ──── hold >1s ──► MENU ──► previous state
 ```
 
 State transitions trigger mood changes (via `shared/moods.yaml` state_map) and WebSocket broadcasts to the frontend.
@@ -204,13 +204,13 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 ## Data Flow: Voice Interaction
 
 ```
-1. User presses button (hardware GPIO or WebSocket "button" event)
+1. User holds button >400ms from face view (hardware GPIO or WebSocket)
    → server.py: State IDLE → LISTENING
    → WebSocket push: { mood: "listening", state: "LISTENING" }
    → Display: eyes widen, lean forward, sound wave icon
 
 2. User releases button
-   → server.py: State LISTENING → THINKING
+   → server.py: State LISTENING → THINKING (immediate, no frame flash)
    → Audio: stop recording → WAV bytes
    → WebSocket push: { mood: "thinking", state: "THINKING" }
    → Display: asymmetric brow raise, gaze up, brain+cog icon

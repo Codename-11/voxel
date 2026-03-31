@@ -26,9 +26,12 @@ TOOLS: list[dict] = [
         "name": "get_device_state",
         "description": (
             "Get current Voxel device state including battery, WiFi, mood, "
-            "speaking state, active agent, and system stats."
+            "speaking state, active agent, and connectivity status. "
+            "CALL THIS FIRST to check if the device is reachable. "
+            "If '_connected' is false, control tools will fail."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
     },
     {
         "name": "set_mood",
@@ -154,6 +157,7 @@ TOOLS: list[dict] = [
         "name": "get_conversation_history",
         "description": "Get recent conversation messages between the user and AI agent.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "set_agent",
@@ -173,8 +177,9 @@ TOOLS: list[dict] = [
     # --- Device management tools ---
     {
         "name": "get_system_stats",
-        "description": "Get system health stats: CPU usage/temp, RAM, disk, WiFi signal, uptime, display FPS.",
+        "description": "Get system health stats: CPU usage/temp, RAM, disk, WiFi signal, uptime, display FPS. Works without backend connection if running on Pi.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "reboot_device",
@@ -186,6 +191,7 @@ TOOLS: list[dict] = [
             },
             "required": ["confirm"],
         },
+        "annotations": {"destructiveHint": True},
     },
     {
         "name": "restart_services",
@@ -204,7 +210,8 @@ TOOLS: list[dict] = [
     },
     {
         "name": "get_logs",
-        "description": "Get recent log output from Voxel services. Useful for diagnosing errors.",
+        "description": "Get recent log output from Voxel services. Useful for diagnosing errors. Works without backend connection if running on Pi.",
+        "annotations": {"readOnlyHint": True},
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -215,13 +222,15 @@ TOOLS: list[dict] = [
     },
     {
         "name": "run_diagnostic",
-        "description": "Run system health diagnostics (voxel doctor). Returns a health report with service status, hardware checks, and config validation.",
+        "description": "Run system health diagnostics (voxel doctor). Returns a health report with service status, hardware checks, and config validation. Works without backend connection if running on Pi.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "check_update",
         "description": "Check if a new version of Voxel is available (compares local git to remote).",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "install_update",
@@ -233,6 +242,7 @@ TOOLS: list[dict] = [
             },
             "required": ["confirm"],
         },
+        "annotations": {"destructiveHint": True},
     },
     {
         "name": "set_config",
@@ -291,11 +301,34 @@ RESOURCES: list[dict] = [
 
 
 async def handle_tool(name: str, arguments: dict, bridge: "VoxelBridge") -> list[dict]:
-    """Execute a tool and return MCP content blocks."""
+    """Execute a tool and return MCP content blocks.
+
+    Tools that use the WebSocket bridge catch ConnectionError and return
+    a helpful message so the calling agent knows the device is unreachable.
+    """
+
+    # --- State query (always works, includes connectivity info) ---
 
     if name == "get_device_state":
         state = dict(await bridge.get_state())
         return [{"type": "text", "text": json.dumps(state, indent=2)}]
+
+    # --- WebSocket-bridged tools (require backend connection) ---
+
+    try:
+        result = await _handle_ws_tool(name, arguments, bridge)
+        if result is not None:
+            return result
+    except ConnectionError as e:
+        return [{"type": "text", "text": f"[DEVICE OFFLINE] {e}"}]
+
+    # --- Device management tools (direct system calls, no WS bridge) ---
+
+    return await _handle_system_tool(name, arguments, bridge)
+
+
+async def _handle_ws_tool(name: str, arguments: dict, bridge: "VoxelBridge") -> list[dict] | None:
+    """Handle tools that require the WebSocket bridge. Returns None if not matched."""
 
     if name == "set_mood":
         await bridge.send_command({"type": "set_mood", "mood": arguments["mood"]})
@@ -349,7 +382,6 @@ async def handle_tool(name: str, arguments: dict, bridge: "VoxelBridge") -> list
 
     if name == "get_conversation_history":
         await bridge.send_command({"type": "get_chat_history"})
-        # Give the backend a moment to push the history response
         await asyncio.sleep(0.5)
         history = bridge.history
         return [{"type": "text", "text": json.dumps(history, indent=2)}]
@@ -357,6 +389,12 @@ async def handle_tool(name: str, arguments: dict, bridge: "VoxelBridge") -> list
     if name == "set_agent":
         await bridge.send_command({"type": "set_agent", "agent": arguments["agent"]})
         return [{"type": "text", "text": f"Agent switched to {arguments['agent']}"}]
+
+    return None  # not a WS tool
+
+
+async def _handle_system_tool(name: str, arguments: dict, bridge: "VoxelBridge") -> list[dict]:
+    """Handle tools that use direct system calls (no WS bridge needed)."""
 
     # --- Device management handlers (direct system calls, no WS bridge) ---
 

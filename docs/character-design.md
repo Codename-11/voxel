@@ -34,7 +34,14 @@ Emotions are expressed by masking portions of the pill-shaped eyes with the back
 | Thinking | Asymmetric (one open, one narrowed) |
 | Error | Red X marks |
 
-**Gaze:** Eyes shift position toward gaze direction. The eye closer to the gaze direction grows larger (perspective size asymmetry), creating a dramatic look effect.
+**Mood-specific eye shapes:**
+- **Happy:** Curved bottom cutout on eyes (smile-shaped, inspired by FluxGarage RoboEyes) -- creates upward crescent "squint-smile" eyes
+- **Sleepy / low-battery:** Bar-shaped eyes with filleted ends (not elliptical) -- narrow horizontal slits that read as drowsy
+- **Closed eyes (blink):** Flat horizontal bars with small fillet radius (not capsules) -- crisp, deliberate closure
+- **Sad:** Curved arc eyelid overlay (softer than triangular mask), increased tilt (+/-15 degrees), reduced openness (0.6)
+- **Frustrated/angry:** Increased tilt (+/-16 degrees) for more aggressive V-brow
+
+**Gaze:** Eyes shift position toward gaze direction. Gaze-proportional eye sizing creates perspective depth -- the eye on the gaze side shrinks (~12% width reduction) while the opposite eye grows, creating a dramatic look effect.
 
 **Glow:** A subtle breathing pulse modulates eye brightness. Speaking amplitude boosts the glow intensity.
 
@@ -52,7 +59,7 @@ The original isometric cube mascot. A dark charcoal rounded cube with glowing cy
 Adventure Time BMO character with pixel game idle quirks, CRT glitch effects, and speaker vibration.
 
 ### Scale
-The character should fill most of the 240x280 screen, with ~20px padding on sides and ~40px reserved for status bar at bottom. Effective character area: ~200x220px.
+The character should fill most of the 240x280 screen, with ~20px padding on sides and 60px reserved for the status bar at the top. Effective character area: ~200x200px.
 
 ## Expression System
 
@@ -123,10 +130,12 @@ The PIL renderer includes several animation subsystems (`display/animation.py`) 
 Organic scale oscillation applied to body scale before passing to character renderers. All characters benefit automatically without implementing their own breathing logic. The breathing modulates `body.scale` in the expression config.
 
 ### GazeDrift (Saccadic Eye Movement)
-Realistic eye movement using saccadic jumps (fast target changes) interspersed with slow drifts. Replaces simple random gaze. Eyes snap to a new position then slowly drift, mimicking how real eyes move.
+Realistic eye movement using saccadic jumps (fast target changes) interspersed with slow drifts. Enhanced with pink noise microsaccadic jitter during fixation -- subtle involuntary eye tremor that prevents the "dead stare" look. The jitter follows a 1/f power spectrum via a leaky integrator, producing correlated noise that is neither too jittery (white noise) nor too mechanical (sinusoidal).
 
-### BlinkState (Blink Clustering)
-Natural blink patterns with clustering — after one blink, there's a higher probability of a follow-up blink shortly after. Blink rate is still driven by the mood's `blinkRate` config.
+### BlinkState (Asymmetric Blinks + Clustering)
+Delta-time based animation (frame-rate independent, 150ms wall-clock duration regardless of FPS). Uses asymmetric timing inspired by Disney/Pixar research: eyelids close in 28% of the blink duration (~42ms, fast snap) and open in 72% (~108ms, gentle ease). This creates the natural "alive" quality seen in high-quality animation.
+
+Blink clustering mimics real human patterns: 35% probability of starting a cluster after any blink, with 1-2 extra blinks per cluster at 150-350ms intervals. Between clusters, a longer 3-8s pause (scaled by the mood's blink rate).
 
 ### Character Idle Quirks
 Each character implements unique idle animations:
@@ -152,8 +161,8 @@ Per-mood animation behaviors are now data-driven via `display/modifiers.py` inst
 
 Available modifiers:
 - **bounce_boost** — Multiply bounce amplitude (used by excited: `factor: 1.4`)
-- **tilt_oscillation** — Sinusoidal tilt variation (thinking: `speed: 1.2, amount: 3.5`)
-- **eye_swap** — Periodic big/small eye swap with gaze-driven lateral shift (thinking: `cycle: 7.0`)
+- **tilt_oscillation** — Sinusoidal tilt variation (thinking: `speed: 0.8, amount: 2.5`)
+- **eye_swap** — Periodic big/small eye swap with gaze-driven lateral shift (thinking: `cycle: 7.0, gaze_influence: 0.1`)
 - **shake** — Random position jitter (error: `range: 2`)
 - **squint_pulse** — Slow squint modulation (available for focused)
 - **gaze_wander** — Lateral gaze drift (surprised_by_sound: `speed: 0.6`)
@@ -189,6 +198,41 @@ A showcase mode (`display/demo.py`) that auto-cycles through moods, characters, 
 - `demo_include_styles: true` — cycle through face styles
 
 When active, demo mode forces IDLE state and face view. The DemoController is integrated into the renderer loop and runs before mood resolution.
+
+## Boot Animation
+
+The display service plays a ~3-second "wake up" animation on startup, before entering the main render loop. The animation runs after the terminal-style boot splash and transitions seamlessly into the live face.
+
+### Sequence
+
+| Phase | Time | Description |
+|-------|------|-------------|
+| **Glow pulse** | 0-0.5s | Screen dark, a faint cyan glow pulse fades in at center -- the "soul" powering on |
+| **Bars appear** | 0.5-1.0s | Two closed-eye bars (flat bars with filleted ends, matching the voxel.py closed-eye style) fade in close together at screen center |
+| **Bars slide apart** | 1.0-1.5s | Bars slide outward to final eye positions (EYE_SPACING apart) using ease-out deceleration |
+| **Eyes blink open** | 1.5-2.3s | Left eye blinks open first (~200ms), right eye follows ~150ms later. Uses asymmetric timing (fast close 28%, slow open 72%) matching the BlinkState animation research |
+| **Look around** | 2.3-2.8s | Brief gaze drift left then right (curious look-around) with perspective eye sizing, then settle to center |
+| **Settle** | 2.8-3.0s | Eyes reach full openness, gaze centered. Animation complete, hand off to main render loop |
+
+### Configuration
+
+- `character.boot_animation: true` (default) -- set to `false` to skip the animation and go straight to the main render loop
+- The animation uses the configured `character.accent_color` for eye and glow colors
+- Targets the configured `display.fps` (default 30) during animation
+- Works on both Pi (SPI backend) and desktop (tkinter/pygame backend)
+
+### Gateway Greeting
+
+After the boot animation completes and the WebSocket connects to the backend, the server can optionally request a short greeting from the AI agent:
+
+- The server sends a context prompt to the gateway: "You just woke up. Give a very brief greeting (under 10 words) appropriate for {time_of_day}. Be in character."
+- The response is rendered as a fade-in/fade-out text overlay below the eyes on the display (0.5s fade in, 2s hold, 1s fade out)
+- Color matches the accent color at 70% alpha
+- If the gateway is unreachable, the greeting is silently skipped
+
+**Config:**
+- `character.greeting_enabled: true` -- enable/disable the gateway greeting
+- `character.greeting_prompt: "..."` -- customize the prompt sent to the agent
 
 ## Concept Art Reference
 

@@ -58,3 +58,29 @@ When the Voxel MCP server is connected, you can use these tools:
 - **Confirm destructive actions**: reboot_device and install_update require `confirm: true` — always explain what you're about to do before confirming
 - **Check before changing**: Call get_device_state or run_diagnostic before making config changes or restarts
 - **Logs for debugging**: Use get_logs when something isn't working — check both display and backend services
+
+## Alternative Interfaces (if MCP is unavailable)
+
+The device has two other control interfaces that work independently of MCP:
+
+**REST API (port 8081)** — config server with public + authenticated endpoints:
+- `GET /api/health` — health check (public, no auth)
+- `GET /api/stats` — system stats (public)
+- `POST /api/chat` — send chat message (auth required)
+- `POST /api/chat/agent` — switch agent (auth required)
+- `GET /api/chat/history` — conversation history (auth required)
+- `GET /setup` — agent setup guide (public)
+- `GET /skill` — this skill file (public)
+- `GET /.well-known/mcp` — MCP discovery JSON (public)
+
+**WebSocket (port 8080)** — full bidirectional, JSON commands:
+- `{"type": "set_mood", "mood": "happy"}`
+- `{"type": "text_input", "text": "hello"}`
+- `{"type": "set_agent", "agent": "daemon"}`
+- `{"type": "set_setting", "section": "audio", "key": "volume", "value": 80}`
+- Receives: state pushes, transcripts, emoji reactions, tool call status
+
+**When to use what:**
+- MCP tools: primary interface (richest, best agent support)
+- REST API: MCP is down but device is on the network (use `curl` or HTTP fetch)
+- WebSocket: need real-time streaming or raw protocol access (use `node-connect` or similar)

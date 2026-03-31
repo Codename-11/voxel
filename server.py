@@ -792,6 +792,12 @@ async def handle_message(data: dict, ws: ServerConnection) -> None:
                 persist_settings({"gateway": {"default_agent": agent_id}})
                 await push_state()
 
+        elif button == "cancel":
+            # Cancel active pipeline (tap during THINKING or SPEAKING)
+            if sm.state in (State.THINKING, State.SPEAKING):
+                _cancel_pipeline()
+                sm.to_idle()
+
         elif button == "press":
             if sm.state == State.SPEAKING:
                 # Cancel current conversation
@@ -860,6 +866,90 @@ async def hardware_loop() -> None:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _time_of_day() -> str:
+    """Return a time-of-day string based on the current local hour."""
+    import datetime
+    hour = datetime.datetime.now().hour
+    if hour < 6:
+        return "late night"
+    elif hour < 12:
+        return "morning"
+    elif hour < 17:
+        return "afternoon"
+    elif hour < 21:
+        return "evening"
+    else:
+        return "night"
+
+
+async def _startup_greeting() -> None:
+    """Request a short greeting from the gateway agent on startup.
+
+    Waits for a client to connect, then asks the agent for a brief
+    wake-up greeting. The response is broadcast as a 'greeting' message
+    that the display service renders as a fade-in/fade-out text overlay.
+    Skips silently if the gateway is unreachable or greeting is disabled.
+    """
+    greeting_enabled = _setting("character.greeting_enabled", True)
+    if not greeting_enabled:
+        log.debug("Startup greeting: disabled by config")
+        return
+
+    if _oclient is None:
+        log.debug("Startup greeting: no gateway client configured")
+        return
+
+    # Wait briefly for a display client to connect
+    for _ in range(30):  # up to 15s
+        if _clients:
+            break
+        await asyncio.sleep(0.5)
+    else:
+        log.info("Startup greeting: no display client connected after 15s, skipping")
+        return
+
+    # Brief delay after client connects — boot animation is ~3s,
+    # but we start the gateway request early so the response is
+    # ready by the time the animation finishes.
+    await asyncio.sleep(1.0)
+    log.info("Startup greeting: client connected, requesting from gateway...")
+
+    prompt = _setting(
+        "character.greeting_prompt",
+        "You just woke up. Give a very brief greeting (under 10 words) "
+        "appropriate for {time_of_day}. Be in character.",
+    )
+    prompt = prompt.replace("{time_of_day}", _time_of_day())
+
+    try:
+        log.info("Startup greeting: requesting from gateway (agent=%s)", _ui_state["agent"])
+        _oclient.set_agent(_ui_state["agent"])
+        response = await asyncio.to_thread(
+            _oclient.send_message, prompt, device_state=dict(_ui_state),
+        )
+
+        if not response:
+            log.debug("Startup greeting: empty response from gateway")
+            return
+
+        # Strip mood tags like [happy] etc.
+        import re
+        clean = re.sub(r'^\s*\[\w+\]\s*', '', response).strip()
+        # Strip leading emoji
+        try:
+            from display.emoji_reactions import parse_reaction
+            _emoji, clean = parse_reaction(clean)
+        except ImportError:
+            pass
+
+        if clean:
+            clean = clean.strip('"').strip()
+            log.info("Startup greeting: %s", clean[:60])
+            await broadcast({"type": "greeting", "text": clean})
+    except Exception as e:
+        log.warning("Startup greeting: failed — %s", e)
+
+
 async def main() -> None:
     # Suppress websockets' noisy handshake failure logs (e.g. port-check probes)
     logging.getLogger("websockets").setLevel(logging.ERROR)
@@ -876,6 +966,9 @@ async def main() -> None:
         log.info(f"WebSocket server: ws://{host}:{port}")
         ready_message()
         log.info("Frontend: open app/index.html or run 'npm run dev' in app/")
+
+        # Fire-and-forget startup greeting (non-blocking)
+        asyncio.create_task(_startup_greeting())
 
         await hardware_loop()
 

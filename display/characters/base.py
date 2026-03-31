@@ -37,8 +37,7 @@ class Character(ABC):
     def draw(self, draw: ImageDraw.ImageDraw, img: Image.Image,
              expr: Expression, style: FaceStyle,
              blink_factor: float, gaze_x: float, gaze_y: float,
-             amplitude: float, now: float,
-             compact: bool = False) -> None:
+             amplitude: float, now: float) -> None:
         """Draw the character onto the image.
 
         Args:
@@ -50,8 +49,6 @@ class Character(ABC):
             gaze_x, gaze_y: Combined gaze position (-1..1)
             amplitude: Audio amplitude 0..1 for mouth sync
             now: Current time for bounce animation
-            compact: When True, shift face up and scale down to make
-                room for chat drawer (dynamic split layout)
         """
 
     def idle_quirk(self, draw: ImageDraw.ImageDraw, img: Image.Image,

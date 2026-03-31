@@ -40,7 +40,7 @@ uv run dev-watch
 uv run dev --server
 ```
 
-The preview window simulates the hardware button with the **spacebar** — same timing patterns as the physical button (short press, double-tap, long press).
+The preview window simulates the hardware button with the **spacebar** — same state machine as the physical button (tap to cycle views, hold >400ms from face view to start recording, hold >1s from other views to open menu).
 
 ::: tip
 The `--server` flag spawns `server.py` as a child process and auto-connects via WebSocket, enabling the full voice pipeline (STT, gateway, TTS) in the preview. No need to run the backend separately.
@@ -87,20 +87,20 @@ uv run voxel dev-pair --host 192.168.1.42
 
 ## Pushing to the Pi
 
-After pairing, use `display-push` to sync and run your local display service on the device:
+After pairing, use `dev-push` to sync your local code to the device and run it:
 
 ```bash
 # Sync + run, show remote logs
-uv run voxel display-push --logs
+uv run voxel dev-push --logs
 
 # Watch for changes and auto-push
-uv run voxel display-push --watch
+uv run voxel dev-push --watch
 
 # Update Pi code (git pull + uv sync) before pushing
-uv run voxel display-push --update
+uv run voxel dev-push --update
 ```
 
-This is the core dev loop for hardware iteration: edit locally, push to Pi, see results on the LCD.
+This syncs the full runtime (display, backend, state machine, MCP, CLI, config, shared data) to the Pi over SSH. It's the core dev loop for hardware iteration: edit locally, push to Pi, see results on the LCD.
 
 ## Editing Expressions
 
@@ -110,7 +110,7 @@ When you edit `shared/expressions.yaml`:
 
 - **React browser UI:** Changes trigger HMR instantly via Vite (which watches the `shared/` directory)
 - **PIL preview (`dev-watch`):** Restarts the display service automatically
-- **Pi (`display-push --watch`):** Syncs and restarts on the device
+- **Pi (`dev-push --watch`):** Syncs and restarts on the device
 
 Face styles are in `shared/styles.yaml` (kawaii, retro, minimal). Mood-to-state mapping and LED behavior are in `shared/moods.yaml`.
 
@@ -157,8 +157,8 @@ There are two main ways to develop — choose based on what you are working on:
 |------|-------|---------|----------|
 | PIL preview | Local machine | `uv run dev` | Face rendering, expressions, layout |
 | React browser UI | Local machine | `./run.sh` | Animation prototyping with HMR |
-| Push to Pi | Pi hardware | `uv run voxel display-push --logs` | Hardware testing, SPI display, button, LED |
-| Watch + push | Both | `uv run voxel display-push --watch` | Iterating on Pi with fast feedback |
+| Push to Pi | Pi hardware | `uv run voxel dev-push --logs` | Hardware testing, SPI display, button, LED |
+| Watch + push | Both | `uv run voxel dev-push --watch` | Iterating on Pi with fast feedback |
 
 The PIL preview on your local machine renders **the exact same frames** that display on the Pi's LCD. The tkinter window is pixel-identical to the SPI output (240x280, same corner radius). This means most development can happen locally without touching the hardware.
 
@@ -191,7 +191,7 @@ services/                   # Systemd unit files
 ## Tips
 
 - The display is 240x280 pixels with ~40px corner radius. Content near corners gets clipped by the physical bezel.
-- Target 20 FPS. PIL rendering is CPU-bound on the Pi's ARM Cortex-A53.
+- Config targets 30 FPS, actual on Pi is ~20 FPS. PIL rendering is CPU-bound on the Pi's ARM Cortex-A53.
 - Backlight must stay at 100% — dimming below that causes visible flicker due to software PWM.
 - Keep memory usage low. The Pi has 512MB RAM total.
 - Use `voxel doctor` on the Pi to diagnose issues after pushing changes.

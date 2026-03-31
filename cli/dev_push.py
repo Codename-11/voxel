@@ -1,9 +1,12 @@
-"""Push display service to Pi and run it — fast dev loop.
+"""Push full runtime to Pi and run it — fast dev loop.
+
+Syncs display, backend, state machine, MCP, CLI, config, and shared
+data to the Pi over SSH, then starts the display service.
 
 Usage:
-    voxel display-push              # sync + run on Pi
-    voxel display-push --watch      # sync on every local file change
-    voxel display-push --update     # git pull + uv sync on Pi first
+    voxel dev-push              # sync + run on Pi
+    voxel dev-push --watch      # sync on every local file change
+    voxel dev-push --update     # git pull + uv sync on Pi first
 """
 
 from __future__ import annotations
@@ -24,14 +27,18 @@ SYNC_PATHS = [
     "assets/fonts/",
     "config/",
     "core/",
+    "states/",
+    "server.py",
+    "mcp/",
+    "cli/",
     "scripts/boot_splash.py",
-    "services/voxel-display.service",
+    "services/",
     "pyproject.toml",
 ]
 
-DEFAULT_HOST = "172.16.24.33"
+DEFAULT_HOST = ""   # set via dev-pair or --host
 DEFAULT_USER = "pi"
-DEFAULT_PASSWORD = "voxel"
+DEFAULT_PASSWORD = ""  # set via dev-pair or --password
 
 
 def _load_dev_ssh() -> dict:
@@ -162,6 +169,22 @@ def push(args) -> int:
             else:
                 ok("Pi updated")
 
+        # Ensure system libraries are present (only installs if missing)
+        _REQUIRED_PKGS = "libportaudio2 portaudio19-dev libasound2-dev ffmpeg"
+        _, stdout, _ = client.exec_command(
+            f"dpkg -s {_REQUIRED_PKGS} >/dev/null 2>&1 && echo OK || echo MISSING"
+        )
+        if stdout.read().decode().strip() != "OK":
+            info("Installing missing system libraries...")
+            _, stdout, stderr = client.exec_command(
+                f"sudo apt-get install -y -qq {_REQUIRED_PKGS} 2>&1 | tail -3"
+            )
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code == 0:
+                ok("System libraries installed")
+            else:
+                warn(f"System library install issue: {stderr.read().decode().strip()}")
+
         # Ensure Pi deps are in sync (qrcode, spidev, RPi.GPIO, etc.)
         info("Syncing Pi dependencies...")
         _, stdout, _ = client.exec_command(
@@ -171,10 +194,14 @@ def push(args) -> int:
         if dep_out:
             info(f"  {dep_out}")
 
-        # Kill ALL existing display service instances (systemd + manual nohup)
-        info("Stopping existing display service...")
-        client.exec_command("sudo systemctl stop voxel-display 2>/dev/null || true")
-        client.exec_command("pkill -f 'display\\.service' || true")
+        # Stop running services (both backend and display)
+        info("Stopping services...")
+        client.exec_command(
+            "sudo systemctl stop voxel-display 2>/dev/null || true; "
+            "sudo systemctl stop voxel 2>/dev/null || true; "
+            "pkill -f 'python.*display\\.service' 2>/dev/null || true; "
+            "pkill -f 'python.*server\\.py' 2>/dev/null || true"
+        )
         time.sleep(0.5)
 
         # Sync files
@@ -212,28 +239,66 @@ def push(args) -> int:
                 else:
                     info(f"  {cmd}: OK")
             ok("Systemd service installed (auto-starts on boot)")
-            # Service handles startup — skip manual launch
+            use_systemd = True
         else:
-            # Run display service on Pi (manual, no systemd)
-            info("Starting display service on Pi...")
-            command = (
-                f"cd {REMOTE_DIR} && "
-                f"nohup ~/.local/bin/uv run python -m display.service "
-                f"--backend whisplay "
-                f"> /tmp/voxel-display.log 2>&1 &"
+            # Check if systemd service is already installed and enabled
+            _, stdout, _ = client.exec_command(
+                "systemctl is-enabled voxel-display 2>/dev/null"
             )
-            client.exec_command(command)
+            is_enabled = stdout.read().decode().strip()
+            use_systemd = is_enabled == "enabled"
 
-        time.sleep(1.0)
+            if use_systemd:
+                info("Restarting services...")
+                # Restart backend first (display depends on it)
+                _, stdout, _ = client.exec_command(
+                    "systemctl is-enabled voxel 2>/dev/null"
+                )
+                if stdout.read().decode().strip() == "enabled":
+                    client.exec_command("sudo systemctl restart voxel")
+                    time.sleep(1.0)  # let backend start before display
+                client.exec_command("sudo systemctl restart voxel-display")
+            else:
+                info("Starting display service (manual)...")
+                command = (
+                    f"cd {REMOTE_DIR} && "
+                    f"nohup ~/.local/bin/uv run python -m display.service "
+                    f"--backend whisplay "
+                    f"> /tmp/voxel-display.log 2>&1 &"
+                )
+                client.exec_command(command)
 
-        # Check it's running
-        _, stdout, _ = client.exec_command("pgrep -f 'python.*display\\.service' | head -1")
-        pid = stdout.read().decode().strip()
-        if pid:
+        # Wait for service to come up (Pi Zero needs ~10-15s: boot splash + uv build + Python start)
+        pid = ""
+        for attempt in range(15):
+            time.sleep(1.0)
+            if use_systemd:
+                _, stdout, _ = client.exec_command(
+                    "systemctl is-active voxel-display 2>/dev/null"
+                )
+                if stdout.read().decode().strip() == "active":
+                    _, stdout, _ = client.exec_command(
+                        "systemctl show -p MainPID voxel-display --value"
+                    )
+                    pid = stdout.read().decode().strip()
+                    break
+            else:
+                _, stdout, _ = client.exec_command(
+                    "pgrep -f 'python.*display\\.service' | head -1"
+                )
+                pid = stdout.read().decode().strip()
+                if pid:
+                    break
+
+        if pid and pid != "0":
             ok(f"Display service running (PID {pid})")
         else:
             warn("Display service may not have started — check logs")
-            _, stdout, _ = client.exec_command("tail -5 /tmp/voxel-display.log")
+            log_cmd = (
+                "journalctl -u voxel-display -n 5 --no-pager 2>/dev/null || "
+                "tail -5 /tmp/voxel-display.log"
+            )
+            _, stdout, _ = client.exec_command(log_cmd)
             log_tail = stdout.read().decode().strip()
             if log_tail:
                 info(f"Last log lines:\n{log_tail}")
@@ -258,9 +323,9 @@ def _tail_logs_paramiko(client) -> None:
     info("Attaching to live logs (Ctrl+C to stop)...\n")
 
     try:
-        # Use journalctl if service is installed, fall back to log file
+        # Use journalctl if services are installed, tailing both backend + display
         _, stdout, _ = client.exec_command(
-            "journalctl -u voxel-display -f --no-pager -n 50 2>/dev/null || "
+            "journalctl -u voxel -u voxel-display -f --no-pager -n 50 2>/dev/null || "
             "tail -f /tmp/voxel-display.log"
         )
         channel = stdout.channel

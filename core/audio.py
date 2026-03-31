@@ -20,7 +20,9 @@ CHUNK = 1024
 FORMAT_WIDTH = 2  # 16-bit
 
 # Pi ALSA device for Whisplay HAT (WM8960)
-_PI_DEVICE = "hw:0,0"
+# Use named device (reliable across reboots), fallback to card 0
+_PI_DEVICE = "hw:wm8960soundcard"
+_PI_DEVICE_FALLBACK = "hw:0,0"
 
 _pa = None           # PyAudio instance
 _stream_in = None    # Recording stream
@@ -110,7 +112,7 @@ def start_recording() -> None:
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
-        device = _PI_DEVICE if IS_PI else None
+        device = _get_sd_device("input")
         _stream_in = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
@@ -212,7 +214,7 @@ def play_audio(data: bytes) -> None:
                     import numpy as np
                     frames = wf.readframes(wf.getnframes())
                     arr = np.frombuffer(frames, dtype=np.int16).reshape(-1, ch)
-                    device = _PI_DEVICE if IS_PI else None
+                    device = _get_sd_device("output")
                     sd.play(arr, samplerate=rate, device=device)
                     # Track amplitude per-chunk during playback
                     total_samples = len(arr)
@@ -329,6 +331,38 @@ def _device_name(index: Optional[int]) -> str:
         return f"#{index} '{info['name']}'"
     except Exception:
         return f"#{index}"
+
+
+def _get_sd_device(direction: str = "input") -> Optional[str]:
+    """Find the sounddevice device string for the WM8960 on Pi.
+
+    Tries the named ALSA device first, then scans available devices
+    for 'wm8960', and falls back to the generic hw:0,0.
+    """
+    if not IS_PI:
+        return None
+    try:
+        import sounddevice as sd  # type: ignore
+        # Try named device first
+        try:
+            sd.check_input_parameters(device=_PI_DEVICE) if direction == "input" else \
+                sd.check_output_parameters(device=_PI_DEVICE)
+            log.debug("sounddevice: using named device %s", _PI_DEVICE)
+            return _PI_DEVICE
+        except Exception:
+            pass
+        # Scan for wm8960 in device list
+        for dev in sd.query_devices():
+            max_ch = dev.get(f"max_{direction}_channels", 0)
+            if max_ch > 0 and "wm8960" in dev["name"].lower():
+                log.debug("sounddevice: found WM8960 device: %s", dev["name"])
+                return dev["name"]
+        # Fallback
+        log.debug("sounddevice: WM8960 not found by name, using fallback %s", _PI_DEVICE_FALLBACK)
+        return _PI_DEVICE_FALLBACK
+    except Exception as e:
+        log.debug("sounddevice device scan failed: %s", e)
+        return _PI_DEVICE_FALLBACK
 
 
 def cleanup() -> None:

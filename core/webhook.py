@@ -6,7 +6,7 @@ crash the caller. Debouncing prevents rapid-fire events from spamming.
 Config (config/default.yaml):
     webhook:
       enabled: false
-      url: "http://172.16.24.250:18789/hooks/agent"
+      url: ""  # e.g. http://gateway-host:18789/hooks/agent
       token: ""
       events: [state_change, battery_alert, conversation_complete]
       debounce_seconds: 5

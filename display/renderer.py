@@ -10,10 +10,10 @@ from PIL import Image, ImageDraw
 from shared import load_expressions, load_styles, Expression, BodyConfig
 from config.settings import load_settings
 from display.state import DisplayState
-from display.fonts import get_font, text_width
+from display.fonts import get_font, text_width, wrap_text
 from display.layout import SCREEN_W, SCREEN_H, CORNER_RADIUS, STATUS_H
 from display.animation import BlinkState, GazeDrift, MoodTransition, BreathingState
-from display.transitions import ViewTransition, OverlayFade, DrawerSlide
+from display.transitions import ViewTransition, OverlayFade
 from display.characters import get_character
 from display.components.face import BG
 from display.decorations import draw_mood_decorations
@@ -22,9 +22,8 @@ from display.demo import DemoController
 from display.components.status_bar import draw_status_bar
 from display.components.transcript import (
     draw_transcript_overlay,
-    draw_chat_drawer,
-    draw_chat_full,
-    draw_chat_peek,
+    draw_chat,
+    draw_peek_bubble,
     draw_view_dots,
 )
 from display.components.menu import draw_menu, MenuState
@@ -65,9 +64,8 @@ class PILRenderer:
     """Renders the full 240x280 display frame using PIL.
 
     View modes:
-      - "face": Main view — cube face + status bar + temporary transcript overlay
-      - "chat_drawer": Face dimmed, chat drawer peeks up from bottom
-      - "chat_full": Full-screen chat history (replaces face)
+      - "face": Main view — character face + status bar + peek bubble overlay
+      - "chat": Full-screen chat history (replaces face)
       - Menu overlay drawn on top of any view when menu.open is True
     """
 
@@ -118,9 +116,6 @@ class PILRenderer:
             duration=0.15, enabled=transitions_enabled,
         )
         self._sleep_dim: float = 0.0  # 0=fully bright, 1=fully dimmed
-        self._drawer_slide = DrawerSlide(
-            rest_y=140, hidden_y=280, duration=0.25,
-        )
 
         # Menu state
         self.menu = MenuState()
@@ -244,7 +239,7 @@ class PILRenderer:
         expr = self._transition.update()
         # Suppress blinks when eyes are already nearly closed (sleepy, sleeping)
         if expr.eyes.openness > 0.35:
-            self._blink.update(now, expr.eyes.blink_rate)
+            self._blink.update(now, expr.eyes.blink_rate, dt)
         else:
             self._blink.blink_phase = -1.0  # force open (no blink animation)
         self._gaze.update(now, dt)
@@ -310,8 +305,8 @@ class PILRenderer:
 
         # View dots removed — transitions are obvious on a 240px single-button device
 
-        # Speaking waveform pill / listening pulse ring (face views only)
-        if not self.menu.open and state.view not in ("chat_full",):
+        # Speaking waveform pill / listening pulse ring (face view only)
+        if not self.menu.open and state.view != "chat":
             if state.state == "SPEAKING" or state.speaking:
                 draw_speaking_pill(draw, state, now)
             elif state.state == "LISTENING":
@@ -400,17 +395,12 @@ class PILRenderer:
 
     def _draw_view_content(self, draw: ImageDraw.ImageDraw, img: Image.Image,
                            expr, style, state: DisplayState, now: float) -> None:
-        """Draw the active view content (face, chat_drawer, or chat_full).
+        """Draw the active view content (face or chat).
 
         This is separated from render() so the view transition system can
         capture the output for cross-fade blending.
         """
         view = state.view
-
-        # Update drawer slide animation
-        drawer_open = view == "chat_drawer"
-        self._drawer_slide.set_open(drawer_open, now)
-        drawer_y = self._drawer_slide.update(now)
 
         # Parse accent color and apply to character
         _accent = self._parse_accent(state.accent_color)
@@ -421,21 +411,8 @@ class PILRenderer:
                      state.character)
             self._current_character = state.character
 
-        if view == "chat_full":
-            draw_chat_full(draw, state)
-        elif view == "chat_drawer" or self._drawer_slide.is_animating:
-            character = get_character(state.character)
-            character._accent = _accent
-            character.draw(
-                draw, img, expr, style,
-                blink_factor=self._blink.get_openness_factor(),
-                gaze_x=self._gaze.current_x * self._gaze_range,
-                gaze_y=self._gaze.current_y * self._gaze_range,
-                amplitude=state.amplitude * self._mouth_sensitivity,
-                now=now,
-                compact=drawer_open,
-            )
-            draw_chat_drawer(draw, state, slide_y=drawer_y)
+        if view == "chat":
+            draw_chat(draw, state)
         else:
             character = get_character(state.character)
             character._accent = _accent
@@ -448,7 +425,6 @@ class PILRenderer:
                 now=now,
             )
             draw_transcript_overlay(draw, state)
-            draw_chat_peek(draw, state, now)
 
             # Overlay decorations — single RGBA pass for both mood + status
             from display.decorations import _MOOD_RENDERERS
@@ -491,6 +467,13 @@ class PILRenderer:
                 if state.idle_prompt_visible and state.mood == "neutral":
                     self._draw_idle_prompt(draw, state)
 
+            # Gateway greeting overlay (fade-in, hold, fade-out)
+            if state.greeting_text and state.greeting_time > 0:
+                self._draw_greeting(draw, state, now)
+
+            # Peek bubble — shows latest message on top of everything
+            draw_peek_bubble(draw, img, state, now)
+
     @staticmethod
     def _parse_accent(hex_str: str) -> tuple[int, int, int]:
         """Parse a hex color string into an RGB tuple."""
@@ -524,11 +507,66 @@ class PILRenderer:
 
         draw.text((x, y), text, fill=color, font=font)
 
+    def _draw_greeting(self, draw: ImageDraw.ImageDraw, state: DisplayState,
+                       now: float) -> None:
+        """Draw the gateway greeting as a fade-in/hold/fade-out text overlay.
+
+        Timing: 0.5s fade in, 2.0s hold, 1.0s fade out (3.5s total).
+        Positioned as small centered text below the eyes.
+        Color: accent color at 70% alpha.
+        Auto-clears greeting_text after fade-out completes.
+        """
+        elapsed = now - state.greeting_time
+        FADE_IN = 0.5
+        HOLD = 4.0
+        FADE_OUT = 1.5
+        TOTAL = FADE_IN + HOLD + FADE_OUT
+
+        if elapsed >= TOTAL:
+            # Animation complete — clear greeting
+            state.greeting_text = ""
+            state.greeting_time = 0.0
+            return
+
+        # Compute alpha
+        if elapsed < FADE_IN:
+            alpha = elapsed / FADE_IN
+        elif elapsed < FADE_IN + HOLD:
+            alpha = 1.0
+        else:
+            alpha = 1.0 - (elapsed - FADE_IN - HOLD) / FADE_OUT
+
+        alpha = max(0.0, min(1.0, alpha)) * 0.7  # 70% max alpha
+
+        if alpha <= 0.01:
+            return
+
+        font = get_font(18)
+        _accent = self._parse_accent(state.accent_color)
+
+        # Blend accent color with background based on alpha
+        r = int(_accent[0] * alpha + BG[0] * (1 - alpha))
+        g = int(_accent[1] * alpha + BG[1] * (1 - alpha))
+        b = int(_accent[2] * alpha + BG[2] * (1 - alpha))
+        color = (r, g, b)
+
+        # Word-wrap and center text below eyes (Y ~210)
+        lines = wrap_text(font, state.greeting_text, SCREEN_W - 40)
+        line_h = 22
+        total_h = len(lines) * line_h
+        y = SCREEN_H - 60 - total_h  # positioned near bottom of face area
+
+        for line in lines:
+            tw = text_width(font, line)
+            x = (SCREEN_W - tw) // 2
+            draw.text((x, y), line, fill=color, font=font)
+            y += line_h
+
     def _draw_pairing_request(self, draw: ImageDraw.ImageDraw, state: DisplayState) -> None:
         """Draw pairing approval notification — short press = approve, long = deny."""
-        font_lg = get_font(16)
-        font_md = get_font(14)
-        font_sm = get_font(11)
+        font_lg = get_font(20)
+        font_md = get_font(16)
+        font_sm = get_font(14)
 
         draw.rectangle([0, STATUS_H, SCREEN_W - 1, SCREEN_H - 1], fill=(14, 14, 22))
 
@@ -570,8 +608,8 @@ class PILRenderer:
             return
 
         font_lg = get_font(20)
-        font_md = get_font(14)
-        font_sm = get_font(11)
+        font_md = get_font(16)
+        font_sm = get_font(14)
 
         # Semi-dark overlay
         draw.rectangle([0, STATUS_H, SCREEN_W - 1, SCREEN_H - 1], fill=(10, 10, 18))

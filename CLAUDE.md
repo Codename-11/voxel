@@ -5,8 +5,8 @@ Voxel is the character. The physical hardware is called the **Relay**.
 Voxel is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSugar Whisplay HAT. It features an animated cube mascot character with expressive eyes/mouth, voice interaction, and connects to the Axiom-Labs AI agent team via OpenClaw.
 
 - **Hardware:** Pi Zero 2W + PiSugar Whisplay HAT (240x280 IPS LCD, dual mics, speaker, buttons, RGB LED)
-- **Repo:** ~/voxel (local, not yet on GitHub)
-- **OpenClaw Gateway:** http://172.16.24.250:18789
+- **Repo:** github.com/Codename-11/voxel
+- **OpenClaw Gateway:** configured via `config/local.yaml` (`gateway.url`)
 
 ## Architecture
 
@@ -55,6 +55,7 @@ voxel/
 │   ├── overlay.py                # Shared RGBA overlay helpers for decoration rendering
 │   ├── status_decorations.py     # Connection/battery visual indicators (WiFi arcs, battery icon)
 │   ├── dev_panel.py             # Dev control window (mood/state/style controls)
+│   ├── boot_animation.py         # Wake-up eye animation on startup (~3s)
 │   ├── demo.py                  # DemoController — auto-cycles moods/characters/styles
 │   ├── fonts.py                 # Font loading and caching
 │   ├── characters/              # Character renderers (pluggable)
@@ -67,7 +68,7 @@ voxel/
 │   │   ├── menu.py              # Settings/menu overlay
 │   │   ├── status_bar.py        # Battery, WiFi, agent indicators
 │   │   ├── transcript.py        # Chat transcript overlay
-│   │   ├── button_indicator.py  # Three-zone progress ring + flash pills
+│   │   ├── button_indicator.py  # Four-zone progress ring + flash pills
 │   │   ├── shutdown_overlay.py  # Shutdown countdown (3... 2... 1...)
 │   │   ├── qr_overlay.py        # QR code display for config URL
 │   │   └── wifi_setup.py        # WiFi AP setup UI
@@ -105,7 +106,7 @@ voxel/
 │   ├── app.py                   # Argument parsing, all commands
 │   ├── doctor.py                # System health diagnostics
 │   ├── display.py               # Terminal colors, tables, status icons
-│   └── display_push.py          # Sync display service to Pi over SSH
+│   └── dev_push.py              # Sync full runtime to Pi over SSH
 ├── core/                        # AI integration
 │   ├── gateway.py               # OpenClaw API client (chat completions)
 │   ├── stt.py                   # Speech-to-text (Whisper API)
@@ -151,7 +152,7 @@ voxel/
 ## Hardware Constraints
 
 **CRITICAL — Design everything for these limits:**
-- **Display:** 240x280 pixels, SPI interface (ST7789 controller), ~20 FPS target
+- **Display:** 240x280 pixels, SPI interface (ST7789 controller), 30 FPS config target (~20 actual on Pi)
 - **CPU:** ARM Cortex-A53 (quad-core 1GHz) — PIL rendering is CPU-bound
 - **RAM:** 512MB — keep memory footprint minimal
 - **Audio:** WM8960 codec, dual MEMS mics, mono speaker
@@ -166,7 +167,14 @@ The mascot is a **dark charcoal rounded cube** with **glowing cyan/teal accent l
 
 **Face:** Large expressive oval eyes with glossy highlights, small mouth. The face fills most of the 240x280 screen.
 
-**Animation layers:** Characters have idle quirks (cube: edge shimmer, BMO: pixel game/cursor blink), speaking reactions (scale pulse, eye glow), and mood-specific tweaks (excited=extra bounce, thinking=tilt oscillation, error=screen shake). A global BreathingState modulates body scale organically for all characters. GazeDrift uses saccadic eye movement (fast jumps + slow drifts). BlinkState supports blink clustering.
+**Animation layers:** Characters have idle quirks (cube: edge shimmer, BMO: pixel game/cursor blink), speaking reactions (scale pulse, eye glow), and mood-specific tweaks (excited=extra bounce, thinking=tilt oscillation, error=screen shake). A global BreathingState modulates body scale organically for all characters. GazeDrift uses saccadic eye movement (fast jumps + slow drifts) with pink noise microsaccadic jitter during fixation. BlinkState uses delta-time based animation (frame-rate independent, 150ms wall-clock duration) with asymmetric timing (28% close / 72% open, per Disney research) and blink clustering (35% cluster probability, 1-2 extra blinks per cluster). Width-only perspective (no height perspective -- removed to fix twitching). Float precision positioning with round() only at final draw. `state.dt` tracks actual elapsed time, capped at 3x interval.
+
+**Mood-specific eye shapes:**
+- **Happy:** Curved bottom cutout on eyes (smile-shaped, inspired by FluxGarage RoboEyes)
+- **Sleepy / low-battery:** Bar-shaped eyes with filleted ends (not elliptical)
+- **Closed eyes:** Flat horizontal bars with small fillet radius (not capsules)
+- **Sad:** Curved arc eyelid overlay (softer than triangle), tilt increased to +/-15 degrees, openness 0.6
+- **Frustrated/angry:** Tilt increased to +/-16 degrees
 
 **Mood decorations:** Per-mood overlays drawn via RGBA compositing (`display/decorations.py`): sparkles (happy/excited), sweat drops (frustrated), ZZZs (sleepy), tears (sad), "!" (surprised), blush circles (happy), thinking dots. Positioned relative to each character's actual face center (stored during `draw()`).
 
@@ -197,27 +205,48 @@ Expressions support data-driven **modifiers** — animation behaviors defined pe
 
 `states/machine.py` — 7 states: IDLE, LISTENING, THINKING, SPEAKING, ERROR, SLEEPING, MENU
 
-Flow: IDLE → (button press) → LISTENING → (release) → THINKING → (response) → SPEAKING → IDLE
-Any state → (button) → MENU → (button) → previous state
+Flow: IDLE → (hold >400ms) → LISTENING → (release) → THINKING → (response) → SPEAKING → IDLE
+Cancel: THINKING → (tap) → IDLE, SPEAKING → (tap) → IDLE
+Other views → (hold >1s) → MENU → (tap/hold) → previous state
 Long idle → SLEEPING → (button) → IDLE
 
 State-to-mood mapping defined in `shared/moods.yaml`.
 
 ## Button Interaction Patterns
 
-Single button (Whisplay HAT BOARD pin 11). All interaction encoded through timing:
+Single button (Whisplay HAT BOARD pin 11). All interaction encoded through hold duration. No double-tap.
 
-| Pattern | Action | Timing |
+**From face view (IDLE):**
+
+| Gesture | Action | Timing |
 |---------|--------|--------|
-| Short press | Cycle views (face / drawer / chat) | < 400ms, no 2nd press within 400ms |
-| Double-tap | Push-to-talk (start recording) | Two presses within 400ms, face view only |
-| Long press | Menu open / select | Hold > 1s |
-| Sleep | Enter sleep mode | Hold > 5s |
-| Shutdown | Shutdown Pi (with confirm) | Hold > 10s |
+| Tap | Toggle view (face / chat) | < 400ms, fires instantly on release |
+| Hold | Start recording (push-to-talk) | > 400ms (still held), stays in RECORDING until release |
 
-**Talk mode rules:** Push-to-talk (double-tap) only triggers from the face view — not from menu or chat views. While LISTENING, any short press or double-tap stops recording. While SPEAKING, any short press or double-tap cancels playback.
+Once recording starts, the button stays in RECORDING state until release. There is no menu/sleep/shutdown override while recording.
 
-Implementation in `display/service.py` (`_poll_whisplay_button` for Pi, spacebar callbacks for desktop). Visual feedback in `display/components/button_indicator.py` (three-zone progress ring + flash pills). Shutdown shows a 3s countdown overlay (`display/components/shutdown_overlay.py`) — any press cancels.
+**From chat view:**
+
+| Gesture | Action | Timing |
+|---------|--------|--------|
+| Tap | Toggle view (face / chat) | < 400ms, fires instantly on release |
+| Hold | Open menu | > 1s (fires AT threshold, not on release) |
+| Hold | Sleep | > 5s (fires AT threshold) |
+| Hold | Shutdown with confirm | > 10s (fires AT threshold) |
+
+**Inside menu:**
+
+| Gesture | Action | Timing |
+|---------|--------|--------|
+| Tap | Move to next item | < 500ms |
+| Hold | Select / enter | > 500ms (fires AT threshold) |
+| Idle | Auto-close menu | 5s with no input |
+
+"Back" is the last item in every menu/submenu. For value items (volume, brightness), taps cycle preset values (0/25/50/75/100), hold confirms.
+
+**Talk mode rules:** Push-to-talk activates when the button is held past 400ms, from the face view only (not from menu or chat views). While LISTENING, a tap stops recording. While THINKING, a tap cancels the pipeline and returns to IDLE. While SPEAKING, a tap cancels playback and returns to IDLE. A 500ms minimum recording guard prevents accidental cancel.
+
+Implementation in `display/service.py` (`_poll_button_unified` -- shared by Pi GPIO and desktop spacebar). Visual feedback in `display/components/button_indicator.py` (four-zone progress ring + flash pills). Shutdown shows a 3s countdown overlay (`display/components/shutdown_overlay.py`) -- any press cancels.
 
 ## OpenClaw Integration
 
@@ -251,16 +280,18 @@ Supports switching between agents: Daemon, Soren, Ash, Mira, Jace, Pip.
 
 3 resources: `voxel://state`, `voxel://config`, `voxel://history`.
 
-The MCP server connects to server.py via WebSocket on port 8080 (same protocol as the display service and React app). No additional dependencies required.
+The MCP server connects to server.py via WebSocket on port 8080 (same protocol as the display service and React app). No additional dependencies required. When `mcp.enabled: true` in config, the display service auto-starts the MCP server as a subprocess and stops it on shutdown. Can also be started manually via `voxel mcp` or the web UI Integration toggle.
 
 OpenClaw skill definition at `openclaw/SKILL.md` teaches agents about Voxel's capabilities.
 
 **Agent setup guide:** `AGENTS_SETUP.md` (repo root) — decision-tree setup for any AI agent. Also served at `GET /setup` on the device (port 8081, no auth) and available via [GitHub raw URL](https://raw.githubusercontent.com/Codename-11/voxel/main/AGENTS_SETUP.md).
 
+**Discovery endpoints (no auth):** `GET /setup` (agent guide), `GET /skill` (tool definitions), `GET /.well-known/mcp` (MCP status JSON). The web UI Integration section has a "Human / Agent" tab with copyable URLs for each.
+
 ## Audio Pipeline
 
 ```
-Button press → record from dual mics (WAV)
+Button hold (>400ms from face view) → record from dual mics (WAV)
   → Whisper API (cloud STT)
   → text to OpenClaw gateway
   → response text
@@ -345,7 +376,7 @@ MCP tools use the same WebSocket protocol on port 8080. The MCP server translate
 - **requests** — OpenClaw gateway API
 - **numpy** — audio amplitude analysis
 - **edge-tts** — free fallback TTS
-- **paramiko** — SSH for display-push to Pi
+- **paramiko** — SSH for dev-push to Pi
 - **rich** — CLI output formatting
 
 **React browser UI (dev/iteration):**
@@ -360,9 +391,9 @@ MCP tools use the same WebSocket protocol on port 8080. The MCP server translate
 
 ## Configuration
 
-`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio, stt (Whisper), tts (OpenAI/edge-tts/ElevenLabs), pipeline (recording/chat limits), display, power management, character selection (includes demo mode settings: `demo_mode`, `demo_cycle_speed`, `demo_include_characters`, `demo_include_styles`), dev mode.
+`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio (including `wake_word: null` placeholder), stt (Whisper), tts (OpenAI/edge-tts/ElevenLabs), pipeline (recording/chat limits), display, power management, character selection (includes `boot_animation`, `greeting_enabled`, `greeting_prompt`, demo mode settings: `demo_mode`, `demo_cycle_speed`, `demo_include_characters`, `demo_include_styles`), dev mode.
 
-**Web config UI:** The display service runs a web server on port 8081 (`display/config_server.py`). A 6-digit PIN is generated on each boot and shown on the LCD. The device also displays a QR code for quick access from a phone or laptop. Auth can be disabled via `web.auth_enabled: false` in `local.yaml`.
+**Web config UI:** The display service runs a web server on port 8081 (`display/config_server.py`). A 6-digit PIN is generated on each boot and shown on the LCD. The device also displays a QR code for quick access from a phone or laptop. Auth can be disabled via `web.auth_enabled: false` in `local.yaml`. Features include an eye favicon/logo, browser-based STT (mic button for voice input), and browser TTS (speaker toggle to read responses aloud).
 
 **WiFi onboarding:** On first boot with no known WiFi, the display service starts AP mode ("Voxel-Setup" hotspot at `10.42.0.1`) and serves a config portal. Uses `nmcli` (NetworkManager). See `display/wifi.py`.
 
@@ -395,11 +426,11 @@ voxel config get <section.key>
 # Dev pairing & remote development (from workstation)
 voxel dev-pair                  # Auto-discover device + pair via PIN
 voxel dev-pair --host <ip>      # Pair with specific device IP
-voxel display-push              # Sync display service to Pi and run it
-voxel display-push --watch      # Watch for changes, auto-push
-voxel display-push --logs       # Push and tail remote logs
-voxel display-push --update     # git pull + uv sync on Pi first
-voxel display-push --save-ssh   # Save SSH config to local.yaml
+voxel dev-push                  # Sync full runtime to Pi and run it
+voxel dev-push --watch          # Watch for changes, auto-push
+voxel dev-push --logs           # Push and tail remote logs
+voxel dev-push --update         # git pull + uv sync on Pi first
+voxel dev-push --save-ssh       # Save SSH config to local.yaml
 
 # Display testing (on Pi)
 voxel display-test              # Direct Whisplay display sanity test
@@ -473,7 +504,7 @@ The `--server` flag spawns `server.py` as a child process and auto-connects via 
 | `1`-`9`, `0` | Set mood (neutral, happy, curious, thinking, listening, excited, sleepy, confused, surprised, focused) |
 | `[` / `]` | Cycle through all 16 moods (prev / next) |
 | `m` | Toggle settings menu |
-| `c` | Cycle view (face / chat_drawer / chat_full) |
+| `c` | Toggle view (face / chat) |
 | `t` | Toggle transcript overlay |
 | `p` | Toggle demo mode |
 | `n` | Simulate ambient noise spike |
@@ -504,19 +535,19 @@ uv run voxel dev-pair
 uv run voxel dev-pair --host <pi-ip>
 ```
 
-The device broadcasts its presence via UDP on port 41234. `dev-pair` discovers it, prompts for the 6-digit PIN shown on the LCD, then saves SSH credentials locally. After pairing, all `dev-*` and `display-push` commands work without re-entering credentials.
+The device broadcasts its presence via UDP on port 41234. `dev-pair` discovers it, prompts for the 6-digit PIN shown on the LCD, then saves SSH credentials locally. After pairing, all `dev-*` commands (dev-push, dev-ssh, dev-logs, dev-restart) work without re-entering credentials.
 
 ### Push to Pi hardware:
 
 ```bash
-# Sync display service + run on Pi (fast dev loop)
-uv run voxel display-push --logs
+# Sync full runtime + run on Pi (fast dev loop)
+uv run voxel dev-push --logs
 
 # Watch for local changes and auto-push
-uv run voxel display-push --watch
+uv run voxel dev-push --watch
 
 # First time (if not using dev-pair) — save SSH credentials
-uv run voxel display-push --host <pi-ip> --save-ssh
+uv run voxel dev-push --host <pi-ip> --save-ssh
 ```
 
 ### React browser UI (for expression iteration):

@@ -99,7 +99,7 @@ Voxel can send events to OpenClaw's webhook endpoint. Configure in `config/local
 ```yaml
 webhook:
   enabled: true
-  url: "http://172.16.24.250:18789/hooks/agent"
+  url: "http://GATEWAY_HOST:18789/hooks/agent"
   token: "your-gateway-token"
   events: [state_change, battery_alert, conversation_complete]
 ```

@@ -146,7 +146,7 @@ To skip auto-discovery and specify a device directly:
 uv run voxel dev-pair --host 192.168.1.42
 ```
 
-After pairing, all `display-push` and dev commands work without re-entering credentials.
+After pairing, all dev commands (`dev-push`, `dev-ssh`, `dev-logs`, `dev-restart`) work without re-entering credentials.
 
 ### `voxel dev-setup`
 
@@ -180,25 +180,25 @@ Restarts the display service on the Pi remotely — kills the existing process a
 uv run voxel dev-restart
 ```
 
-### `voxel display-push`
+### `voxel dev-push`
 
-Syncs the display service code to the Pi over SSH and runs it. This is the primary dev loop for iterating on the PIL renderer.
+Syncs the full runtime (display, backend, state machine, MCP, CLI, config, shared data) to the Pi over SSH and runs the display service. This is the primary dev loop for iterating on device code.
 
 ```bash
 # Sync and run, showing remote logs
-uv run voxel display-push --logs
+uv run voxel dev-push --logs
 
 # Watch for local file changes and auto-push
-uv run voxel display-push --watch
+uv run voxel dev-push --watch
 
 # Pull latest code and sync deps on Pi before pushing
-uv run voxel display-push --update
+uv run voxel dev-push --update
 
 # Specify host manually (first time, before pairing)
-uv run voxel display-push --host 192.168.1.42
+uv run voxel dev-push --host 192.168.1.42
 
 # Save SSH config for future use
-uv run voxel display-push --save-ssh
+uv run voxel dev-push --save-ssh
 ```
 
 ### `voxel display-test`

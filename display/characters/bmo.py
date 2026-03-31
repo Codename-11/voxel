@@ -73,9 +73,6 @@ class BMOCharacter(Character):
 
     name = "bmo"
 
-    # Track compact offset for idle_quirk positioning
-    _compact_cy_offset: int = 0
-
     def idle_quirk(self, draw: ImageDraw.ImageDraw, img: Image.Image,
                    now: float) -> None:
         """Pixel game, screen glitch, and cursor blink — BMO's personality."""
@@ -169,15 +166,9 @@ class BMOCharacter(Character):
     def draw(self, draw: ImageDraw.ImageDraw, img: Image.Image,
              expr: Expression, style: FaceStyle,
              blink_factor: float, gaze_x: float, gaze_y: float,
-             amplitude: float, now: float,
-             compact: bool = False) -> None:
+             amplitude: float, now: float) -> None:
         body = expr.body
         bounce_y = math.sin(now * body.bounce_speed * 2 * math.pi) * body.bounce_amount * 0.5
-
-        # Compact mode: shift face up and scale down for chat drawer
-        compact_cy_offset = -35 if compact else 0
-        compact_scale = 0.80 if compact else 1.0
-        self._compact_cy_offset = compact_cy_offset
 
         # ── Screen background (mood-reactive) ─────────────────────────
         mood = expr.name
@@ -194,17 +185,17 @@ class BMOCharacter(Character):
         draw.rectangle([0, FACE_AREA_TOP, SCREEN_W - 1, SCREEN_H - 1], fill=screen_bg)
         draw.rectangle([0, FACE_AREA_TOP, SCREEN_W - 1, SCREEN_H - 1], outline=BMO_BEZEL, width=3)
 
-        face_cy = int(CY + bounce_y) + compact_cy_offset
+        face_cy = int(CY + bounce_y)
 
         # Store face center for decoration alignment
         self._last_face_cx = CX
         self._last_face_cy = face_cy
 
         # Face-only mode: larger scale for eyes/mouth since they fill the screen
-        eye_scale = 2.2 * compact_scale
-        mouth_scale = 2.0 * compact_scale
-        _draw_bmo_eyes(draw, CX, face_cy - int(20 * compact_scale), expr, blink_factor, gaze_x, gaze_y, scale=eye_scale)
-        _draw_bmo_mouth(draw, CX, face_cy + int(30 * compact_scale), expr, amplitude, scale=mouth_scale)
+        eye_scale = 2.2
+        mouth_scale = 2.0
+        _draw_bmo_eyes(draw, CX, face_cy - 20, expr, blink_factor, gaze_x, gaze_y, scale=eye_scale)
+        _draw_bmo_mouth(draw, CX, face_cy + 30, expr, amplitude, scale=mouth_scale)
 
         # ── Scan lines (mood + amplitude reactive) ────────────────────
         scan_step = 4
@@ -271,18 +262,12 @@ class BMOFullCharacter(Character):
     def draw(self, draw: ImageDraw.ImageDraw, img: Image.Image,
              expr: Expression, style: FaceStyle,
              blink_factor: float, gaze_x: float, gaze_y: float,
-             amplitude: float, now: float,
-             compact: bool = False) -> None:
+             amplitude: float, now: float) -> None:
         body = expr.body
         scale = body.scale
 
-        # Compact mode: shift face up and scale down for chat drawer
-        compact_cy_offset = -35 if compact else 0
-        compact_scale = 0.80 if compact else 1.0
-        scale *= compact_scale
-
         bounce_y = math.sin(now * body.bounce_speed * 2 * math.pi) * body.bounce_amount
-        body_cy = int(CY + bounce_y) + compact_cy_offset
+        body_cy = int(CY + bounce_y)
         tilt_offset_x = int(math.sin(math.radians(body.tilt)) * 4)
         bmo_cx = CX + tilt_offset_x
 

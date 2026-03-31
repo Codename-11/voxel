@@ -15,7 +15,7 @@ from display.fonts import get_font, text_width
 from display.layout import SCREEN_W
 from display.state import DisplayState
 
-HEIGHT = 48
+HEIGHT = 60
 PAD = 26          # horizontal inset (inside corner bevel)
 BG = (16, 16, 24)
 TEXT_COLOR = (160, 160, 180)
@@ -100,8 +100,8 @@ def _draw_state_icon(draw: ImageDraw.ImageDraw, x: int, y: int,
 def draw_status_bar(draw: ImageDraw.ImageDraw, state: DisplayState,
                     font=None, config: dict | None = None) -> None:
     """Draw a single-line status bar in the top 48px."""
-    f = get_font(16)
-    f_sm = get_font(13)
+    f = get_font(18)
+    f_sm = get_font(14)
 
     # Background
     draw.rectangle([0, 0, SCREEN_W - 1, HEIGHT - 1], fill=BG)

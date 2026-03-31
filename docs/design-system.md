@@ -1,10 +1,10 @@
 # Design System
 
-The Voxel design system uses a **shared YAML data layer** with a **React + Framer Motion renderer** as the production UI.
+The Voxel design system uses a **shared YAML data layer** with a **PIL renderer** as the production display engine.
 
 1. **Shared data** (`shared/`) — YAML files defining expressions, styles, and mood metadata. Single source of truth for both Python and React.
-2. **React renderer** (`app/`) — The production face engine. Runs in-browser during development, on the Pi via WPE/Cog in production. What you see in the browser IS what runs on the device.
-3. **PIL renderer** (`display/`) — Production renderer for Pi hardware. Renders frames with PIL, pushes to SPI LCD. The old pygame renderer is archived in `_legacy/face/`.
+2. **PIL renderer** (`display/`) — Production renderer for Pi hardware. Renders frames with PIL, pushes to SPI LCD via the WhisPlay driver. Also runs in a tkinter preview window on desktop for development.
+3. **React renderer** (`app/`) — Browser-based dev UI with Framer Motion animations. Useful for rapid expression/style iteration with HMR. Not used in production on the Pi. The old pygame renderer is archived in `_legacy/face/`.
 
 ## Running the App
 

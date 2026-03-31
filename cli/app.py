@@ -274,6 +274,28 @@ def cmd_hw(args: argparse.Namespace) -> int:
                     ok(f"Swap already {current}MB")
                 break
 
+    # ALSA mixer levels for WM8960 (speaker volume, mic boost, capture gain)
+    if shutil.which("amixer"):
+        info("Configuring WM8960 audio levels...")
+        alsa_cmds = [
+            ("Speaker", "121"),              # speaker output (~80%)
+            ("Playback", "230"),             # DAC playback level
+            ("Capture", "45"),               # ADC capture level
+            ("Left Input Boost Mixer LINPUT1", "2"),   # mic boost +20dB
+            ("Right Input Boost Mixer RINPUT1", "2"),  # mic boost +20dB
+        ]
+        for control, value in alsa_cmds:
+            result = subprocess.run(
+                ["amixer", "sset", control, value],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                info(f"  {control} = {value}")
+            else:
+                # Controls may not exist if driver not loaded yet
+                pass
+        ok("Audio levels configured (effective after reboot if drivers were just installed)")
+
     ok("Hardware setup complete")
     console.print()
     warn("Reboot to activate drivers: sudo reboot")
@@ -541,8 +563,8 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_display_push(args: argparse.Namespace) -> int:
-    from cli.display_push import push, push_watch, _resolve_ssh, _save_dev_ssh, _load_dev_ssh
+def cmd_dev_push(args: argparse.Namespace) -> int:
+    from cli.dev_push import push, push_watch, _resolve_ssh, _save_dev_ssh, _load_dev_ssh
 
     if getattr(args, "save_ssh", False):
         host, user, password = _resolve_ssh(args)
@@ -556,7 +578,7 @@ def cmd_display_push(args: argparse.Namespace) -> int:
 
 def cmd_dev_ssh(args: argparse.Namespace) -> int:
     """SSH into Pi using saved credentials."""
-    from cli.display_push import _resolve_ssh
+    from cli.dev_push import _resolve_ssh
 
     host, user, _password = _resolve_ssh(args)
     info(f"Connecting to {user}@{host}...")
@@ -566,7 +588,7 @@ def cmd_dev_ssh(args: argparse.Namespace) -> int:
 
 def cmd_dev_logs(args: argparse.Namespace) -> int:
     """Tail Pi display logs remotely."""
-    from cli.display_push import _resolve_ssh, _ssh_client, _tail_logs_paramiko
+    from cli.dev_push import _resolve_ssh, _ssh_client, _tail_logs_paramiko
 
     host, user, password = _resolve_ssh(args)
     info(f"Connecting to {user}@{host}...")
@@ -581,7 +603,7 @@ def cmd_dev_logs(args: argparse.Namespace) -> int:
 
 def cmd_dev_restart(args: argparse.Namespace) -> int:
     """Restart display service on Pi remotely."""
-    from cli.display_push import _resolve_ssh, _ssh_client
+    from cli.dev_push import _resolve_ssh, _ssh_client, REMOTE_DIR
 
     host, user, password = _resolve_ssh(args)
     info(f"Connecting to {user}@{host}...")
@@ -592,15 +614,41 @@ def cmd_dev_restart(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        info("Restarting display service on Pi...")
-        client.exec_command("pkill -f 'python.*display\\.service' || true")
-        import time; time.sleep(0.5)
+        # Detect if systemd service is installed
         _, stdout, _ = client.exec_command(
-            "cd /home/pi/voxel && "
-            "nohup ~/.local/bin/uv run python -m display.service "
-            "--backend whisplay "
-            "> /tmp/voxel-display.log 2>&1 &"
+            "systemctl is-enabled voxel-display 2>/dev/null"
         )
+        use_systemd = stdout.read().decode().strip() == "enabled"
+
+        if use_systemd:
+            info("Restarting services...")
+            # Restart backend first (display depends on it)
+            _, stdout, _ = client.exec_command(
+                "systemctl is-enabled voxel 2>/dev/null"
+            )
+            if stdout.read().decode().strip() == "enabled":
+                client.exec_command("sudo systemctl restart voxel")
+                import time; time.sleep(1.0)
+            _, stdout, stderr = client.exec_command(
+                "sudo systemctl restart voxel-display"
+            )
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code != 0:
+                warn(f"Restart failed: {stderr.read().decode().strip()}")
+        else:
+            info("Restarting display service (manual)...")
+            client.exec_command(
+                "pkill -f 'python.*server\\.py' || true; "
+                "pkill -f 'python.*display\\.service' || true"
+            )
+            import time; time.sleep(0.5)
+            client.exec_command(
+                f"cd {REMOTE_DIR} && "
+                f"nohup ~/.local/bin/uv run python -m display.service "
+                f"--backend whisplay "
+                f"> /tmp/voxel-display.log 2>&1 &"
+            )
+
         import time; time.sleep(1.0)
         _, stdout, _ = client.exec_command("pgrep -f 'python.*display\\.service' | head -1")
         pid = stdout.read().decode().strip()
@@ -618,7 +666,7 @@ def cmd_dev_restart(args: argparse.Namespace) -> int:
 
 def cmd_dev_pair(args: argparse.Namespace) -> int:
     """Pair with a Voxel device — auto-discover or specify IP, enter PIN."""
-    from cli.display_push import _save_dev_ssh
+    from cli.dev_push import _save_dev_ssh
     from display.advertiser import discover_devices
 
     host = getattr(args, "host", None)
@@ -729,7 +777,7 @@ def cmd_dev_pair(args: argparse.Namespace) -> int:
     info(f"  Dev mode enabled on device")
     info("")
     info("  You can now use:")
-    info("    voxel display-push     -- sync + run on device")
+    info("    voxel dev-push         -- sync + run on device")
     info("    voxel dev-logs         -- tail device logs")
     info("    voxel dev-ssh          -- SSH into device")
 
@@ -759,7 +807,7 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 
 def cmd_dev_setup(args: argparse.Namespace) -> int:
     """One-time dev setup — save SSH creds + enable dev mode on Pi."""
-    from cli.display_push import _resolve_ssh, _save_dev_ssh, _ssh_client
+    from cli.dev_push import _resolve_ssh, _save_dev_ssh, _ssh_client
 
     host, user, password = _resolve_ssh(args)
     _save_dev_ssh(host, user, password)
@@ -868,9 +916,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_lvgl_dev.add_argument("--preview-local", action="store_true", help="Generate and open a local preview GIF before syncing")
     p_lvgl_dev.add_argument("--hold-to-exit", type=float, help="Seconds to hold the button before exiting interactive preview")
     p_lvgl_dev.add_argument("--update-pi", action="store_true", help="Run git pull and uv sync on the Pi before playback")
-    # ── Display push commands ──
-    p_dp = sub.add_parser("display-push", help="Sync display service to Pi and run it")
-    p_dp.add_argument("--host", help="Pi SSH host (default: 172.16.24.33)")
+    # ── Dev push commands ──
+    p_dp = sub.add_parser("dev-push", help="Sync full runtime to Pi over SSH and run it")
+    p_dp.add_argument("--host", help="Pi SSH host (set via dev-pair or provide here)")
     p_dp.add_argument("--user", help="Pi SSH user (default: pi)")
     p_dp.add_argument("--password", help="Pi SSH password")
     p_dp.add_argument("--backlight", type=int, default=70, help="Backlight percent")
@@ -962,7 +1010,7 @@ COMMANDS = {
     "lvgl-deploy": cmd_lvgl_deploy,
     "lvgl-preview": cmd_lvgl_preview,
     "lvgl-dev": cmd_lvgl_dev,
-    "display-push": cmd_display_push,
+    "dev-push": cmd_dev_push,
     "dev-ssh": cmd_dev_ssh,
     "dev-logs": cmd_dev_logs,
     "dev-restart": cmd_dev_restart,

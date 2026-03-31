@@ -30,8 +30,8 @@ log = logging.getLogger("voxel.config_server")
 PREFERRED_PORT = 8081
 
 # ── Branding ──────────────────────────────────────────────────────────────
-# Inline SVG logo (Voxel cube face with neon edges and kawaii eyes)
-_LOGO_SVG = '<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="104" height="104" rx="14" fill="#1a1a2e"/><g stroke-linecap="round" fill="none"><g stroke="#00d4d2" stroke-width="4" opacity="0.8"><line x1="22" y1="8" x2="98" y2="8"/><line x1="22" y1="112" x2="98" y2="112"/><line x1="8" y1="22" x2="8" y2="98"/><line x1="112" y1="22" x2="112" y2="98"/></g><g stroke="#e0ffff" stroke-width="2"><line x1="22" y1="8" x2="98" y2="8"/><line x1="22" y1="112" x2="98" y2="112"/><line x1="8" y1="22" x2="8" y2="98"/><line x1="112" y1="22" x2="112" y2="98"/></g></g><g fill="#fff"><rect x="36" y="44" width="14" height="32" rx="7"/><rect x="70" y="44" width="14" height="32" rx="7"/></g></svg>'
+# Inline SVG logo — Voxel's eyes: two cyan pill shapes with subtle glow on dark background
+_LOGO_SVG = '<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect class="logo-bg" width="120" height="120" rx="24" fill="#0a0a0f"/><rect x="25" y="28" width="26" height="64" rx="13" fill="#00d4d2" opacity="0.12"/><rect x="69" y="28" width="26" height="64" rx="13" fill="#00d4d2" opacity="0.12"/><rect x="27" y="30" width="22" height="60" rx="11" fill="#00d4d2"/><rect x="71" y="30" width="22" height="60" rx="11" fill="#00d4d2"/></svg>'
 
 # Data URI favicon (same SVG, URL-encoded for <link> tag)
 _FAVICON_LINK = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,' + _LOGO_SVG.replace('#', '%23').replace('"', "'").replace('<', '%3C').replace('>', '%3E').replace(' ', '%20') + '">'
@@ -53,6 +53,8 @@ _auth_enabled: bool = True
 # Authenticated sessions: token -> expiry timestamp
 _sessions: dict[str, float] = {}
 SESSION_DURATION = 3600  # 1 hour
+_SESSION_CLEANUP_INTERVAL = 60  # seconds between expired-session sweeps
+_last_session_cleanup: float = 0.0
 
 
 def _generate_pin() -> str:
@@ -72,12 +74,30 @@ def _create_session() -> str:
     return token
 
 
+def _cleanup_expired_sessions() -> None:
+    """Remove expired sessions if enough time has passed since the last sweep."""
+    global _last_session_cleanup
+    now = _time.time()
+    if now - _last_session_cleanup < _SESSION_CLEANUP_INTERVAL:
+        return
+    _last_session_cleanup = now
+    expired = [tok for tok, exp in _sessions.items() if exp <= now]
+    for tok in expired:
+        _sessions.pop(tok, None)
+    if expired:
+        log.debug("Session cleanup: removed %d expired session(s)", len(expired))
+
+
 def _check_session(cookie_header: str | None, query_token: str | None = None) -> bool:
     """Check if the request has a valid session cookie or query token."""
     if _dev_mode:
         return True
     if not _auth_enabled:
         return True
+
+    # Periodically sweep expired sessions
+    _cleanup_expired_sessions()
+
     # Check query parameter token (from QR code direct access)
     if query_token:
         expiry = _sessions.get(query_token, 0)
@@ -320,7 +340,7 @@ def _build_login_html() -> str:
     margin: 0 auto 16px;
   }}
   .logo svg {{ width: 100%; height: 100%; }}
-  .logo svg rect {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
+  .logo svg rect.logo-bg {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
   h1 {{ color: var(--accent); font-size: 24px; margin-bottom: 8px; }}
   p {{ color: var(--text-dim); font-size: 14px; margin-bottom: 32px; line-height: 1.4; }}
   .pin-wrap {{ display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }}
@@ -612,6 +632,11 @@ def _build_html(settings: dict) -> str:
     webhook_class = "enabled" if wh_cfg.get("enabled") else "disabled"
 
     claude_config = json.dumps({"mcpServers": {"voxel": {"url": f"http://{device_ip}:{mcp_port}/sse"}}}, indent=2)
+    claude_stdio = json.dumps({"mcpServers": {"voxel": {"command": "uv", "args": ["run", "python", "-m", "mcp"], "cwd": "/path/to/voxel"}}}, indent=2)
+    setup_url = f"http://{device_ip}:{config_port}/setup"
+    skill_url = f"http://{device_ip}:{config_port}/skill"
+    mcp_sse_url = f"http://{device_ip}:{mcp_port}/sse"
+    discovery_url = f"http://{device_ip}:{config_port}/.well-known/mcp"
 
     return f"""<!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -690,7 +715,7 @@ def _build_html(settings: dict) -> str:
     width: 40px; height: 40px; flex-shrink: 0;
   }}
   .logo svg {{ width: 100%; height: 100%; }}
-  .logo svg rect {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
+  .logo svg rect.logo-bg {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
   h1 {{ color: var(--accent); font-size: 22px; }}
   .subtitle {{ font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }}
   .header-actions {{ display: flex; align-items: center; gap: 6px; margin-left: auto; }}
@@ -847,6 +872,7 @@ def _build_html(settings: dict) -> str:
   .btn-secondary {{ background: var(--btn-secondary-bg); color: var(--text); border: 1px solid var(--btn-secondary-border); }}
   .btn-secondary:hover {{ background: var(--btn-secondary-hover); }}
   .btn-secondary:active {{ background: var(--btn-secondary-active); }}
+  .agent-tab.active {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
   .btn-destructive {{
     background: transparent; color: var(--danger);
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
@@ -1045,7 +1071,7 @@ def _build_html(settings: dict) -> str:
   </summary>
   <div class="card-body">
     <label>Gateway URL</label>
-    <input name="gateway.url" type="url" value="{escape(gw.get('url', ''))}" placeholder="http://172.16.24.250:18789">
+    <input name="gateway.url" type="url" value="{escape(gw.get('url', ''))}" placeholder="http://gateway-host:18789">
     <div class="hint">OpenClaw gateway server address</div>
 
     <label>Gateway Token</label>
@@ -1271,25 +1297,47 @@ def _build_html(settings: dict) -> str:
     <span class="section-title">Integration</span>
   </summary>
   <div class="card-body">
-    <h2 style="font-size:15px;margin:0 0 4px">Device Mode</h2>
-    <p class="hint" style="margin-bottom:8px">Voxel works standalone with just the gateway. MCP and webhooks add remote control and event notifications.</p>
 
-    <div class="mode-cards">
-      <div class="mode-card active">
-        <strong>Standalone</strong>
-        <p>Chat via gateway, local display</p>
+    <!-- Agent Setup card (Moltbook-style) -->
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button type="button" class="btn-secondary agent-tab active" onclick="showAgentTab('human',this)" style="flex:1;font-size:13px;padding:8px">I'm a Human</button>
+        <button type="button" class="btn-secondary agent-tab" onclick="showAgentTab('agent',this)" style="flex:1;font-size:13px;padding:8px">I'm an Agent</button>
       </div>
-      <div class="mode-card {mcp_class}">
-        <strong>MCP Server</strong>
-        <p>Agents can control device</p>
+      <div id="tab-human">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Connect an AI Agent to Voxel</div>
+        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
+          <div class="code-hint">Send this URL to your agent</div>
+          <code>{setup_url}</code>
+          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.5">
+          1. Send the setup URL to your AI agent<br>
+          2. Agent reads instructions + installs skill<br>
+          3. Agent connects via MCP (enable below)
+        </div>
       </div>
-      <div class="mode-card {webhook_class}">
-        <strong>Webhooks</strong>
-        <p>Device sends events to gateway</p>
+      <div id="tab-agent" style="display:none">
+        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Agent Self-Setup</div>
+        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
+          <div class="code-hint">Read setup instructions</div>
+          <code>curl {setup_url}</code>
+          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+        </div>
+        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
+          <div class="code-hint">Install skill definition</div>
+          <code>curl {skill_url}</code>
+          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+        </div>
+        <div class="code-block" onclick="copyCode(this)">
+          <div class="code-hint">MCP discovery endpoint</div>
+          <code>{discovery_url}</code>
+          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+        </div>
       </div>
     </div>
 
-    <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+    <div style="border-top:1px solid var(--border);margin:14px 0"></div>
 
     <h2 style="font-size:15px;margin:0 0 8px">MCP Server</h2>
     <div class="status-row">
@@ -1301,22 +1349,29 @@ def _build_html(settings: dict) -> str:
       <input type="checkbox" name="mcp.enabled" value="true" {mcp_checked} onchange="toggleMcp(this.checked)">
       <span class="check-label">Enable MCP Server (port {mcp_port})</span>
     </label>
+    <div class="hint">Auto-starts with display service when enabled</div>
 
     <div class="connect-info" id="mcp-connect-info" {mcp_display}>
-      <h3>Connect from OpenClaw</h3>
-      <div class="code-block">mcporter config add voxel --url http://{device_ip}:{mcp_port}/sse</div>
+      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">OpenClaw (remote, SSE)</div>
+      <div class="code-block" onclick="copyCode(this)">
+        <code>mcporter config add voxel --url {mcp_sse_url}</code>
+        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+      </div>
 
-      <h3>Connect from Claude Code</h3>
-      <div class="code-block">{escape(claude_config)}</div>
+      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">Claude Code / Codex (remote, SSE)</div>
+      <div class="code-block" onclick="copyCode(this)">
+        <code>{escape(claude_config)}</code>
+        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+      </div>
 
-      <h3>Skill URL (for agent auto-discovery)</h3>
-      <div class="code-block">http://{device_ip}:{config_port}/skill</div>
-
-      <h3>Discovery Endpoint</h3>
-      <div class="code-block">http://{device_ip}:{config_port}/.well-known/mcp</div>
+      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">Claude Code (local, stdio)</div>
+      <div class="code-block" onclick="copyCode(this)">
+        <code>{escape(claude_stdio)}</code>
+        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+      </div>
     </div>
 
-    <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+    <div style="border-top:1px solid var(--border);margin:14px 0"></div>
 
     <h2 style="font-size:15px;margin:0 0 8px">Webhooks</h2>
     <label>Webhook URL</label>
@@ -1727,6 +1782,19 @@ function toggleMcp(enabled) {{
     headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{section: 'mcp', key: 'enabled', value: enabled}})
   }});
+  if (enabled) {{
+    fetch('/api/mcp/start', {{method: 'POST'}});
+  }} else {{
+    fetch('/api/mcp/stop', {{method: 'POST'}});
+  }}
+}}
+
+/* ── Integration: Agent tab switch ────────────────────────────── */
+function showAgentTab(tab, btn) {{
+  document.getElementById('tab-human').style.display = tab === 'human' ? '' : 'none';
+  document.getElementById('tab-agent').style.display = tab === 'agent' ? '' : 'none';
+  document.querySelectorAll('.agent-tab').forEach(function(b) {{ b.classList.remove('active'); }});
+  btn.classList.add('active');
 }}
 
 /* ── Integration: click-to-copy code blocks ───────────────────── */
@@ -1832,7 +1900,7 @@ def _build_diagnostics_html() -> str:
   .page-header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }}
   .logo {{ width: 40px; height: 40px; flex-shrink: 0; }}
   .logo svg {{ width: 100%; height: 100%; }}
-  .logo svg rect {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
+  .logo svg rect.logo-bg {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
   h1 {{ color: var(--accent); font-size: 22px; }}
   .subtitle {{ font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }}
   .header-actions {{ display: flex; align-items: center; gap: 6px; margin-left: auto; }}
@@ -2145,7 +2213,7 @@ def _build_chat_html() -> str:
     width: 32px; height: 32px; flex-shrink: 0;
   }}
   .header .logo svg {{ width: 100%; height: 100%; }}
-  .header .logo svg rect {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
+  .header .logo svg rect.logo-bg {{ fill: var(--logo-body); transition: fill 0.2s ease; }}
   .header-title {{
     display: flex; align-items: center; gap: 8px; flex: 1;
   }}
@@ -2331,6 +2399,61 @@ def _build_chat_html() -> str:
   }}
   .error-banner.visible {{ display: block; }}
 
+  /* ── Mic button ───────────────────────────────────────────── */
+  .mic-btn {{
+    padding: 0 14px; min-height: 48px; min-width: 48px; border: none;
+    border-radius: 8px; background: var(--bg-input);
+    border: 1px solid var(--border-input); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    flex-shrink: 0;
+  }}
+  .mic-btn:hover {{ background: var(--bg-hover); border-color: var(--accent); }}
+  .mic-btn:disabled {{ opacity: 0.3; cursor: not-allowed; }}
+  .mic-btn svg {{ width: 20px; height: 20px; }}
+  .mic-btn .mic-icon {{ fill: var(--text-dim); transition: fill 0.15s ease; }}
+  .mic-btn.recording {{ background: rgba(0,212,210,0.1); border-color: var(--accent); }}
+  .mic-btn.recording .mic-icon {{ fill: var(--accent); }}
+  @keyframes micPulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.5; }}
+  }}
+  .mic-btn.recording {{
+    animation: micPulse 1.2s ease-in-out infinite;
+  }}
+
+  /* ── Speaker toggle ──────────────────────────────────────── */
+  .speaker-toggle {{
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; padding: 4px 8px; display: flex; align-items: center;
+    justify-content: center; min-width: 36px; min-height: 36px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }}
+  .speaker-toggle:hover {{ background: var(--bg-hover); }}
+  .speaker-toggle svg {{ width: 18px; height: 18px; }}
+  .speaker-toggle .speaker-icon {{ fill: var(--text-dim); transition: fill 0.15s ease; }}
+  .speaker-toggle.active {{ border-color: var(--accent); }}
+  .speaker-toggle.active .speaker-icon {{ fill: var(--accent); }}
+
+  /* ── Listening indicator ─────────────────────────────────── */
+  .listening-indicator {{
+    display: none; align-items: center; gap: 6px;
+    padding: 6px 14px; background: rgba(0,212,210,0.08);
+    border-bottom: 1px solid rgba(0,212,210,0.15);
+    font-size: 13px; color: var(--accent); flex-shrink: 0;
+  }}
+  .listening-indicator.visible {{ display: flex; }}
+  .listening-indicator .pulse-dot {{
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    animation: micPulse 1.2s ease-in-out infinite;
+  }}
+
+  /* ── Speaking highlight on message ───────────────────────── */
+  .msg.speaking-now {{
+    outline: 1px solid rgba(0,212,210,0.25);
+    outline-offset: 2px;
+  }}
+
   /* Mobile: keep input above virtual keyboard */
   @supports (height: 100dvh) {{
     html, body {{ height: 100dvh; }}
@@ -2346,6 +2469,9 @@ def _build_chat_html() -> str:
     <span class="conn-dot" id="conn-dot" title="Disconnected"></span>
     <span class="header-mood" id="header-mood"></span>
   </div>
+  <button type="button" class="speaker-toggle" id="speaker-toggle" onclick="toggleSpeaker()" aria-label="Toggle voice output" title="Read responses aloud">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="speaker-icon" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+  </button>
   <button type="button" class="theme-toggle" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle theme"></button>
   <a href="/" class="nav-link">Settings</a>
   <a href="/diagnostics" class="nav-link">Diagnostics</a>
@@ -2359,6 +2485,10 @@ def _build_chat_html() -> str:
 </div>
 
 <div class="error-banner" id="error-banner"></div>
+<div class="listening-indicator" id="listening-indicator">
+  <span class="pulse-dot"></span>
+  <span id="listening-text">Listening...</span>
+</div>
 
 <div class="messages" id="messages">
   <div class="empty-state" id="empty-state">
@@ -2376,6 +2506,9 @@ def _build_chat_html() -> str:
 <div class="input-bar">
   <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off"
          enterkeyhint="send">
+  <button class="mic-btn" id="mic-btn" onclick="toggleMic()" aria-label="Voice input" title="Speak a message" style="display:none">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="mic-icon" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+  </button>
   <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
 </div>
 
@@ -2463,6 +2596,10 @@ def _build_chat_html() -> str:
     var timeEl = div.querySelector('.msg-time');
     msgTimestamps.push({{ el: timeEl, ts: ts }});
     if (scroll !== false) scrollToBottom();
+    // TTS: speak assistant messages aloud when enabled
+    if (role === 'assistant' && text && typeof window._voxelSpeakText === 'function') {{
+      window._voxelSpeakText(text, div);
+    }}
     return div;
   }}
 
@@ -2496,9 +2633,14 @@ def _build_chat_html() -> str:
         timeEl.textContent = relativeTime(ts);
         msgTimestamps.push({{ el: timeEl, ts: ts }});
       }}
+      var msgEl = partialMsgEl;
       partialMsgEl = null;
       partialTextEl = null;
       scrollToBottom();
+      // TTS: speak completed streamed response
+      if (text && typeof window._voxelSpeakText === 'function') {{
+        window._voxelSpeakText(text, msgEl);
+      }}
     }} else {{
       addMessage('assistant', text);
     }}
@@ -2726,6 +2868,228 @@ function toggleTheme() {{
   applyTheme(next);
 }}
 applyTheme(localStorage.getItem('voxel-theme') || 'dark');
+
+/* ── Voice: TTS (browser speechSynthesis) ─────────────────────── */
+(function() {{
+  var speakerBtn = document.getElementById('speaker-toggle');
+  var synth = window.speechSynthesis || null;
+  var ttsEnabled = false;
+  var currentUtterance = null;
+  var speakingMsgEl = null;
+
+  // Hide speaker toggle if speechSynthesis not available
+  if (!synth) {{
+    if (speakerBtn) speakerBtn.style.display = 'none';
+  }} else {{
+    // Restore preference from localStorage
+    try {{
+      ttsEnabled = localStorage.getItem('voxel-tts') === '1';
+    }} catch(e) {{}}
+    updateSpeakerIcon();
+  }}
+
+  function updateSpeakerIcon() {{
+    if (!speakerBtn) return;
+    speakerBtn.classList.toggle('active', ttsEnabled);
+    speakerBtn.title = ttsEnabled ? 'Voice output ON (click to mute)' : 'Voice output OFF (click to enable)';
+    // Update the SVG path for on/off state
+    if (ttsEnabled) {{
+      speakerBtn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="speaker-icon" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+    }} else {{
+      speakerBtn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="speaker-icon" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
+    }}
+  }}
+
+  window.toggleSpeaker = function() {{
+    if (!synth) return;
+    ttsEnabled = !ttsEnabled;
+    try {{ localStorage.setItem('voxel-tts', ttsEnabled ? '1' : '0'); }} catch(e) {{}}
+    updateSpeakerIcon();
+    // Cancel current speech if turning off
+    if (!ttsEnabled && synth.speaking) {{
+      synth.cancel();
+      clearSpeakingHighlight();
+    }}
+  }};
+
+  function clearSpeakingHighlight() {{
+    if (speakingMsgEl) {{
+      speakingMsgEl.classList.remove('speaking-now');
+      speakingMsgEl = null;
+    }}
+  }}
+
+  // Pick a natural-sounding voice
+  var selectedVoice = null;
+  function pickVoice() {{
+    if (!synth) return;
+    var voices = synth.getVoices();
+    if (!voices.length) return;
+    // Prefer English voices with "natural" or "enhanced" in name
+    var preferred = ['Google', 'Samantha', 'Daniel', 'Karen', 'Moira', 'Alex'];
+    for (var p = 0; p < preferred.length; p++) {{
+      for (var v = 0; v < voices.length; v++) {{
+        if (voices[v].name.indexOf(preferred[p]) !== -1 && voices[v].lang.startsWith('en')) {{
+          selectedVoice = voices[v];
+          return;
+        }}
+      }}
+    }}
+    // Fallback: first English voice
+    for (var v = 0; v < voices.length; v++) {{
+      if (voices[v].lang.startsWith('en')) {{
+        selectedVoice = voices[v];
+        return;
+      }}
+    }}
+    // Last resort: first voice
+    selectedVoice = voices[0];
+  }}
+
+  if (synth) {{
+    pickVoice();
+    if (synth.onvoiceschanged !== undefined) {{
+      synth.onvoiceschanged = pickVoice;
+    }}
+  }}
+
+  // Exposed for addMessage / finalizePartial to call
+  window._voxelSpeakText = function(text, msgEl) {{
+    if (!ttsEnabled || !synth) return;
+    // Cancel previous utterance
+    if (synth.speaking) {{
+      synth.cancel();
+      clearSpeakingHighlight();
+    }}
+    var utterance = new SpeechSynthesisUtterance(text);
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    currentUtterance = utterance;
+
+    // Highlight the message being spoken
+    if (msgEl) {{
+      speakingMsgEl = msgEl;
+      msgEl.classList.add('speaking-now');
+    }}
+
+    utterance.onend = function() {{
+      clearSpeakingHighlight();
+      currentUtterance = null;
+    }};
+    utterance.onerror = function() {{
+      clearSpeakingHighlight();
+      currentUtterance = null;
+    }};
+
+    synth.speak(utterance);
+  }};
+}})();
+
+/* ── Voice: STT (browser SpeechRecognition) ───────────────────── */
+(function() {{
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var micBtn = document.getElementById('mic-btn');
+  var listeningIndicator = document.getElementById('listening-indicator');
+  var listeningText = document.getElementById('listening-text');
+  var inputEl = document.getElementById('msg-input');
+  var recognition = null;
+  var isRecording = false;
+
+  // Show mic button only if SpeechRecognition is supported
+  if (SpeechRecognition && micBtn) {{
+    micBtn.style.display = 'flex';
+  }}
+
+  function showListening(visible, text) {{
+    if (listeningIndicator) {{
+      listeningIndicator.classList.toggle('visible', visible);
+    }}
+    if (listeningText && text) {{
+      listeningText.textContent = text;
+    }}
+  }}
+
+  function stopRecording() {{
+    isRecording = false;
+    if (micBtn) micBtn.classList.remove('recording');
+    showListening(false);
+    if (recognition) {{
+      try {{ recognition.stop(); }} catch(e) {{}}
+    }}
+  }}
+
+  window.toggleMic = function() {{
+    if (!SpeechRecognition) return;
+
+    if (isRecording) {{
+      stopRecording();
+      return;
+    }}
+
+    // Start recording
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = function() {{
+      isRecording = true;
+      if (micBtn) micBtn.classList.add('recording');
+      showListening(true, 'Listening...');
+    }};
+
+    recognition.onresult = function(event) {{
+      var transcript = '';
+      var isFinal = false;
+      for (var i = event.resultIndex; i < event.results.length; i++) {{
+        transcript += event.results[i][0].transcript;
+        if (event.results[i].isFinal) isFinal = true;
+      }}
+      // Show interim results in input
+      if (inputEl) inputEl.value = transcript;
+      if (isFinal) {{
+        stopRecording();
+        // Auto-send the final transcript
+        if (transcript.trim() && typeof window.sendMessage === 'function') {{
+          window.sendMessage();
+        }}
+      }}
+    }};
+
+    recognition.onerror = function(event) {{
+      stopRecording();
+      var msg = 'Speech recognition error';
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {{
+        msg = 'Microphone access denied';
+        if (micBtn) micBtn.disabled = true;
+      }} else if (event.error === 'no-speech') {{
+        msg = 'No speech detected';
+      }} else if (event.error === 'network') {{
+        msg = 'Network error — speech recognition unavailable';
+      }} else if (event.error === 'aborted') {{
+        return; // User cancelled, no error to show
+      }}
+      showListening(true, msg);
+      setTimeout(function() {{ showListening(false); }}, 3000);
+    }};
+
+    recognition.onend = function() {{
+      // Fires when recognition stops (final result already handled or timeout)
+      if (isRecording) {{
+        stopRecording();
+      }}
+    }};
+
+    try {{
+      recognition.start();
+    }} catch(e) {{
+      showListening(true, 'Speech recognition not available');
+      setTimeout(function() {{ showListening(false); }}, 3000);
+    }}
+  }};
+}})();
 </script>
 </body>
 </html>"""
@@ -2909,6 +3273,11 @@ class _Handler(BaseHTTPRequestHandler):
                     "url": f"http://{ip}:{mcp_port}/sse",
                     "tools": 20,
                     "resources": 3,
+                },
+                "interfaces": {
+                    "mcp": {"url": f"http://{ip}:{mcp_port}/sse", "status": "running" if mcp_running else "stopped"},
+                    "rest": {"url": f"http://{ip}:{_server_port}", "note": "Config server REST API. Public: /api/health, /api/stats, /setup, /skill. Auth required for control endpoints."},
+                    "websocket": {"url": f"ws://{ip}:8080", "note": "Backend WebSocket. Full bidirectional JSON control. No auth."},
                 },
                 "setup_url": f"http://{ip}:{_server_port}/setup",
                 "skill_url": f"http://{ip}:{_server_port}/skill",
@@ -3411,7 +3780,13 @@ class _Handler(BaseHTTPRequestHandler):
         threading.Thread(target=_do_reboot, daemon=True).start()
 
     def _chat_send(self, body: bytes):
-        """Handle POST /api/chat — send a message to the AI agent."""
+        """Handle POST /api/chat — send a message to the AI agent.
+
+        The gateway call runs in a background thread so the HTTP server
+        isn't blocked. The client receives an immediate acknowledgement
+        and can poll for the response via the existing transcript/SSE
+        mechanism.
+        """
         try:
             data = json.loads(body)
             text = data.get("text", "").strip()
@@ -3446,36 +3821,47 @@ class _Handler(BaseHTTPRequestHandler):
                 _display_state.mood = "thinking"
 
             log.info(f"Chat: sending to {client.agent_id}: {text[:80]}")
-            response = client.send_message(text)
 
-            if response:
-                # Extract mood from response (tag or keyword fallback)
-                from core.mood_parser import extract_mood
-                mood, clean_response = extract_mood(response)
+            # Run the gateway call in a background thread so the HTTP
+            # response returns immediately and the server stays responsive.
+            def _gateway_call():
+                try:
+                    response = client.send_message(text)
 
-                # Parse leading emoji from agent response
-                from display.emoji_reactions import parse_reaction, apply_reaction
-                emoji, clean_response = parse_reaction(clean_response)
+                    if response:
+                        from core.mood_parser import extract_mood
+                        mood, clean_response = extract_mood(response)
 
-                # Push clean text (no mood tag/emoji) to LCD and simulate speaking
-                if _display_state:
-                    _display_state.mood = mood
-                    _display_state.push_transcript("assistant", clean_response)
-                    # Show emoji reaction if agent included one
-                    if emoji:
-                        apply_reaction(_display_state, emoji, _time.time(),
-                                       duration=3.0, set_mood=True)
-                    # Simulate speaking amplitude (fake TTS) so the
-                    # face mouth animates and the waveform pill shows.
-                    _start_speaking_simulation(clean_response, _display_state)
-                self._json_response(200, {"ok": True, "response": clean_response, "mood": mood, "agent": client.agent_id})
-            else:
-                if _display_state:
-                    _display_state.state = "ERROR"
-                    _display_state.mood = "error"
-                    _display_state.push_transcript("assistant", "(no response)")
-                    _start_error_recovery(_display_state)
-                self._json_response(502, {"ok": False, "error": "No response from agent (timeout or error)"})
+                        from display.emoji_reactions import parse_reaction, apply_reaction
+                        emoji, clean_response = parse_reaction(clean_response)
+
+                        if _display_state:
+                            _display_state.mood = mood
+                            _display_state.push_transcript("assistant", clean_response)
+                            if emoji:
+                                apply_reaction(_display_state, emoji, _time.time(),
+                                               duration=3.0, set_mood=True)
+                            _start_speaking_simulation(clean_response, _display_state)
+                    else:
+                        if _display_state:
+                            _display_state.state = "ERROR"
+                            _display_state.mood = "error"
+                            _display_state.push_transcript("assistant", "(no response)")
+                            _start_error_recovery(_display_state)
+                except Exception as e:
+                    log.error(f"Chat gateway error: {e}")
+                    if _display_state:
+                        _display_state.state = "ERROR"
+                        _display_state.mood = "error"
+                        _display_state.push_transcript("assistant", f"Error: {str(e)[:40]}")
+                        _start_error_recovery(_display_state)
+
+            Thread(target=_gateway_call, daemon=True).start()
+
+            # Return immediately — the client sees the response via
+            # transcript updates on the LCD / polling endpoint.
+            self._json_response(200, {"ok": True, "status": "sending", "agent": client.agent_id})
+
         except json.JSONDecodeError:
             self._json_response(400, {"ok": False, "error": "Invalid JSON"})
         except Exception as e:
@@ -3663,11 +4049,20 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _diagnostics_mic_test(self):
         """Handle POST /api/diagnostics/mic-test — record 2s and analyze."""
+        ambient_paused = False
         try:
             import io
             import wave
             from core.audio import init as audio_init, start_recording, stop_recording
             from core.audio import _pyaudio_available, _sounddevice_available
+
+            # Pause ambient monitor to release the mic (ALSA only allows one consumer)
+            from display.ambient import _active_monitor
+            _saved_ambient = _active_monitor
+            if _saved_ambient:
+                _saved_ambient.pause()
+                ambient_paused = True
+                _time.sleep(0.3)  # let ALSA release
 
             # Ensure audio is initialized
             if not _pyaudio_available and not _sounddevice_available:
@@ -3718,6 +4113,12 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             log.error("Mic test failed: %s", e)
             self._json_response(200, {"ok": False, "error": str(e)})
+        finally:
+            if ambient_paused and _saved_ambient:
+                try:
+                    _saved_ambient.resume()
+                except Exception as e:
+                    log.warning("Failed to resume ambient monitor: %s", e)
 
     def _json_response(self, code: int, data: dict):
         self.send_response(code)

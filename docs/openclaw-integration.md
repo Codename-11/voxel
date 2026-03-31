@@ -9,7 +9,7 @@ Voxel connects to an [OpenClaw](https://openclaw.ai) gateway to access AI agents
 ```yaml
 # config/default.yaml
 gateway:
-  url: "http://172.16.24.250:18789"  # Docker-Server LAN IP
+  url: "http://GATEWAY_HOST:18789"   # your OpenClaw gateway
   token: ""                           # Set in local.yaml
   default_agent: "daemon"
 ```
@@ -43,14 +43,14 @@ Headers:
 Body:
 {
   "model": "openclaw:{agent_id}",
-  "stream": false,
+  "stream": true,
   "messages": [
     {"role": "user", "content": "Hello"}
   ]
 }
 ```
 
-**Important:** Use `stream: false`. The gateway's streaming endpoint currently returns empty responses. Non-streaming works correctly and returns the full response in one shot.
+**Streaming:** SSE streaming is the default mode (`stream: true`). Partial text is emitted as chunks arrive, enabling progressive display and faster perceived response time. If SSE returns empty or errors, the client automatically falls back to a single non-streaming request.
 
 ### Health Check
 
@@ -101,3 +101,7 @@ Silence detected → THINKING (send to gateway)
 Response received → SPEAKING (TTS + mouth sync)
 Done → IDLE (back to ambient)
 ```
+
+**Candidate:** [openWakeWord](https://github.com/dscripka/openWakeWord) — already used by the [WhisPlay reference chatbot](https://github.com/PiSugar/whisplay-ai-chatbot). Runs on Pi Zero 2W (same Cortex-A53 as Pi 3), processes 80ms audio chunks at 16 kHz. A custom "Hey Voxel" model can be trained via Google Colab in <1 hour using synthetic speech. Pre-trained model licensing is CC BY-NC-SA 4.0 (non-commercial), but custom-trained models can use any license.
+
+Config placeholder: `audio.wake_word: null` in `config/default.yaml`. See `docs/hardware.md` § "Features to Consider" for full technical details.

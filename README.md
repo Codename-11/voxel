@@ -75,7 +75,7 @@ uv run dev
 uv run dev-watch
 
 # Push to Pi hardware
-uv run voxel display-push --logs
+uv run voxel dev-push --logs
 ```
 
 The preview window renders 1:1 with the Pi LCD (240x280, same PIL renderer, corner mask, all components). Spacebar simulates the hardware button.
@@ -87,17 +87,25 @@ The preview window renders 1:1 with the Pi LCD (240x280, same PIL renderer, corn
 
 ## Button Controls
 
-Single button (Whisplay HAT). All interaction encoded through timing:
+Single button (Whisplay HAT). All interaction encoded through hold duration -- no double-tap:
 
-| Pattern | Action | Timing |
+**Face view (IDLE):**
+
+| Gesture | Action | Timing |
 |---------|--------|--------|
-| **Short press** | Cycle views (face / drawer / chat) | < 400ms |
-| **Double-tap** | Push-to-talk (start recording) | Two presses within 400ms, face view only |
-| **Long press** | Menu open / select | Hold > 1s |
-| **Sleep** | Enter sleep mode | Hold > 5s |
-| **Shutdown** | Shutdown Pi (with 3s confirm) | Hold > 10s |
+| **Tap** | Toggle view (face / chat) | < 400ms, fires on release |
+| **Hold** | Push-to-talk (start recording) | > 400ms (still held), stays recording until release |
 
-Desktop simulation: spacebar mimics the hardware button with identical timing.
+**Chat view:**
+
+| Gesture | Action | Timing |
+|---------|--------|--------|
+| **Tap** | Toggle view (face / chat) | < 400ms, fires on release |
+| **Hold** | Open menu | > 1s (fires at threshold) |
+| **Hold** | Sleep | > 5s (fires at threshold) |
+| **Hold** | Shutdown (with 3s confirm) | > 10s (fires at threshold) |
+
+Inside menus: tap = next item, hold > 500ms = select. Desktop: spacebar simulates the button.
 
 ## Configuration
 
@@ -140,6 +148,19 @@ Voxel works in layers — each mode adds capabilities on top of the previous:
 | **Webhooks** | + Device pushes events to gateway (battery alerts, state changes) | Webhook URL in config |
 
 All modes are additive. MCP and webhooks are disabled by default — enable in `config/local.yaml` or the web settings page under "Integration".
+
+### MCP Client Integration
+
+All clients get the same 20 tools. Device discovery at `http://DEVICE_IP:8081/.well-known/mcp`.
+
+| Client | Transport | Config | Setup |
+|--------|-----------|--------|-------|
+| Claude Code | SSE (remote) or stdio (local) | `.mcp.json` + `VOXEL_DEVICE_IP` env var | Auto via project `.mcp.json` |
+| Codex CLI | stdio | Manual config | `uv run python -m mcp` |
+| OpenClaw | SSE via mcporter | `mcporter config add voxel --url http://DEVICE_IP:8082/sse` | + skill install |
+| Any MCP client | SSE | `http://DEVICE_IP:8082/sse` | Standard MCP SSE |
+
+> A Claude Code plugin is planned to simplify installation to one click — see project roadmap.
 
 ## Agent Setup (MCP)
 
@@ -211,7 +232,7 @@ After bootstrap, the `voxel` command is available globally on the Pi:
 | `voxel config` | Show config (`config set`/`config get` for changes) |
 | `voxel mcp` | Start MCP server (AI agent integration) |
 | `voxel display-test` | Direct Whisplay display sanity test |
-| `voxel display-push` | Sync display service to Pi and run it |
+| `voxel dev-push` | Sync full runtime to Pi over SSH and run it |
 | `voxel version` | Show version |
 | `voxel uninstall` | Remove services + caches |
 
@@ -222,10 +243,10 @@ After bootstrap, the `voxel` command is available globally on the Pi:
 | `uv run dev` | Local PIL preview (tkinter window, 1:1 with Pi LCD) |
 | `uv run dev --scale 3` | Larger preview window |
 | `uv run dev-watch` | Local preview with auto-reload on file changes |
-| `uv run voxel display-push` | Sync + run display service on Pi |
-| `uv run voxel display-push --logs` | Push and tail remote logs |
-| `uv run voxel display-push --watch` | Watch for changes, auto-push to Pi |
-| `uv run voxel display-push --install-service` | Set up systemd auto-start on boot |
+| `uv run voxel dev-push` | Sync full runtime to Pi and run it |
+| `uv run voxel dev-push --logs` | Push and tail remote logs |
+| `uv run voxel dev-push --watch` | Watch for changes, auto-push to Pi |
+| `uv run voxel dev-push --install-service` | Set up systemd auto-start on boot |
 | `uv run voxel dev-pair` | Auto-discover and pair with device |
 | `uv run voxel dev-ssh` | SSH into Pi (uses saved creds) |
 | `uv run voxel dev-logs` | Tail Pi logs remotely |
@@ -244,9 +265,9 @@ uv run dev --server                         # with full voice pipeline (spawns s
 uv run dev-watch                            # auto-restart on file changes
 
 # Deploy to Pi
-uv run voxel display-push --host <pi-ip>    # first time (saves SSH config)
-uv run voxel display-push --logs            # push + tail logs
-uv run voxel display-push --install-service # set up systemd auto-start
+uv run voxel dev-push --host <pi-ip>        # first time (saves SSH config)
+uv run voxel dev-push --logs                # push + tail logs
+uv run voxel dev-push --install-service     # set up systemd auto-start
 
 # Dev convenience
 uv run voxel dev-pair                       # auto-discover + pair with device
@@ -262,7 +283,7 @@ voxel mcp                                   # via CLI on Pi
 
 > **Note:** `npm run dev` starts the React browser UI (design tool for expression iteration). It is NOT the production display renderer. Use `uv run dev` for the actual Pi-equivalent preview.
 
-Editing `display/` or `shared/*.yaml` files triggers hot-reload with `dev-watch` or `display-push --watch`.
+Editing `display/` or `shared/*.yaml` files triggers hot-reload with `dev-watch` or `dev-push --watch`.
 
 ## License
 

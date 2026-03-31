@@ -20,6 +20,10 @@ from enum import Enum, auto
 
 log = logging.getLogger("voxel.display.ambient")
 
+# Module-level reference to the active monitor (set by AmbientMonitor.start())
+# Used by config_server mic test to pause/resume without circular imports.
+_active_monitor: "AmbientMonitor | None" = None
+
 # Audio sampling constants
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -89,20 +93,36 @@ class AmbientMonitor:
         if self._running:
             return
 
+        global _active_monitor
         self._running = True
         self._silence_start = time.time()
         self._thread = threading.Thread(target=self._monitor_loop, daemon=True,
                                         name="ambient-audio")
         self._thread.start()
+        _active_monitor = self
         log.info("Ambient audio monitor started")
 
     def stop(self) -> None:
         """Stop monitoring."""
+        global _active_monitor
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
+        _active_monitor = None
         log.info("Ambient audio monitor stopped")
+
+    def pause(self) -> None:
+        """Temporarily stop the monitor to release the mic for other uses."""
+        if self._running:
+            self.stop()
+            log.info("Ambient monitor paused (mic released)")
+
+    def resume(self) -> None:
+        """Resume after a pause."""
+        if not self._running and self._enabled:
+            self.start()
+            log.info("Ambient monitor resumed")
 
     @property
     def amplitude(self) -> float:
@@ -273,9 +293,8 @@ class AmbientMonitor:
 
             device = None
             try:
-                from hw.detect import IS_PI
-                if IS_PI:
-                    device = "hw:0,0"
+                from core.audio import _get_sd_device
+                device = _get_sd_device("input")
             except ImportError:
                 pass
 

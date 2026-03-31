@@ -21,6 +21,7 @@ import time
 from display.state import DisplayState
 from display.renderer import PILRenderer
 from display.led import LEDController
+from hw.detect import IS_PI
 
 log = logging.getLogger("voxel.display")
 
@@ -31,31 +32,53 @@ log = logging.getLogger("voxel.display")
 # board.button_pressed() — we use that instead of raw GPIO to avoid
 # mode conflicts.  Progress ring normalised to 10s (SHUTDOWN_THRESHOLD).
 #
-# Button interaction patterns (single button):
-#   Short press (<400ms, no 2nd press within 400ms) → cycle views
-#   Double-tap  (two presses within 400ms)          → push-to-talk
-#   Long press  (hold >1s)                           → menu open/select
-#   Medium hold (0.4-1s, menu only)                  → navigate up (previous)
-#   Sleep       (hold >5s)                           → enter sleep mode
-#   Shutdown    (hold >10s)                          → shutdown Pi (with confirm)
+# Button interaction model (single button, no double-tap):
+#
+# FROM FACE VIEW (IDLE):
+#   Tap   (<400ms release)        → toggle view (face/chat, fires on release)
+#   Hold  >400ms (still held)     → start recording (talk) — stays in RECORDING
+#                                    until release. No menu/sleep/shutdown override.
+#   Release after recording       → stop recording, send to STT
+#
+# FROM CHAT VIEW (menu closed):
+#   Tap   (<400ms release)        → toggle view (face/chat)
+#   Hold  >1s   (still held)      → open menu (fires AT threshold)
+#   Hold  >5s   (still held)      → sleep (fires AT threshold)
+#   Hold  >10s  (still held)      → shutdown with confirm (fires AT threshold)
+#
+# INSIDE MENU:
+#   Tap   (<500ms release)        → next item
+#   Hold  >500ms (still held)     → select / enter (fires AT threshold)
+#   5s idle                        → auto-close menu
+#
+# Key principles:
+#   - No double-tap — short tap fires instantly on release, zero ambiguity
+#   - Long-hold actions fire AT the threshold crossing, not on release
+#   - 500ms minimum recording guard prevents accidental cancel
 
-SHORT_PRESS_THRESHOLD = 0.55  # seconds — max hold for "short" / double-tap window (0.4 too tight for hardware)
-MEDIUM_PRESS_THRESHOLD = 0.55 # seconds — lower bound for "medium hold" (= SHORT)
-LONG_PRESS_THRESHOLD = 1.0    # seconds — menu open (from face view)
-MENU_LONG_PRESS = 0.9         # seconds — menu select (wider window for reliable medium press)
-SLEEP_THRESHOLD = 5.0         # seconds — enter sleep mode
-SHUTDOWN_THRESHOLD = 10.0     # seconds — shutdown Pi
+TAP_THRESHOLD = 0.4            # seconds — max hold for "tap" (face/chat views)
+RECORD_START_THRESHOLD = 0.4   # seconds — hold to start recording
+RECORD_MIN_DURATION = 0.5      # seconds — minimum recording before release accepted
+MENU_OPEN_THRESHOLD = 1.0      # seconds — hold to open menu (non-face views only)
+SLEEP_THRESHOLD = 5.0          # seconds — enter sleep mode
+SHUTDOWN_THRESHOLD = 10.0      # seconds — shutdown Pi
+MENU_TAP_THRESHOLD = 0.5       # seconds — max hold for "tap" inside menu
+MENU_SELECT_THRESHOLD = 0.5    # seconds — hold to select inside menu
+MENU_IDLE_TIMEOUT = 5.0        # seconds — auto-close menu after no input
 
-# Hardware button state machine
-_btn_was_pressed = False
-_btn_press_start = 0.0
-_btn_waiting_double: bool = False      # True while waiting to see if a second tap comes
-_btn_first_release_time: float = 0.0   # when the first short press was released
+# Unified button state machine — shared by hardware (Pi) and desktop (spacebar)
+# States: IDLE, PRESSED, RECORDING, IN_MENU_IDLE, IN_MENU_PRESSED
+_btn_state: str = "IDLE"
+_btn_press_start: float = 0.0
+_btn_recording_start: float = 0.0    # when recording actually started
+_btn_menu_last_input: float = 0.0    # last input time for menu auto-close
+_btn_fired_record: bool = False       # True once recording has been signaled
+_btn_fired_menu: bool = False         # True once menu-open has been fired
+_btn_fired_sleep: bool = False        # True once sleep has been fired
+_btn_fired_shutdown: bool = False     # True once shutdown has been fired
 
-# Desktop spacebar state machine (mirrors hardware)
-_desktop_press_time = [0.0]            # mutable for closure access from render loop
-_desktop_waiting_double = [False]
-_desktop_first_release_time = [0.0]
+# Desktop spacebar pressed state (mutable list for closure access)
+_desktop_space_pressed = [False]
 
 # Watchdog — auto-recover if stuck in THINKING or LISTENING too long
 THINKING_TIMEOUT = 60.0    # seconds before auto-recovery
@@ -65,28 +88,17 @@ _listening_since: float = 0.0
 _speaking_since: float = 0.0
 
 
-def _classify_release(hold_time: float, instant_tap: bool = False) -> str | None:
-    """Classify a button release into an event based on hold duration.
-
-    Returns the event name or None if the press was short and needs to
-    wait for a possible second tap (double-tap detection).
-
-    When instant_tap is True (menu/overlay context):
-      - long_press threshold is shorter (0.7s vs 1.0s) for snappier select
-      - medium_press zone (0.4-0.9s) used for "navigate up/previous"
-    """
-    long_threshold = MENU_LONG_PRESS if instant_tap else LONG_PRESS_THRESHOLD
-
-    if hold_time >= SHUTDOWN_THRESHOLD:
-        return "shutdown"
-    elif hold_time >= SLEEP_THRESHOLD:
-        return "sleep"
-    elif hold_time >= long_threshold:
-        return "long_press"
-    elif instant_tap and hold_time >= MEDIUM_PRESS_THRESHOLD:
-        return "medium_press"
-    # Short press — caller must wait for double-tap window
-    return None
+def _btn_reset() -> None:
+    """Reset button state machine to IDLE."""
+    global _btn_state, _btn_press_start, _btn_recording_start
+    global _btn_fired_record, _btn_fired_menu, _btn_fired_sleep, _btn_fired_shutdown
+    _btn_state = "IDLE"
+    _btn_press_start = 0.0
+    _btn_recording_start = 0.0
+    _btn_fired_record = False
+    _btn_fired_menu = False
+    _btn_fired_sleep = False
+    _btn_fired_shutdown = False
 
 
 def _emit_button_event(event: str, state: DisplayState) -> None:
@@ -95,84 +107,189 @@ def _emit_button_event(event: str, state: DisplayState) -> None:
     state._button_flash_until = time.time() + 0.5
 
 
-def _poll_whisplay_button(board, state: DisplayState,
-                          instant_tap: bool = False) -> list[str]:
-    """Poll the WhisPlay board's single button. Returns event list.
+def _btn_enter_menu(state: DisplayState) -> None:
+    """Transition button state machine into menu mode."""
+    global _btn_state, _btn_menu_last_input
+    _btn_state = "IN_MENU_IDLE"
+    _btn_menu_last_input = time.time()
+    state.button_pressed = False
+    state.button_hold = 0.0
 
-    Updates state.button_hold / button_pressed for the visual indicator.
-    Events: "short_press", "double_tap", "long_press", "sleep", "shutdown".
 
-    When instant_tap is True (e.g. menu is open), short presses fire
-    immediately on release without waiting for the double-tap window.
-    This makes menu navigation feel responsive.
+def _btn_exit_menu() -> None:
+    """Transition button state machine out of menu mode."""
+    global _btn_state
+    _btn_state = "IDLE"
+
+
+def _poll_button_unified(pressed: bool, state: DisplayState,
+                         in_menu: bool) -> list[str]:
+    """Unified button state machine for both hardware and desktop.
+
+    Args:
+        pressed: True if button is currently held down
+        state: DisplayState to update visual indicators
+        in_menu: True if menu/overlay is currently open
+
+    Returns list of event strings:
+        "short_tap", "start_recording", "stop_recording",
+        "cancel_recording", "menu_open", "menu_next", "menu_select",
+        "menu_timeout", "sleep", "shutdown"
     """
-    global _btn_was_pressed, _btn_press_start
-    global _btn_waiting_double, _btn_first_release_time
-
-    if board is None:
-        return []
+    global _btn_state, _btn_press_start, _btn_recording_start
+    global _btn_menu_last_input
+    global _btn_fired_record, _btn_fired_menu, _btn_fired_sleep, _btn_fired_shutdown
 
     events: list[str] = []
+    now = time.time()
+
+    # Sync button state machine with menu state
+    if in_menu and _btn_state not in ("IN_MENU_IDLE", "IN_MENU_PRESSED"):
+        # Menu was opened externally (keyboard shortcut, etc.)
+        _btn_enter_menu(state)
+    elif not in_menu and _btn_state in ("IN_MENU_IDLE", "IN_MENU_PRESSED"):
+        # Menu was closed externally
+        _btn_exit_menu()
+
+    # ── IN_MENU states ──
+    if _btn_state == "IN_MENU_IDLE":
+        if pressed:
+            _btn_state = "IN_MENU_PRESSED"
+            _btn_press_start = now
+            _btn_menu_last_input = now
+            _btn_fired_menu = False
+            state.button_pressed = True
+            state.button_hold = 0.0
+        else:
+            # Check auto-close timeout
+            if _btn_menu_last_input > 0 and (now - _btn_menu_last_input) >= MENU_IDLE_TIMEOUT:
+                events.append("menu_timeout")
+                _btn_exit_menu()
+        return events
+
+    if _btn_state == "IN_MENU_PRESSED":
+        hold_time = now - _btn_press_start
+        if not pressed:
+            # Released
+            state.button_pressed = False
+            state.button_hold = 0.0
+            _btn_state = "IN_MENU_IDLE"
+            _btn_menu_last_input = now
+            if hold_time < MENU_TAP_THRESHOLD and not _btn_fired_menu:
+                events.append("menu_next")
+                _emit_button_event("short_press", state)
+            # If >= threshold, select already fired at threshold crossing
+        else:
+            # Still held — check for select threshold crossing
+            state.button_hold = hold_time / SHUTDOWN_THRESHOLD
+            if hold_time >= MENU_SELECT_THRESHOLD and not _btn_fired_menu:
+                _btn_fired_menu = True
+                events.append("menu_select")
+                _emit_button_event("long_press", state)
+                # Stay in IN_MENU_PRESSED until release (visual feedback continues)
+        return events
+
+    # ── IDLE state ──
+    if _btn_state == "IDLE":
+        if pressed:
+            _btn_state = "PRESSED"
+            _btn_press_start = now
+            _btn_fired_record = False
+            _btn_fired_menu = False
+            _btn_fired_sleep = False
+            _btn_fired_shutdown = False
+            state.button_pressed = True
+            state.button_hold = 0.0
+        return events
+
+    # ── PRESSED state (waiting to see what kind of press this is) ──
+    if _btn_state == "PRESSED":
+        hold_time = now - _btn_press_start
+        state.button_hold = hold_time / SHUTDOWN_THRESHOLD
+
+        if not pressed:
+            # Released before any threshold — short tap
+            state.button_pressed = False
+            state.button_hold = 0.0
+            if hold_time < TAP_THRESHOLD:
+                events.append("short_tap")
+                _emit_button_event("short_press", state)
+            _btn_reset()
+        elif hold_time >= SHUTDOWN_THRESHOLD and not _btn_fired_shutdown:
+            # Shutdown threshold crossed while held
+            _btn_fired_shutdown = True
+            events.append("shutdown")
+            _emit_button_event("shutdown", state)
+            state.button_pressed = False
+            state.button_hold = 0.0
+            _btn_reset()
+        elif hold_time >= SLEEP_THRESHOLD and not _btn_fired_sleep:
+            # Sleep threshold crossed while held
+            _btn_fired_sleep = True
+            events.append("sleep")
+            _emit_button_event("sleep", state)
+            state.button_pressed = False
+            state.button_hold = 0.0
+            _btn_reset()
+        elif hold_time >= RECORD_START_THRESHOLD and not _btn_fired_record:
+            # Recording threshold crossed while held.
+            # Only enter RECORDING from face view in IDLE — that's where
+            # talk makes sense. Otherwise fall through to menu at 1s.
+            if state.view == "face" and state.state == "IDLE":
+                _btn_fired_record = True
+                _btn_recording_start = now
+                _btn_state = "RECORDING"
+                events.append("start_recording")
+                _emit_button_event("start_recording", state)
+            elif hold_time >= MENU_OPEN_THRESHOLD and not _btn_fired_menu:
+                # Non-face view or non-idle: open menu at 1s threshold
+                _btn_fired_menu = True
+                events.append("menu_open")
+                _emit_button_event("long_press", state)
+                state.button_pressed = False
+                state.button_hold = 0.0
+                _btn_reset()
+        return events
+
+    # ── RECORDING state (button held, mic is recording) ──
+    # Once recording, ONLY release exits. No menu/sleep/shutdown override.
+    # The user is talking — don't interrupt. They release when done.
+    if _btn_state == "RECORDING":
+        hold_time = now - _btn_press_start
+        recording_duration = now - _btn_recording_start
+        state.button_hold = hold_time / SHUTDOWN_THRESHOLD
+
+        if not pressed:
+            # Released — check minimum recording guard
+            if recording_duration >= RECORD_MIN_DURATION:
+                state.button_pressed = False
+                state.button_hold = 0.0
+                events.append("stop_recording")
+                _emit_button_event("start_recording", state)  # "Talk" flash
+                _btn_reset()
+            else:
+                # Too short — likely button bounce.  Cancel the recording
+                # and return to IDLE rather than waiting for a duration
+                # threshold to pass after the button is already released.
+                state.button_pressed = False
+                state.button_hold = 0.0
+                events.append("cancel_recording")
+                _btn_reset()
+        return events
+
+    return events
+
+
+def _poll_whisplay_button(board, state: DisplayState,
+                          in_menu: bool = False) -> list[str]:
+    """Poll the WhisPlay board's single button via the unified state machine."""
+    if board is None:
+        return []
     try:
         pressed = board.button_pressed()
     except Exception:
         return []
-
-    now = time.time()
-
-    if pressed and not _btn_was_pressed:
-        # Button just pressed
-        if _btn_waiting_double and not instant_tap:
-            # Second press within the double-tap window
-            _btn_waiting_double = False
-            _btn_first_release_time = 0.0
-            events.append("double_tap")
-            _emit_button_event("double_tap", state)
-            _btn_press_start = now
-            _btn_was_pressed = True
-            state.button_pressed = False
-            state.button_hold = 0.0
-        else:
-            _btn_waiting_double = False
-            _btn_first_release_time = 0.0
-            _btn_press_start = now
-            _btn_was_pressed = True
-            state.button_pressed = True
-            state.button_hold = 0.0
-    elif pressed and _btn_was_pressed:
-        # Button held — update progress (normalised to 10s full scale)
-        hold_time = now - _btn_press_start
-        state.button_hold = hold_time / SHUTDOWN_THRESHOLD
-    elif not pressed and _btn_was_pressed:
-        # Button just released
-        hold_time = now - _btn_press_start
-        state.button_pressed = False
-        state.button_hold = 0.0
-        _btn_was_pressed = False
-
-        event = _classify_release(hold_time, instant_tap=instant_tap)
-        if event:
-            events.append(event)
-            _emit_button_event(event, state)
-        elif instant_tap:
-            # In menu/overlay: fire short_press immediately, no double-tap wait
-            events.append("short_press")
-            _emit_button_event("short_press", state)
-        else:
-            # Normal: start double-tap timer
-            _btn_waiting_double = True
-            _btn_first_release_time = now
-    else:
-        # Not pressed — check double-tap timer expiry
-        state.button_pressed = False
-        state.button_hold = 0.0
-        if _btn_waiting_double and (now - _btn_first_release_time) >= SHORT_PRESS_THRESHOLD:
-            _btn_waiting_double = False
-            _btn_first_release_time = 0.0
-            events.append("short_press")
-            _emit_button_event("short_press", state)
-
-    return events
+    return _poll_button_unified(pressed, state, in_menu=in_menu)
 
 # Demo mode: cycle through these moods
 DEMO_MOODS = [
@@ -186,7 +303,6 @@ ALL_MOODS_CYCLE = [
     "frustrated", "sad", "working", "error",
     "low_battery", "critical_battery",
 ]
-DEMO_CYCLE_INTERVAL = 4.0  # seconds per mood
 
 
 def _create_backend(use_pygame: bool, scale: int):
@@ -208,6 +324,12 @@ def _create_backend(use_pygame: bool, scale: int):
 # the WebSocket client task sends them to server.py.
 _ws_outbound: asyncio.Queue | None = None
 
+# True when the WebSocket to server.py is open and active.
+# Separate from state.connected (which may reflect gateway reachability
+# in state pushes from server.py).  Button handlers use this to decide
+# whether the voice pipeline is available.
+_ws_connected: bool = False
+
 
 def ws_send(msg: dict) -> None:
     """Queue a message to send to server.py via WebSocket.
@@ -228,7 +350,7 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
     Receives state updates and pushes outbound messages (button events,
     mood commands) from the _ws_outbound queue.
     """
-    global _ws_outbound
+    global _ws_outbound, _ws_connected
 
     try:
         import websockets
@@ -242,6 +364,7 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
         try:
             log.info(f"Connecting to {url}")
             async with websockets.connect(url) as ws:
+                _ws_connected = True
                 state.connected = True
                 log.info("WebSocket connected")
 
@@ -277,6 +400,13 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
                             if emoji:
                                 state.reaction_emoji = emoji
                                 state.reaction_time = time.time()
+
+                        elif msg_type == "greeting":
+                            text = msg.get("text", "")
+                            if text:
+                                state.greeting_text = text
+                                state.greeting_time = time.time()
+                                log.info("Gateway greeting: %s", text[:60])
 
                         elif msg_type == "tool_call":
                             name = msg.get("name", "")
@@ -319,11 +449,13 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
                 )
 
         except Exception as e:
+            _ws_connected = False
             state.connected = False
             if not stop.is_set():
                 log.debug(f"WebSocket disconnected: {e}")
                 await asyncio.sleep(2.0)
 
+    _ws_connected = False
     state.connected = False
 
 
@@ -353,34 +485,37 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
     interval = 1.0 / fps
     log.info("Render loop: %d FPS (%.1fms interval)", fps, interval * 1000)
 
-    # Initial greeting (first boot with empty chat)
-    if not state.transcripts:
-        try:
-            from config.settings import load_settings as _load_greeting
-            _gcfg = _load_greeting().get("character", {})
-            if _gcfg.get("greeting_enabled", True) and _gcfg.get("greeting"):
-                state.push_transcript("assistant", _gcfg["greeting"])
-                state.trigger_chat_peek(time.time(), duration=6.0)  # longer for greeting
-                log.info("Greeting shown: %s", _gcfg["greeting"][:40])
-        except Exception:
-            pass
+    # Greeting is handled by the gateway greeting system (server.py)
+    # which sends a personality-driven overlay, not a chat bubble.
 
     start_time = time.time()
     last_wifi_check = 0.0
     frame_count = 0
+    prev_frame_time = start_time
 
     while not stop.is_set():
         frame_start = time.time()
         state.time = frame_start
-        state.dt = interval
+        # Use actual elapsed time so animations compensate for frame drops
+        state.dt = min(frame_start - prev_frame_time, interval * 3)  # cap at 3x to avoid jumps
+        prev_frame_time = frame_start
         frame_count += 1
 
         # Poll hardware button (Whisplay single button on Pi)
-        # When menu/overlay is open, skip double-tap detection for instant response
         if hasattr(backend, '_board') and backend._board is not None:
-            _instant = (renderer.menu.open or state.pairing_mode or
+            _in_menu = (renderer.menu.open or state.pairing_mode or
                         state.shutdown_confirm)
-            for btn in _poll_whisplay_button(backend._board, state, instant_tap=_instant):
+            for btn in _poll_whisplay_button(backend._board, state, in_menu=_in_menu):
+                if button_handler:
+                    button_handler(btn)
+
+        # Poll desktop spacebar via the same unified state machine
+        # (desktop press/release callbacks feed _desktop_space_pressed)
+        if not (hasattr(backend, '_board') and backend._board is not None):
+            _in_menu = (renderer.menu.open or state.pairing_mode or
+                        state.shutdown_confirm)
+            for btn in _poll_button_unified(_desktop_space_pressed[0], state,
+                                            in_menu=_in_menu):
                 if button_handler:
                     button_handler(btn)
 
@@ -398,18 +533,6 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
                     save_setup_flag("wifi_configured")
                 except Exception:
                     pass
-
-        # Update spacebar hold progress for desktop simulation
-        if state.button_pressed and _desktop_press_time[0] > 0:
-            state.button_hold = (time.time() - _desktop_press_time[0]) / SHUTDOWN_THRESHOLD
-
-        # Check desktop double-tap timer expiry
-        if _desktop_waiting_double[0] and (frame_start - _desktop_first_release_time[0]) >= SHORT_PRESS_THRESHOLD:
-            _desktop_waiting_double[0] = False
-            _desktop_first_release_time[0] = 0.0
-            _emit_button_event("short_press", state)
-            if button_handler:
-                button_handler("short_press")
 
         # Clear expired button flash (don't rely on drawing code to clean state)
         if state.button_flash and state._button_flash_until > 0 and frame_start >= state._button_flash_until:
@@ -437,8 +560,6 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
                 state.state = "IDLE"
                 state.mood = "neutral"
                 state._watchdog_error_until = 0.0
-
-        global _thinking_since, _listening_since, _speaking_since
 
         if state.state == "THINKING":
             if _thinking_since == 0.0:
@@ -493,6 +614,24 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
                     log.error(f"Reboot command failed: {e}")
             else:
                 log.info("Reboot requested on desktop — ignoring")
+
+        # Persist menu config changes (agent, character, brightness, volume, accent)
+        if renderer.menu._pending_config is not None:
+            _cfg_update = renderer.menu._pending_config
+            renderer.menu._pending_config = None
+            try:
+                from config.settings import save_local_settings
+                save_local_settings(_cfg_update)
+                log.info("Menu: persisted config %s", list(_cfg_update.keys()))
+                # Forward to backend via WebSocket if connected
+                if _ws_connected:
+                    for section, values in _cfg_update.items():
+                        if isinstance(values, dict):
+                            for key, val in values.items():
+                                ws_send({"type": "set_setting", "section": section,
+                                         "key": key, "value": val})
+            except Exception as e:
+                log.warning("Menu: failed to persist config: %s", e)
 
         # Ambient audio reactivity (deterministic, no LLM)
         # Only runs during IDLE, not connected, and not in demo mode
@@ -551,12 +690,6 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
 
 
 async def _main(args: argparse.Namespace) -> None:
-    # Detect platform
-    try:
-        from hw.detect import IS_PI
-    except ImportError:
-        IS_PI = False
-
     use_pygame = not IS_PI
     if args.backend == "pygame":
         use_pygame = True
@@ -651,6 +784,24 @@ async def _main(args: argparse.Namespace) -> None:
     splash.show_ready(hold=0.5)
     del splash  # free splash resources
 
+    # ── Boot animation (wake-up sequence) ────────────────────────────
+    _boot_anim_enabled = True
+    try:
+        from config.settings import load_settings as _load_boot_cfg
+        _boot_cfg = _load_boot_cfg()
+        _boot_anim_enabled = _boot_cfg.get("character", {}).get("boot_animation", True)
+    except Exception:
+        _boot_cfg = {}
+
+    if _boot_anim_enabled:
+        try:
+            from display.boot_animation import play_boot_animation
+            play_boot_animation(backend, config=_boot_cfg)
+        except Exception as e:
+            log.warning("Boot animation failed: %s", e)
+    else:
+        log.info("Boot animation: disabled by config")
+
     # Check WiFi and start AP mode if not connected (Pi only)
     if IS_PI:
         try:
@@ -673,6 +824,26 @@ async def _main(args: argparse.Namespace) -> None:
     except Exception as e:
         log.warning(f"Config server failed to start: {e}")
         config_url = ""
+
+    # Auto-start MCP server if enabled in config
+    mcp_proc = None
+    try:
+        from config.settings import load_settings as _load_mcp_cfg
+        _mcp_cfg = _load_mcp_cfg().get("mcp", {})
+        if _mcp_cfg.get("enabled", False):
+            import sys, subprocess
+            from pathlib import Path
+            _mcp_port = _mcp_cfg.get("port", 8082)
+            _mcp_ws = _mcp_cfg.get("ws_url", "ws://localhost:8080")
+            mcp_proc = subprocess.Popen(
+                [sys.executable, "-m", "mcp",
+                 "--transport", "sse", "--port", str(_mcp_port),
+                 "--ws-url", _mcp_ws],
+                cwd=str(Path(__file__).parent.parent),
+            )
+            log.info("MCP server auto-started on :%d (PID %d)", _mcp_port, mcp_proc.pid)
+    except Exception as e:
+        log.debug(f"MCP auto-start failed: {e}")
 
     # Dev mode + accent color
     try:
@@ -739,10 +910,8 @@ async def _main(args: argparse.Namespace) -> None:
             menu.open = True
             log.info("Menu opened")
         elif key == "c":
-            # Cycle: face -> chat_drawer -> chat_full -> face
-            views = ["face", "chat_drawer", "chat_full"]
-            idx = views.index(state.view) if state.view in views else 0
-            state.view = views[(idx + 1) % len(views)]
+            # Toggle between face and chat
+            state.view = "chat" if state.view == "face" else "face"
             log.info(f"View: {state.view}")
         elif key == "t":
             # Toggle transcript overlay visibility (for testing)
@@ -785,78 +954,44 @@ async def _main(args: argparse.Namespace) -> None:
     if hasattr(backend, "set_key_callback"):
         backend.set_key_callback(_on_key)
 
-    # Spacebar hold simulation for desktop (mimics hardware button state machine)
+    # Desktop spacebar — unified state machine via _poll_button_unified
+    # The render loop polls _desktop_space_pressed[0] each frame.
     def _on_space_press():
-        now = time.time()
-        if _desktop_waiting_double[0]:
-            # Second press within double-tap window
-            _desktop_waiting_double[0] = False
-            _desktop_first_release_time[0] = 0.0
-            _desktop_press_time[0] = 0.0
-            state.button_pressed = False
-            state.button_hold = 0.0
-            _emit_button_event("double_tap", state)
-            _on_button("double_tap")
-            return
-        if not state.button_pressed:
-            _desktop_press_time[0] = now
-            state.button_pressed = True
-            state.button_hold = 0.0
+        _desktop_space_pressed[0] = True
 
     def _on_space_release():
-        if state.button_pressed:
-            hold = time.time() - _desktop_press_time[0]
-            state.button_pressed = False
-            state.button_hold = 0.0
-            _in_menu = menu.open or state.pairing_mode or state.shutdown_confirm
-            event = _classify_release(hold, instant_tap=_in_menu)
-            if event:
-                _desktop_press_time[0] = 0.0
-                _emit_button_event(event, state)
-                _on_button(event)
-            elif _in_menu:
-                # In menu/overlay: fire instantly, no double-tap wait
-                _desktop_press_time[0] = 0.0
-                _emit_button_event("short_press", state)
-                _on_button("short_press")
-            else:
-                # Normal: start double-tap timer
-                _desktop_waiting_double[0] = True
-                _desktop_first_release_time[0] = time.time()
-                _desktop_press_time[0] = 0.0
+        _desktop_space_pressed[0] = False
 
     if hasattr(backend, "set_button_callbacks"):
         backend.set_button_callbacks(_on_space_press, _on_space_release)
 
-    # Hardware button handler (Whisplay single button)
-    #   short_press → cycle views (face/drawer/chat) or navigate in menu
-    #   double_tap  → push-to-talk (recording — needs server.py integration)
-    #   long_press  → menu open / select
-    #   sleep       → enter sleep mode
-    #   shutdown    → shutdown Pi (with confirmation countdown)
+    # Button event handler — processes events from the unified state machine.
+    # Events: "short_tap", "start_recording", "stop_recording",
+    #         "cancel_recording", "menu_open", "menu_next", "menu_select",
+    #         "menu_timeout", "sleep", "shutdown"
     def _on_button(btn: str) -> None:
-        # Any button press during sleep wakes the device
+        # Any button event during sleep wakes the device
         if state.state == "SLEEPING" and btn not in ("sleep", "shutdown"):
             state.state = "IDLE"
             state.mood = "neutral"
             log.info("Wake from sleep (button press)")
             return
 
-        # Any button press during shutdown countdown cancels it
-        if state.shutdown_confirm:
+        # Any button event during shutdown countdown cancels it
+        if state.shutdown_confirm and btn != "shutdown":
             state.shutdown_confirm = False
             state._shutdown_at = 0.0
             log.info("Shutdown cancelled (button press)")
             return
 
-        # Pairing request: short press = approve (show PIN), long press = deny
+        # Pairing request: tap = approve (show PIN), menu_select = deny
         if state.pairing_request:
-            if btn in ("short_press", "double_tap"):
+            if btn in ("short_tap", "menu_next"):
                 state.pairing_request = False
                 state.pairing_approved = True
                 state.pairing_mode = True  # show the PIN
                 log.info(f"Pairing approved for {state.pairing_request_from}")
-            elif btn == "long_press":
+            elif btn in ("menu_select", "menu_open"):
                 state.pairing_request = False
                 state.pairing_denied = True
                 log.info(f"Pairing denied for {state.pairing_request_from}")
@@ -868,30 +1003,47 @@ async def _main(args: argparse.Namespace) -> None:
             log.info("Pairing mode dismissed")
             return
 
+        # Menu events (handled by the unified state machine's menu mode)
         if menu.open:
-            if btn == "short_press":
-                menu.navigate(1)   # tap = next (down)
-            elif btn == "medium_press":
-                menu.navigate(-1)  # brief hold = previous (up)
-            elif btn == "double_tap":
-                menu.back()        # double-tap = back/close
-            elif btn == "long_press":
-                menu.select(state) # long hold = select
+            if btn == "menu_next":
+                menu.navigate(1)   # tap = next item
+            elif btn == "menu_select":
+                menu.select(state) # hold = select/enter
+            elif btn == "menu_timeout":
+                menu.open = False
+                log.info("Menu auto-closed (idle timeout)")
             elif btn in ("sleep", "shutdown"):
                 menu.open = False
                 log.info(f"Menu force-closed ({btn})")
             return
 
-        # While actively listening, ANY short press or double_tap stops recording
-        if state.state == "LISTENING" and btn in ("short_press", "double_tap"):
+        # While actively listening, tap or stop_recording ends it
+        if state.state == "LISTENING" and btn in ("short_tap", "stop_recording"):
             ws_send({"type": "button", "button": "release"})
+            state.state = "IDLE"
+            state.mood = "neutral"
             log.info("Push-to-talk: stop recording (%s)", btn)
             return
 
-        # While speaking, ANY short press or double_tap cancels playback
-        if state.state == "SPEAKING" and btn in ("short_press", "double_tap"):
-            ws_send({"type": "button", "button": "press"})
-            # Also stop local playback if running
+        # Cancel recording (menu open override while recording)
+        if state.state == "LISTENING" and btn == "cancel_recording":
+            ws_send({"type": "button", "button": "release"})
+            state.state = "IDLE"
+            state.mood = "neutral"
+            log.info("Push-to-talk: cancelled recording (menu override)")
+            return
+
+        # While thinking, tap cancels the pipeline and returns to IDLE
+        if state.state == "THINKING" and btn == "short_tap":
+            ws_send({"type": "button", "button": "cancel"})
+            state.state = "IDLE"
+            state.mood = "neutral"
+            log.info("Push-to-talk: cancelled (tap during THINKING)")
+            return
+
+        # While speaking, tap cancels playback
+        if state.state == "SPEAKING" and btn == "short_tap":
+            ws_send({"type": "button", "button": "cancel"})
             try:
                 from core.audio import stop_playback
                 stop_playback()
@@ -901,31 +1053,56 @@ async def _main(args: argparse.Namespace) -> None:
             state.amplitude = 0.0
             state.state = "IDLE"
             state.mood = "neutral"
-            log.info("Push-to-talk: cancel speaking (%s)", btn)
+            log.info("Push-to-talk: cancelled (tap during SPEAKING)")
             return
 
-        if btn == "short_press":
-            # Cycle views: face -> chat_drawer -> chat_full -> face
-            views = ["face", "chat_drawer", "chat_full"]
-            idx = views.index(state.view) if state.view in views else 0
-            state.view = views[(idx + 1) % len(views)]
+        # ── Face/Chat view events ──
+        if btn == "short_tap":
+            # Toggle between face and chat
+            state.view = "chat" if state.view == "face" else "face"
             log.info(f"View: {state.view}")
-        elif btn == "double_tap":
-            # Push-to-talk: only from face view in IDLE state
+        elif btn == "start_recording":
+            # Hold >400ms starts recording — only from face view in IDLE
             if state.view != "face":
                 log.debug("Talk ignored — not on face view (view=%s)", state.view)
             elif state.state != "IDLE":
                 log.debug("Talk ignored — not idle (state=%s)", state.state)
             else:
-                # Start listening — send press to server
-                ws_send({"type": "button", "button": "press"})
+                if _ws_connected:
+                    ws_send({"type": "button", "button": "press"})
+                else:
+                    log.warning("No backend connected — voice pipeline unavailable. "
+                                "Run with --server for full voice support.")
                 state.state = "LISTENING"
                 state.mood = "listening"
-                state.view = "face"  # ensure face view during talk
-                log.info("Push-to-talk: start recording (double tap → server)")
-        elif btn == "long_press":
+                state.view = "face"
+                log.info("Push-to-talk: start recording (hold >400ms)")
+        elif btn == "stop_recording":
+            # Release after recording — send to STT.
+            if state.state == "LISTENING":
+                if _ws_connected:
+                    # Immediately transition to THINKING locally so there's no
+                    # 1-2 frame flash to IDLE before the server pushes THINKING.
+                    ws_send({"type": "button", "button": "release"})
+                    state.state = "THINKING"
+                    state.mood = "thinking"
+                    log.info("Push-to-talk: stop recording (release) → THINKING")
+                else:
+                    # No backend — go back to IDLE since there's nothing to process
+                    state.state = "IDLE"
+                    state.mood = "neutral"
+                    log.info("Push-to-talk: stop recording (release) → IDLE (no backend)")
+        elif btn == "cancel_recording":
+            # Recording cancelled by menu open or other override
+            if state.state == "LISTENING":
+                ws_send({"type": "button", "button": "release"})
+                state.state = "IDLE"
+                state.mood = "neutral"
+                log.info("Push-to-talk: cancelled recording")
+        elif btn == "menu_open":
             menu.open = True
-            log.info("Menu opened (long press)")
+            _btn_enter_menu(state)
+            log.info("Menu opened (hold >1s)")
         elif btn == "sleep":
             state.state = "SLEEPING"
             state.mood = "sleepy"
@@ -987,6 +1164,9 @@ async def _main(args: argparse.Namespace) -> None:
     finally:
         if ambient:
             ambient.stop()
+        if mcp_proc and mcp_proc.poll() is None:
+            mcp_proc.terminate()
+            log.info("MCP server stopped")
         led.off()
         backend.cleanup()
         log.info("Display service stopped")

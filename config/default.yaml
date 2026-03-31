@@ -2,7 +2,7 @@
 
 # OpenClaw Gateway
 gateway:
-  url: "http://172.16.24.250:18789"  # Docker-Server LAN IP
+  url: ""  # OpenClaw gateway URL (e.g. http://gateway-host:18789)
   token: ""  # Set in local.yaml or env OPENCLAW_TOKEN
   default_agent: "daemon"
 
@@ -117,8 +117,9 @@ character:
   idle_personality: true      # enable reactive moods during idle (battery, connection, time)
   idle_prompt: true           # show "?" hint after prolonged idle
   idle_prompt_interval: 90    # seconds between "?" appearances
-  greeting: "Hey! I'm Voxel. Double-tap to talk!"
-  greeting_enabled: true      # show greeting on first boot / empty chat
+  boot_animation: true        # play wake-up eye animation on startup
+  greeting_enabled: true      # request a greeting from the gateway agent on startup
+  greeting_prompt: "You just woke up. Give a very brief greeting (under 10 words) appropriate for {time_of_day}. Be in character."
   demo_mode: false           # auto-cycle moods/characters/styles for showcase
   demo_cycle_speed: 5        # seconds per mood in demo mode
   demo_include_characters: true  # cycle through characters too
@@ -127,7 +128,7 @@ character:
 # Outbound webhooks
 webhook:
   enabled: false
-  url: "http://172.16.24.250:18789/hooks/agent"
+  url: ""  # webhook endpoint (e.g. http://gateway-host:18789/hooks/agent)
   token: ""  # Bearer token — set in local.yaml
   events: [state_change, battery_alert, conversation_complete]
   debounce_seconds: 5
@@ -150,7 +151,7 @@ dev:
   enabled: false          # show dev indicators, skip web auth, debug endpoints
   advertise: true         # broadcast device presence on LAN (UDP 41234)
   ssh:
-    host: ""              # Pi SSH host (set by display-push)
+    host: ""              # Pi SSH host (set by dev-pair)
     user: pi
     password: ""
 

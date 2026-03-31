@@ -1,20 +1,24 @@
 """Button hold indicator — visual feedback for single-button interaction.
 
-Shows a progress arc/ring while the button is held, with THREE zones:
-  Zone 1 (0-1s):  Cyan ring filling    → "menu" label
-  Zone 2 (1-5s):  Blue/indigo continues → "sleep" label
-  Zone 3 (5-10s): Orange/red continues  → "shutdown" label
+Shows a progress arc/ring while the button is held, with FOUR zones:
+  Zone 0 (0-0.4s):  Subtle press dot    (no label, waiting for tap/hold)
+  Zone 1 (0.4-1s):  Cyan ring filling   "Talk" label (recording active)
+  Zone 2 (1-5s):    Brighter cyan       "Menu" label (menu opens at threshold)
+  Zone 3 (5-10s):   Orange/red          "Sleep" then "Shutdown" labels
 
-The ring does NOT appear until the button has been held past the short-press
-threshold (400ms / 0.04 normalised).  It then fades in over ~200ms worth of
-progress.  Quick taps only show the flash pill on release.
+The ring does NOT appear until the button has been held past the tap
+threshold (400ms / 0.04 normalised). It then fades in over ~200ms worth
+of progress. Quick taps only show the flash pill on release.
 
-Brief flash pill on release with action-specific labels:
-  short_press → "Tap"      (cyan)
-  double_tap  → "Talk"     (bright green)
-  long_press  → "Menu"     (bright cyan)
-  sleep       → "Sleep"    (blue/indigo)
-  shutdown    → "Shutdown"  (red)
+Long-hold actions fire AT their threshold (not on release), so the label
+shows what HAS JUST HAPPENED, not what will happen on release.
+
+Brief flash pill on release/action with specific labels:
+  short_press       -> "Tap"      (cyan)
+  start_recording   -> "Talk"     (bright green)
+  long_press        -> "Menu"     (bright cyan)
+  sleep             -> "Sleep"    (blue/indigo)
+  shutdown          -> "Shutdown" (red)
 
 Flash pills slide in from below and fade out smoothly (0.5s total).
 """
@@ -59,28 +63,28 @@ FLASH_Y = SCREEN_H - 64
 
 # ── Thresholds (must match display/service.py) ────────────────────────────
 
-SHORT_THRESHOLD = 0.4         # seconds — must match display/service.py
+TAP_THRESHOLD = 0.4           # seconds — tap threshold
+RECORD_THRESHOLD = 0.4        # seconds — recording starts
+MENU_THRESHOLD = 1.0          # seconds — menu opens
+SLEEP_THRESHOLD = 5.0         # seconds — sleep fires
+SHUTDOWN_THRESHOLD = 10.0     # seconds — shutdown fires
 FULL_SCALE = 10.0             # seconds — ring represents 0-10s
-RING_VISIBLE_FRAC = SHORT_THRESHOLD / FULL_SCALE  # 0.04 normalised
-RING_FADEIN_RANGE = 0.02      # fade ring brightness over this much progress after threshold
 
-LONG_PRESS_THRESHOLD = 1.0    # menu open from face
-MENU_LONG_PRESS = 0.9         # menu select (wider window for reliable medium press)
-SLEEP_THRESHOLD = 5.0
-SHUTDOWN_THRESHOLD = 10.0
+RING_VISIBLE_FRAC = TAP_THRESHOLD / FULL_SCALE  # 0.04 normalised
+RING_FADEIN_RANGE = 0.02      # fade ring brightness over this much progress after threshold
 
 # Flash animation phases (total 0.5s)
 FLASH_TOTAL = 0.5
 FLASH_SLIDE_END = 0.12        # slide-up phase ends
 FLASH_HOLD_END = 0.35         # hold phase ends, fade-out begins
-# fade-out runs from FLASH_HOLD_END to FLASH_TOTAL
 
-# Zone fractions matching actual release thresholds (ring = 0-10s):
-#   Zone 1: 0-5s  → release = Menu (long_press at 1s+)     — cyan
-#   Zone 2: 5-10s → release = Sleep (5s+) / Shutdown (10s)  — orange/red
-# Tick mark at 1s shows when menu "arms"
-ZONE_MENU_ARM = 1.0 / 10.0    # 0.1 — menu arms at 1s (tick mark)
-ZONE_SLEEP = 5.0 / 10.0       # 0.5 — sleep threshold
+# Zone fractions (ring = 0-10s):
+#   Zone 1: 0.4-1s  → recording active — cyan (Talk)
+#   Zone 2: 1-5s    → menu zone — bright cyan (Menu)
+#   Zone 3: 5-10s   → sleep/shutdown zone — orange/red
+ZONE_RECORD = RECORD_THRESHOLD / FULL_SCALE   # 0.04 — recording starts
+ZONE_MENU = MENU_THRESHOLD / FULL_SCALE       # 0.10 — menu opens
+ZONE_SLEEP = SLEEP_THRESHOLD / FULL_SCALE     # 0.50 — sleep fires
 # Shutdown at 1.0 (10s)
 
 
@@ -88,7 +92,7 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
     """Draw button hold progress and release flash."""
     now = state.time
 
-    # ── Flash label (brief pill after release) ──
+    # ── Flash label (brief pill after release/action) ──
     if state.button_flash and now < state._button_flash_until:
         _draw_flash(draw, state.button_flash, now, state._button_flash_until)
     elif state.button_flash:
@@ -112,7 +116,7 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
         )
         return
 
-    # Ring fade-in: ramp brightness from 0→1 over RING_FADEIN_RANGE of progress
+    # Ring fade-in: ramp brightness from 0->1 over RING_FADEIN_RANGE of progress
     # after crossing the visibility threshold.
     fade_progress = progress - RING_VISIBLE_FRAC
     ring_alpha = min(fade_progress / RING_FADEIN_RANGE, 1.0) if RING_FADEIN_RANGE > 0 else 1.0
@@ -121,67 +125,85 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
     bg_color = _scale_color((30, 30, 50), ring_alpha)
     _draw_ring(draw, ARC_CX, ARC_CY, ARC_R, ARC_THICKNESS, bg_color)
 
-    # Tick at 1s (menu arms) and 5s (sleep threshold)
-    _draw_zone_tick(draw, ZONE_MENU_ARM, ring_alpha)
+    # Tick marks at zone boundaries
+    _draw_zone_tick(draw, ZONE_MENU, ring_alpha)
     _draw_zone_tick(draw, ZONE_SLEEP, ring_alpha)
 
-    # ── Progress arc — two zones matching release behavior ──
+    # ── Progress arc — zones matching the new button model ──
     start_angle = -90  # 12 o'clock
     bbox = [ARC_CX - ARC_R, ARC_CY - ARC_R, ARC_CX + ARC_R, ARC_CY + ARC_R]
 
-    if progress <= ZONE_SLEEP:
-        # Zone 1: 0-5s — cyan (release = Menu once past 1s)
+    if progress <= ZONE_MENU:
+        # Zone 1: 0.4-1s — cyan (Talk/recording active)
         end_angle = start_angle + int(360 * progress)
-        t = min(progress / ZONE_SLEEP, 1.0)
+        t = min(progress / ZONE_MENU, 1.0)
         ring_color = _scale_color(_lerp_color(CYAN_DIM, CYAN, t), ring_alpha)
         draw.arc(bbox, start_angle, end_angle, fill=ring_color, width=ARC_THICKNESS)
 
-        # Brighter pulse once menu is armed (past 1s)
-        if progress >= ZONE_MENU_ARM:
-            dot_color = _scale_color(CYAN, ring_alpha)
-            draw.ellipse(
-                [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
-                fill=dot_color,
-            )
-    else:
-        # Zone 1 full (cyan) + Zone 2 partial (orange→red)
-        sleep_end = start_angle + int(360 * ZONE_SLEEP)
-        draw.arc(bbox, start_angle, sleep_end,
+        # Pulsing center dot while recording
+        pulse = math.sin(now * 6.0) * 0.3 + 0.7
+        dot_color = _scale_color(CYAN, ring_alpha * pulse)
+        draw.ellipse(
+            [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
+            fill=dot_color,
+        )
+    elif progress <= ZONE_SLEEP:
+        # Zone 1 full (cyan) + Zone 2 partial (bright cyan)
+        menu_end = start_angle + int(360 * ZONE_MENU)
+        draw.arc(bbox, start_angle, menu_end,
                  fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
 
-        zone2_progress = (progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP)
+        zone2_progress = (progress - ZONE_MENU) / (ZONE_SLEEP - ZONE_MENU)
         t2 = min(zone2_progress, 1.0)
-        zone2_color = _scale_color(_lerp_color(ORANGE_DIM, RED, t2), ring_alpha)
-        end_angle = sleep_end + int(360 * (1.0 - ZONE_SLEEP) * zone2_progress)
-        draw.arc(bbox, sleep_end, end_angle, fill=zone2_color, width=ARC_THICKNESS)
+        zone2_color = _scale_color(_lerp_color(CYAN, CYAN_BRIGHT, t2), ring_alpha)
+        end_angle = menu_end + int(360 * (ZONE_SLEEP - ZONE_MENU) * zone2_progress)
+        draw.arc(bbox, menu_end, end_angle, fill=zone2_color, width=ARC_THICKNESS)
+
+        # Center dot — bright cyan
+        dot_color = _scale_color(CYAN_BRIGHT, ring_alpha)
+        draw.ellipse(
+            [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
+            fill=dot_color,
+        )
+    else:
+        # Zone 1 + Zone 2 full + Zone 3 partial (orange→red)
+        menu_end = start_angle + int(360 * ZONE_MENU)
+        sleep_end = start_angle + int(360 * ZONE_SLEEP)
+        draw.arc(bbox, start_angle, menu_end,
+                 fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
+        draw.arc(bbox, menu_end, sleep_end,
+                 fill=_scale_color(CYAN_BRIGHT, ring_alpha), width=ARC_THICKNESS)
+
+        zone3_progress = (progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP)
+        t3 = min(zone3_progress, 1.0)
+        zone3_color = _scale_color(_lerp_color(ORANGE_DIM, RED, t3), ring_alpha)
+        end_angle = sleep_end + int(360 * (1.0 - ZONE_SLEEP) * zone3_progress)
+        draw.arc(bbox, sleep_end, end_angle, fill=zone3_color, width=ARC_THICKNESS)
 
         # Center dot — orange/red
-        dot_color = _scale_color(_lerp_color(ORANGE, RED, t2), ring_alpha)
+        dot_color = _scale_color(_lerp_color(ORANGE, RED, t3), ring_alpha)
         draw.ellipse(
             [ARC_CX - 4, ARC_CY - 4, ARC_CX + 4, ARC_CY + 4],
             fill=dot_color,
         )
 
-    # ── Label below the ring — shows what release does NOW ──
-    font = get_font(13)
+    # ── Label below the ring — shows current zone ──
+    font = get_font(16)
     if progress >= ZONE_SLEEP:
-        # Past 5s: release = sleep (approaching shutdown at 10s)
-        t2 = min((progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP), 1.0)
-        if t2 > 0.8:
+        t3 = min((progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP), 1.0)
+        if t3 > 0.8:
             label = "Shutdown"
             color = RED
         else:
             label = "Sleep"
-            color = _lerp_color(ORANGE, RED, t2)
-    elif progress >= ZONE_MENU_ARM:
-        # Past 1s: release = menu (armed)
+            color = _lerp_color(ORANGE, RED, t3)
+    elif progress >= ZONE_MENU:
         label = "Menu"
-        color = CYAN
+        color = CYAN_BRIGHT
     else:
-        # 0.4-1s: approaching menu threshold
-        label = "Menu"
-        t1 = progress / ZONE_MENU_ARM
-        color = _lerp_color(CYAN_DIM, CYAN, t1)
+        # 0.4-1s: recording zone
+        label = "Talk"
+        color = GREEN_BRIGHT
 
     color = _scale_color(color, ring_alpha)
     tw = text_width(font, label)
@@ -226,14 +248,14 @@ def _draw_ring(draw: ImageDraw.ImageDraw, cx: int, cy: int,
 
 def _draw_flash(draw: ImageDraw.ImageDraw, flash_type: str, now: float,
                 until: float) -> None:
-    """Draw a brief label pill after button release.
+    """Draw a brief label pill after button release/action.
 
     Animation phases (0.5s total):
       0.00 - 0.12s  slide up from off-screen (ease-out)
       0.12 - 0.35s  hold at final position
       0.35 - 0.50s  fade out
     """
-    font = get_font(13)
+    font = get_font(16)
     elapsed = now - (until - FLASH_TOTAL)  # time since flash started
 
     # Compute visibility (fade) and vertical offset (slide)
@@ -259,12 +281,9 @@ def _draw_flash(draw: ImageDraw.ImageDraw, flash_type: str, now: float,
     if flash_type == "short_press":
         label = "Tap"
         color = CYAN
-    elif flash_type == "double_tap":
+    elif flash_type == "start_recording":
         label = "Talk"
         color = GREEN_BRIGHT
-    elif flash_type == "medium_press":
-        label = "Prev"
-        color = CYAN
     elif flash_type == "long_press":
         label = "Menu"
         color = CYAN_BRIGHT
@@ -275,7 +294,7 @@ def _draw_flash(draw: ImageDraw.ImageDraw, flash_type: str, now: float,
         label = "Shutdown"
         color = RED
     else:
-        # Legacy fallback
+        # Fallback for any unrecognised type
         label = flash_type.replace("_", " ").title()
         color = CYAN
 

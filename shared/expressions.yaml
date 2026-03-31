@@ -34,7 +34,7 @@ neutral:
   eyes:
     width: 1.0
     height: 1.0
-    openness: 0.9
+    openness: 1.0
     pupil_size: 0.4
     gaze_x: 0
     gaze_y: 0
@@ -119,11 +119,11 @@ thinking:
     scale: 1.0
   modifiers:
     - type: tilt_oscillation
-      speed: 1.2
-      amount: 3.5
+      speed: 0.8
+      amount: 2.5
     - type: eye_swap
       cycle: 7.0
-      gaze_influence: 0.3
+      gaze_influence: 0.1
 
 confused:
   eyes:
@@ -242,16 +242,16 @@ sad:
   eyes:
     width: 0.95
     height: 0.9
-    openness: 0.7
+    openness: 0.6
     pupil_size: 0.4
     gaze_x: 0
     gaze_y: 0.3
     blink_rate: 1.0
     squint: 0
   left_eye:
-    tilt: 6
+    tilt: 15
   right_eye:
-    tilt: -6
+    tilt: -15
   mouth:
     openness: 0
     smile: -0.5
@@ -314,9 +314,9 @@ frustrated:
     squint: 0.2
   # Angry V-shaped -- inner edges tilted down
   left_eye:
-    tilt: -12
+    tilt: -16
   right_eye:
-    tilt: 12
+    tilt: 16
   mouth:
     openness: 0
     smile: -0.5

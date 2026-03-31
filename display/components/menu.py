@@ -1,14 +1,16 @@
 """Settings menu overlay for single-button device.
 
-Menu items: Agent, Character, Setup, Brightness, Volume, Battery, Update, About, Close.
-Sub-screens: agent selection, character selection, brightness/volume sliders,
-battery status, update check, about info.
+Menu items: Agent, Character, Setup, Brightness, Volume, Battery, Update, About,
+Reboot, Back.  Sub-screens: agent selection, character selection,
+brightness/volume value pickers, battery status, update check, about info.
 
 Navigation (single button, no touch screen):
-  Tap (<0.4s)     = move cursor down (next item)
-  Hold (0.4-1s)   = move cursor up (previous item)
-  Long hold (>1s) = select / enter sub-screen
-  Double-tap      = back / close menu
+  Tap  (<0.5s)  = move to next item (advance highlight)
+  Hold (>0.5s)  = select / enter current item (fires at threshold)
+  "Back" is the last item in every menu/submenu. Tap to reach it, hold to go back.
+  For value items (volume, brightness): once selected, taps cycle preset values,
+  hold confirms and returns to menu.
+  Menu auto-closes after 5s of no input (handled by button state machine).
 """
 
 from __future__ import annotations
@@ -39,11 +41,11 @@ RED = (255, 60, 60)
 
 # ── Font sizes ──────────────────────────────────────────────────────────────
 
-FONT_TITLE = 16       # section titles
+FONT_TITLE = 18       # section titles
 FONT_ITEM = 16        # menu item labels
-FONT_ICON = 14        # item icons
-FONT_HINT = 13        # bottom hint bar
-FONT_VALUE = 22       # large value display (slider, battery)
+FONT_ICON = 16        # item icons
+FONT_HINT = 14        # bottom hint bar
+FONT_VALUE = 26       # large value display (slider, battery)
 
 # ── Layout ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ SCREEN_W = 240
 SCREEN_H = 280
 HINT_H = 28           # bottom hint bar height
 HINT_Y = SCREEN_H - HINT_H
-ITEM_H = 34           # menu row height
+ITEM_H = 38           # menu row height
 LIST_TOP = 36         # below title + divider
 MAX_LABEL_W = 170     # max width before text scrolls
 
@@ -71,8 +73,12 @@ MENU_ITEMS = [
     ("update", "^", "Update"),
     ("about", "i", "About"),
     ("reboot", "!", "Reboot"),
-    ("close", "x", "Close"),
+    ("back", "<", "Back"),
 ]
+
+# Value presets for brightness/volume adjustment (cycled with tap)
+BRIGHTNESS_PRESETS = [0, 25, 50, 75, 100]
+VOLUME_PRESETS = [0, 25, 50, 75, 100]
 
 ACCENT_PRESETS = [
     ("#00d4d2", "Cyan"),
@@ -96,46 +102,27 @@ AGENTS = [
 
 # ── Button actions (single source of truth for hint text) ───────────────────
 # Timings must match display/service.py thresholds:
-#   Tap:    <0.4s (instant in menu)    Hold: 0.4-0.7s    Long: >0.7s
-#   Double-tap: two taps within 0.4s   Sleep: >5s        Shutdown: >10s
+#   Tap:  <0.5s   Hold: >0.5s   Menu auto-closes after 5s idle.
 
-BUTTON_ACTIONS = {
-    "list": {
-        "tap": "next",
-        "hold": "prev",
-        "long": "select",
-        "2x": "back",
-    },
-    "slider": {
-        "tap": "+5",
-        "hold": "-5",
-        "2x": "back",
-    },
-    "info": {
-        "long": "back",
-        "2x": "back",
-    },
-}
-
-
-def _hint_from_actions(context: str) -> str:
-    """Build hint string from button action mapping."""
-    actions = BUTTON_ACTIONS.get(context, {})
-    parts = []
-    for btn, action in actions.items():
-        parts.append(f"{btn}={action}")
-    return "  ".join(parts)
-
-
-HINT_LIST = _hint_from_actions("list")
-HINT_SLIDER = _hint_from_actions("slider")
-HINT_INFO = _hint_from_actions("info")
+HINT_LIST = "tap=next  hold=select"
+HINT_VALUE = "tap=change  hold=done"
+HINT_INFO = "hold=back"
 
 
 # ── Menu state ──────────────────────────────────────────────────────────────
 
 class MenuState:
-    """Tracks menu navigation state."""
+    """Tracks menu navigation state.
+
+    Navigation model (single button):
+      navigate(1)  = tap = advance to next item
+      select()     = hold = enter/confirm current item
+      "Back" is the last item in every list. Selecting it goes back.
+
+    Value adjustment sub-screens (brightness/volume):
+      navigate(1)  = cycle through preset values (0, 25, 50, 75, 100)
+      select()     = confirm and return to parent menu
+    """
 
     def __init__(self) -> None:
         self.open: bool = False
@@ -147,19 +134,38 @@ class MenuState:
         self._select_flash_idx: int = -1
         self._select_flash_time: float = 0.0
         self._reboot_confirmed: bool = False
+        self._pending_value: int | None = None  # for brightness/volume preset cycling
+        # Queued config changes to persist (consumed by the render loop)
+        self._pending_config: dict | None = None
 
     def navigate(self, direction: int) -> None:
+        """Move cursor in the current list. For value sub-screens, cycle presets."""
         if self.sub_screen == "agent":
-            self.agent_cursor = (self.agent_cursor + direction) % len(AGENTS)
+            # +1 for "Back" item appended to sub-lists
+            self.agent_cursor = (self.agent_cursor + direction) % (len(AGENTS) + 1)
         elif self.sub_screen == "character":
             names = character_names()
-            self.character_cursor = (self.character_cursor + direction) % len(names)
+            self.character_cursor = (self.character_cursor + direction) % (len(names) + 1)
         elif self.sub_screen == "accent":
-            self.accent_cursor = (self.accent_cursor + direction) % len(ACCENT_PRESETS)
-        elif self.sub_screen in ("brightness", "volume"):
-            pass
+            self.accent_cursor = (self.accent_cursor + direction) % (len(ACCENT_PRESETS) + 1)
+        elif self.sub_screen == "brightness":
+            # Cycle through brightness presets
+            cur = _nearest_preset(BRIGHTNESS_PRESETS, self._get_value_for_sub("brightness"))
+            idx = BRIGHTNESS_PRESETS.index(cur) if cur in BRIGHTNESS_PRESETS else 0
+            self._pending_value = BRIGHTNESS_PRESETS[(idx + direction) % len(BRIGHTNESS_PRESETS)]
+        elif self.sub_screen == "volume":
+            # Cycle through volume presets
+            cur = _nearest_preset(VOLUME_PRESETS, self._get_value_for_sub("volume"))
+            idx = VOLUME_PRESETS.index(cur) if cur in VOLUME_PRESETS else 0
+            self._pending_value = VOLUME_PRESETS[(idx + direction) % len(VOLUME_PRESETS)]
         elif not self.sub_screen:
             self.cursor = (self.cursor + direction) % len(MENU_ITEMS)
+
+    def _get_value_for_sub(self, sub: str) -> int:
+        """Get current pending value for a value sub-screen."""
+        if self._pending_value is not None:
+            return self._pending_value
+        return 0  # fallback, will be overridden by select/enter
 
     def is_select_flashing(self, idx: int) -> bool:
         if idx != self._select_flash_idx:
@@ -167,40 +173,76 @@ class MenuState:
         return (time.time() - self._select_flash_time) < 0.15
 
     def select(self, state: DisplayState) -> None:
+        """Select/enter the current item (hold action)."""
         if self.sub_screen == "agent":
+            # Check if cursor is on "Back" (last item)
+            if self.agent_cursor >= len(AGENTS):
+                self.sub_screen = ""
+                return
             self._select_flash_idx = self.agent_cursor
             self._select_flash_time = time.time()
             state.agent = AGENTS[self.agent_cursor][0]
+            self._pending_config = {"gateway": {"default_agent": state.agent}}
             self.sub_screen = ""
         elif self.sub_screen == "character":
+            names = character_names()
+            if self.character_cursor >= len(names):
+                self.sub_screen = ""
+                return
             self._select_flash_idx = self.character_cursor
             self._select_flash_time = time.time()
-            names = character_names()
             state.character = names[self.character_cursor]
+            self._pending_config = {"character": {"default": state.character}}
             self.sub_screen = ""
         elif self.sub_screen == "accent":
+            if self.accent_cursor >= len(ACCENT_PRESETS):
+                self.sub_screen = ""
+                return
             self._select_flash_idx = self.accent_cursor
             self._select_flash_time = time.time()
             state.accent_color = ACCENT_PRESETS[self.accent_cursor][0]
+            self._pending_config = {"character": {"accent_color": state.accent_color}}
+            self.sub_screen = ""
+        elif self.sub_screen == "brightness":
+            # Confirm value and return
+            if self._pending_value is not None:
+                state.brightness = self._pending_value
+                self._pending_config = {"display": {"brightness": self._pending_value}}
+            self._pending_value = None
+            self.sub_screen = ""
+        elif self.sub_screen == "volume":
+            # Confirm value and return
+            if self._pending_value is not None:
+                state.volume = self._pending_value
+                self._pending_config = {"audio": {"volume": self._pending_value}}
+            self._pending_value = None
             self.sub_screen = ""
         elif self.sub_screen == "reboot":
             self._reboot_confirmed = True
             self.sub_screen = ""
             self.open = False
         elif self.sub_screen:
+            # Info screens (battery, update, about) — hold goes back
             self.sub_screen = ""
         else:
             self._select_flash_idx = self.cursor
             self._select_flash_time = time.time()
             item_id = MENU_ITEMS[self.cursor][0]
-            if item_id == "close":
+            if item_id == "back":
                 self.open = False
             else:
                 self.sub_screen = item_id
                 self._sync_cursor_to_selection(state)
+                # Initialize pending value for value screens
+                if item_id == "brightness":
+                    self._pending_value = state.brightness
+                elif item_id == "volume":
+                    self._pending_value = state.volume
 
     def back(self) -> None:
+        """Go back one level (used by keyboard shortcut)."""
         if self.sub_screen:
+            self._pending_value = None
             self.sub_screen = ""
         else:
             self.open = False
@@ -224,10 +266,18 @@ class MenuState:
                     break
 
     def adjust(self, state: DisplayState, delta: int) -> None:
+        """Adjust value (used by keyboard shortcuts a/d in dev mode)."""
         if self.sub_screen == "brightness":
             state.brightness = max(0, min(100, state.brightness + delta))
+            self._pending_value = state.brightness
         elif self.sub_screen == "volume":
             state.volume = max(0, min(100, state.volume + delta))
+            self._pending_value = state.volume
+
+
+def _nearest_preset(presets: list[int], value: int) -> int:
+    """Find the nearest preset value."""
+    return min(presets, key=lambda p: abs(p - value))
 
 
 # ── Drawing ─────────────────────────────────────────────────────────────────
@@ -253,10 +303,12 @@ def draw_menu(draw: ImageDraw.ImageDraw, state: DisplayState,
     elif menu.sub_screen == "setup":
         pass  # Drawn by renderer using QR overlay
     elif menu.sub_screen == "brightness":
-        warn = "Below 100% may flicker (SW PWM)" if state.brightness < 100 else ""
-        _draw_slider_screen(draw, "BRIGHTNESS", state.brightness, font, font_sm, font_lg, warning=warn)
+        bval = menu._pending_value if menu._pending_value is not None else state.brightness
+        warn = "Below 100% may flicker (SW PWM)" if bval < 100 else ""
+        _draw_value_screen(draw, "BRIGHTNESS", bval, BRIGHTNESS_PRESETS, font, font_sm, font_lg, warning=warn)
     elif menu.sub_screen == "volume":
-        _draw_slider_screen(draw, "VOLUME", state.volume, font, font_sm, font_lg)
+        vval = menu._pending_value if menu._pending_value is not None else state.volume
+        _draw_value_screen(draw, "VOLUME", vval, VOLUME_PRESETS, font, font_sm, font_lg)
     elif menu.sub_screen == "battery":
         _draw_battery_screen(draw, state, font, font_sm, font_lg)
     elif menu.sub_screen == "update":
@@ -394,6 +446,7 @@ def _draw_main_menu(draw: ImageDraw.ImageDraw, menu: MenuState,
 def _draw_agent_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
                        menu: MenuState, font, font_sm) -> None:
     items = [(a[0], ">", f"{a[1]} - {a[2]}") for a in AGENTS]
+    items.append(("_back", "<", "Back"))
     _draw_scrollable_list(
         draw, "AGENT", items, menu.agent_cursor,
         selected_fn=lambda id: id == state.agent,
@@ -414,6 +467,7 @@ def _draw_character_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
                            menu: MenuState, font, font_sm) -> None:
     names = character_names()
     items = [(n, "#", CHARACTER_DESCRIPTIONS.get(n, n)) for n in names]
+    items.append(("_back", "<", "Back"))
     _draw_scrollable_list(
         draw, "CHARACTER", items, menu.character_cursor,
         selected_fn=lambda id: id == state.character,
@@ -427,40 +481,57 @@ def _draw_accent_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
     """Draw accent color preset picker with color swatches."""
     _draw_title(draw, "ACCENT COLOR")
 
+    # Include "Back" as last item
+    total_items = len(ACCENT_PRESETS) + 1
     y = 44
-    for i, (hex_val, name) in enumerate(ACCENT_PRESETS):
-        is_cursor = i == menu.accent_cursor
-        is_selected = hex_val == state.accent_color
-        item_y = y + i * 26
+    for i in range(total_items):
+        if i < len(ACCENT_PRESETS):
+            hex_val, name = ACCENT_PRESETS[i]
+            is_cursor = i == menu.accent_cursor
+            is_selected = hex_val == state.accent_color
+            item_y = y + i * 26
 
-        # Parse hex to RGB for swatch
-        h = hex_val.lstrip("#")
-        rgb = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+            # Parse hex to RGB for swatch
+            h = hex_val.lstrip("#")
+            rgb = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
-        # Highlight cursor row
-        if is_cursor:
-            draw.rectangle([4, item_y - 2, SCREEN_W - 5, item_y + 22], fill=(24, 24, 40))
+            # Highlight cursor row
+            if is_cursor:
+                draw.rectangle([4, item_y - 2, SCREEN_W - 5, item_y + 22], fill=(24, 24, 40))
 
-        # Color swatch (circle)
-        sw_x = 20
-        sw_y = item_y + 10
-        sw_r = 8
-        draw.ellipse([sw_x - sw_r, sw_y - sw_r, sw_x + sw_r, sw_y + sw_r], fill=rgb)
+            # Color swatch (circle)
+            sw_x = 20
+            sw_y = item_y + 10
+            sw_r = 8
+            draw.ellipse([sw_x - sw_r, sw_y - sw_r, sw_x + sw_r, sw_y + sw_r], fill=rgb)
 
-        # Name
-        name_color = rgb if is_cursor else (120, 120, 140)
-        draw.text((38, item_y + 2), name, fill=name_color, font=font)
+            # Name
+            name_color = rgb if is_cursor else (120, 120, 140)
+            draw.text((38, item_y + 2), name, fill=name_color, font=font)
 
-        # Checkmark if selected
-        if is_selected:
-            draw.text((SCREEN_W - 30, item_y + 2), "+", fill=rgb, font=font)
+            # Checkmark if selected
+            if is_selected:
+                draw.text((SCREEN_W - 30, item_y + 2), "+", fill=rgb, font=font)
+        else:
+            # "Back" item
+            item_y = y + i * 26
+            is_cursor = i == menu.accent_cursor
+            if is_cursor:
+                draw.rectangle([4, item_y - 2, SCREEN_W - 5, item_y + 22], fill=(24, 24, 40))
+            color = CYAN if is_cursor else TEXT_DIM
+            draw.text((18, item_y + 2), "<", fill=color, font=font_sm)
+            draw.text((38, item_y + 2), "Back", fill=color, font=font)
 
     _draw_hint_bar(draw, HINT_LIST)
 
 
-def _draw_slider_screen(draw: ImageDraw.ImageDraw, title: str, value: int,
-                        font, font_sm, font_lg,
-                        warning: str = "") -> None:
+def _draw_value_screen(draw: ImageDraw.ImageDraw, title: str, value: int,
+                       presets: list[int], font, font_sm, font_lg,
+                       warning: str = "") -> None:
+    """Draw a value adjustment screen with preset indicators.
+
+    Tap cycles through presets, hold confirms and returns to menu.
+    """
     _draw_title(draw, title)
 
     # Value display
@@ -483,16 +554,31 @@ def _draw_slider_screen(draw: ImageDraw.ImageDraw, title: str, value: int,
             radius=5, fill=CYAN,
         )
 
+    # Preset tick marks on the track
+    for p in presets:
+        if 0 < p < 100:
+            px = track_x + int(track_w * p / 100)
+            draw.line([(px, track_y - 3), (px, track_y)], fill=CYAN_DIM, width=1)
+
+    # Preset labels below track
+    preset_y = track_y + track_h + 8
+    for p in presets:
+        px = track_x + int(track_w * p / 100)
+        label = str(p)
+        lw = text_width(font_sm, label)
+        color = CYAN if p == value else TEXT_DIM
+        draw.text((px - lw // 2, preset_y), label, fill=color, font=font_sm)
+
     # Warning text
     if warning:
-        warn_font = get_font(13)
+        warn_font = get_font(14)
         lines = wrap_text(warn_font, warning, 200)
-        wy = 124
+        wy = preset_y + 24
         for line in lines:
             draw.text((20, wy), line, fill=ORANGE, font=warn_font)
             wy += 18
 
-    _draw_hint_bar(draw, HINT_SLIDER)
+    _draw_hint_bar(draw, HINT_VALUE)
 
 
 def _draw_battery_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
@@ -676,7 +762,7 @@ def _draw_reboot_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
     cw = text_width(font_sm, confirm_text)
     draw.text(((SCREEN_W - cw) // 2, y), confirm_text, fill=ORANGE, font=font_sm)
 
-    _draw_hint_bar(draw, "long=confirm  2x=back")
+    _draw_hint_bar(draw, "hold=confirm")
 
 
 def _icon_web(draw: ImageDraw.ImageDraw, x: int, y: int, color: tuple) -> None:
