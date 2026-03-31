@@ -646,25 +646,55 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     header("Voxel Uninstall")
+    nuke = getattr(args, "nuke", False)
+
+    if nuke:
+        warn("NUKE MODE — will remove everything including repo, config, and drivers")
 
     if not getattr(args, "yes", False):
-        confirm = input(f"  Remove Voxel from this system? [y/N] ").strip().lower()
+        prompt = "  Remove ALL Voxel data from this system? [y/N] " if nuke else "  Remove Voxel services? [y/N] "
+        confirm = input(prompt).strip().lower()
         if confirm not in ("y", "yes"):
             info("Cancelled.")
             return 0
 
+    # Stop and disable all services (including first-boot)
     info("Stopping services...")
-    for svc in SERVICES:
+    all_services = SERVICES + ["voxel-first-boot"]
+    for svc in all_services:
         _run(f"sudo systemctl stop {svc}", shell=True, capture_output=True)
         _run(f"sudo systemctl disable {svc}", shell=True, capture_output=True)
 
     info("Removing unit files...")
-    for svc in SERVICES:
+    for svc in all_services:
         _run(f"sudo rm -f /etc/systemd/system/{svc}.service", shell=True)
     _run("sudo systemctl daemon-reload", shell=True)
 
-    info("Removing voxel command...")
-    _run("sudo rm -f /usr/local/bin/voxel", shell=True)
+    info("Removing voxel commands...")
+    _run("sudo rm -f /usr/local/bin/voxel /usr/local/bin/voxel-splash", shell=True)
+
+    # Remove boot splash frame
+    for splash_path in ["/boot/voxel-splash.rgb565", "/boot/firmware/voxel-splash.rgb565"]:
+        if Path(splash_path).exists():
+            _run(f"sudo rm -f {splash_path}", shell=True)
+            info(f"Removed {splash_path}")
+
+    # Remove setup state
+    setup_state = VOXEL_DIR / "config" / ".setup-state"
+    if setup_state.exists():
+        setup_state.unlink()
+        info("Removed setup state")
+
+    # Remove local config
+    local_yaml = VOXEL_DIR / "config" / "local.yaml"
+    if local_yaml.exists():
+        local_yaml.unlink()
+        info("Removed config/local.yaml")
+
+    # Remove display lock/flag files
+    for tmp_file in ["/tmp/voxel-display.lock", "/tmp/voxel-wifi-setup"]:
+        if Path(tmp_file).exists():
+            _run(f"rm -f {tmp_file}", shell=True)
 
     home = Path.home()
     cache = home / ".cache" / "uv"
@@ -672,10 +702,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         info("Cleaning uv cache...")
         shutil.rmtree(cache, ignore_errors=True)
 
-    ok("Uninstall complete")
-    console.print()
-    info("Kept: Node.js, uv, cog, system packages, Whisplay drivers")
-    info(f"Repo still at: {VOXEL_DIR}")
+    if nuke:
+        # Remove the entire repo
+        info(f"Removing {VOXEL_DIR}...")
+        # Can't rmtree ourselves while running, use a detached rm
+        _run(f"nohup bash -c 'sleep 1 && rm -rf {VOXEL_DIR}' >/dev/null 2>&1 &", shell=True)
+        ok("Nuke complete — repo will be removed momentarily")
+    else:
+        ok("Uninstall complete")
+        console.print()
+        info("Kept: repo, system packages, Whisplay audio drivers")
+        info(f"Repo still at: {VOXEL_DIR}")
+        info("To fully remove: voxel uninstall --nuke")
+
     console.print()
     return 0
 
@@ -1164,6 +1203,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_uninstall = sub.add_parser("uninstall", help="Remove Voxel services and caches")
     p_uninstall.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
+    p_uninstall.add_argument("--nuke", action="store_true", help="Remove everything including repo, config, and drivers")
 
     p_backup = sub.add_parser("backup", help="Backup, restore, or factory reset")
     backup_sub = p_backup.add_subparsers(dest="backup_command")
