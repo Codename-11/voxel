@@ -86,7 +86,7 @@ jobs:
           locale: en_US.UTF-8
           keyboard-keymap: us
           keyboard-layout: English (US)
-          timezone: UTC
+          timezone: Etc/UTC
           enable-ssh: 1
           extra-host-dependencies: rsync
           verbose-output: true
