@@ -23,23 +23,13 @@
   <img src="assets/character/concept-03-ui-mockup.png" width="240" alt="Voxel on the Relay device" />
 </p>
 
-## Features
+## What is Voxel?
 
-- **Animated face** on 240x280 IPS LCD -- 16 mood states, 3 visual styles, smooth transitions
-- **Multiple characters** -- Voxel (default), Cube (isometric), BMO (Adventure Time)
-- **Voice interaction** -- push-to-talk via single button, Whisper STT, OpenAI TTS/ElevenLabs/edge-tts
-- **Multiple AI agents** -- switch between Daemon, Soren, Ash, Mira, Jace, Pip via OpenClaw
-- **Web-based settings** -- config UI on port 8081 with QR code access and PIN auth
-- **WiFi onboarding** -- AP mode captive portal on first boot ("Voxel-Setup" hotspot)
-- **Self-update** -- check for and install updates via git from the device menu
-- **MCP integration** -- expose 20 device tools to AI agents: control (mood, speech, LED), query (stats, logs, diagnostics), manage (config, services, updates, WiFi)
-- **Webhook events** -- notify OpenClaw gateway on state changes, battery alerts, conversations
-- **Streaming chat** -- SSE streaming with progressive display, tool call indicators, emoji reactions
-- **System stats** -- CPU temp, RAM, disk, WiFi signal via `/api/stats` endpoint
-- **Light/dark mode** -- web config server supports both themes with auto-detection
-- **Cross-platform dev preview** -- develop on Windows, macOS, or Linux with tkinter preview
+Voxel is a pocket-sized AI companion that runs on a Raspberry Pi Zero 2W with a PiSugar Whisplay HAT. It gives your AI agents a physical presence — an animated face on a tiny LCD, a speaker, a microphone, and a button. Talk to it, and it talks back. Connect it to OpenClaw to chat with different AI agents. Give those agents control over the device via MCP so they can set moods, speak text, and react to the world.
 
-## Hardware (The Relay)
+## Quick Start
+
+### Hardware (The Relay)
 
 | Component | Product | Purpose |
 |-----------|---------|---------|
@@ -51,41 +41,20 @@
 
 See [docs/hardware.md](docs/hardware.md) for detailed specs, pin mapping, and assembly.
 
-## Quick Start
+### Setup
 
-### On the Pi (first time)
+Flash [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/software/) to the SD card, enable SSH, boot, then:
 
 ```bash
 ssh pi@voxel.local
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-### Development (any platform)
+First-time setup takes ~15-20 minutes on a Pi Zero 2W (compiling drivers, installing dependencies). After the reboot, the configuration wizard runs automatically on the LCD — it walks you through WiFi, gateway token, voice settings, and more.
 
-Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager).
+For the full walkthrough, see the [Quick Start guide](user-docs/guide/quick-start.md).
 
-```bash
-git clone https://github.com/Codename-11/voxel.git
-cd voxel
-
-# Local preview (PIL renderer in a tkinter window — same as Pi LCD)
-uv run dev
-
-# Auto-reload on file changes
-uv run dev-watch
-
-# Push to Pi hardware
-uv run voxel dev-push --logs
-```
-
-The preview window renders 1:1 with the Pi LCD (240x280, same PIL renderer, corner mask, all components). Spacebar simulates the hardware button.
-
-> Voxel works standalone with just the display service. Add a gateway token for AI chat, enable MCP for remote agent control, or enable webhooks for event notifications. See [Operating Modes](#operating-modes).
-
-> **`uv run dev`** = PIL display preview (what runs on the Pi). This is the primary dev command.
-> **`npm run dev`** = React browser UI (design tool only, NOT the production renderer).
-
-## Button Controls
+### Button Controls
 
 Single button (Whisplay HAT). All interaction encoded through hold duration -- no double-tap:
 
@@ -105,40 +74,22 @@ Single button (Whisplay HAT). All interaction encoded through hold duration -- n
 | **Hold** | Sleep | > 5s (fires at threshold) |
 | **Hold** | Shutdown (with 3s confirm) | > 10s (fires at threshold) |
 
-Inside menus: tap = next item, hold > 500ms = select. Desktop: spacebar simulates the button.
+Inside menus: tap = next item, hold > 500ms = select.
 
-## Configuration
+## Features
 
-- **Interactive wizard:** `voxel configure` -- guided setup for gateway, voice, display, MCP, webhooks, and power. Runs automatically after `voxel setup`.
-- **Web UI:** Settings menu on device, or scan QR code to open `http://<device-ip>:8081`
-- **Config files:** `config/default.yaml` (defaults) + `config/local.yaml` (overrides, gitignored)
-- **Required keys:** Gateway token (`gateway.token`), OpenAI API key (`stt.whisper.api_key` — also used by OpenAI TTS)
+- **Animated face** on 240x280 IPS LCD -- 16 mood states, 3 visual styles, smooth transitions
+- **Multiple characters** -- Voxel (default), Cube (isometric), BMO (Adventure Time)
+- **Voice interaction** -- push-to-talk via single button, Whisper STT, OpenAI TTS/ElevenLabs/edge-tts
+- **Multiple AI agents** -- switch between Daemon, Soren, Ash, Mira, Jace, Pip via OpenClaw
+- **MCP integration** -- 20 device tools for AI agents: control mood, speech, LED; query stats, logs, diagnostics; manage config, services, updates
+- **Web-based settings** -- config UI on port 8081 with QR code access and PIN auth
+- **WiFi onboarding** -- AP mode captive portal on first boot ("Voxel-Setup" hotspot)
+- **Self-update** -- check for and install updates from the device menu
+- **Streaming chat** -- SSE streaming with progressive display, tool call indicators, emoji reactions
+- **Cross-platform dev preview** -- develop on Windows, macOS, or Linux with tkinter preview
 
-```bash
-voxel configure                                   # interactive wizard
-voxel config set gateway.token <your-token>        # or set individual keys
-voxel config set stt.whisper.api_key <your-key>
-```
-
-## Characters
-
-<p align="center">
-  <img src="assets/Logo.SVG" width="64" alt="Voxel flat" />
-  &nbsp;&nbsp;
-  <img src="assets/Logo-3D.SVG" width="64" alt="Voxel 3D" />
-</p>
-
-| Character | Description |
-|-----------|-------------|
-| **Voxel** (default) | Glowing cyan pill eyes — minimal, expressive |
-| **Cube** | Dark charcoal isometric cube with neon edge glow |
-| **BMO** | Adventure Time game console with face |
-
-16 moods defined in `shared/expressions.yaml`, 3 face styles in `shared/styles.yaml` (kawaii, retro, minimal). Smooth lerp transitions between moods.
-
-Characters are defined in `display/characters/` and selected via `config/default.yaml` (`character.default`).
-
-## Operating Modes
+### Operating Modes
 
 Voxel works in layers — each mode adds capabilities on top of the previous:
 
@@ -151,22 +102,13 @@ Voxel works in layers — each mode adds capabilities on top of the previous:
 
 All modes are additive. MCP and webhooks are disabled by default — enable in `config/local.yaml` or the web settings page under "Integration".
 
-### MCP Client Integration
+## Agent Integration (MCP)
 
-All clients get the same 20 tools. Device discovery at `http://DEVICE_IP:8081/.well-known/mcp`.
+AI agents can control Voxel via MCP — set moods, speak text, query device state, manage configuration, and more. 20 tools are exposed over stdio or SSE transport.
 
-| Client | Transport | Config | Setup |
-|--------|-----------|--------|-------|
-| Claude Code | SSE (remote) or stdio (local) | `.mcp.json` + `VOXEL_DEVICE_IP` env var | Auto via project `.mcp.json` |
-| Codex CLI | stdio | Manual config | `uv run python -m mcp` |
-| OpenClaw | SSE via mcporter | `mcporter config add voxel --url http://DEVICE_IP:8082/sse` | + skill install |
-| Any MCP client | SSE | `http://DEVICE_IP:8082/sse` | Standard MCP SSE |
+### Connect an agent
 
-> A Claude Code plugin is planned to simplify installation to one click — see project roadmap.
-
-## Agent Setup (MCP)
-
-Connect any AI agent to Voxel in seconds. The device serves setup instructions at a public URL — no auth required.
+The device serves setup instructions at a public URL — no auth required:
 
 ```bash
 # Fetch the setup guide (replace IP with your device)
@@ -176,12 +118,20 @@ curl http://voxel.local:8081/setup
 curl http://voxel.local:8081/skill
 ```
 
+### Client configuration
+
+All clients get the same 20 tools. Device discovery at `http://DEVICE_IP:8081/.well-known/mcp`.
+
+| Client | Transport | Config |
+|--------|-----------|--------|
+| Claude Code | SSE (remote) or stdio (local) | `.mcp.json` + `VOXEL_DEVICE_IP` env var |
+| Codex CLI | stdio | `uv run python -m mcp` |
+| OpenClaw | SSE via mcporter | `mcporter config add voxel --url http://DEVICE_IP:8082/sse` |
+| Any MCP client | SSE | `http://DEVICE_IP:8082/sse` |
+
 **OpenClaw:**
 ```bash
-# Register MCP server
 mcporter config add voxel --url http://voxel.local:8082/sse
-
-# Install skill (one-time)
 mkdir -p ~/.openclaw/workspace/skills/voxel-device
 curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://voxel.local:8081/skill
 ```
@@ -199,11 +149,84 @@ curl -o ~/.openclaw/workspace/skills/voxel-device/SKILL.md http://voxel.local:80
 | `/skill` | Full tool reference (SKILL.md) |
 | `/.well-known/mcp` | MCP server status + connection URL (JSON) |
 
-Full agent integration guide: [`AGENTS_SETUP.md`](AGENTS_SETUP.md) (also available at [raw GitHub URL](https://raw.githubusercontent.com/Codename-11/voxel/main/AGENTS_SETUP.md) — works without a running device).
+Full agent integration guide: [`AGENTS_SETUP.md`](AGENTS_SETUP.md)
+
+## CLI Commands
+
+After bootstrap, the `voxel` command is available globally on the Pi:
+
+| Command | Description |
+|---------|-------------|
+| `voxel setup` | First-time install (deps, build, services, wizard) |
+| `voxel configure` | Interactive configuration wizard |
+| `voxel doctor` | Full system health diagnostics |
+| `voxel update` | Pull latest, rebuild, restart services |
+| `voxel start` / `stop` / `restart` | Manage services |
+| `voxel logs` | Tail service logs |
+| `voxel status` | Service/system/hardware status |
+| `voxel config` | Show config (`config set`/`config get` for changes) |
+| `voxel mcp` | Start MCP server (AI agent integration) |
+| `voxel version` | Show version |
+
+See the [CLI reference](user-docs/guide/cli-reference.md) for the full command list including dev commands.
+
+## Configuration
+
+- **Interactive wizard:** `voxel configure` -- guided setup for gateway, voice, display, MCP, webhooks, and power. Runs automatically after `voxel setup`.
+- **Web UI:** Settings menu on device, or scan QR code to open `http://<device-ip>:8081`
+- **Config files:** `config/default.yaml` (defaults) + `config/local.yaml` (overrides, gitignored)
+- **Required keys:** Gateway token (`gateway.token`), OpenAI API key (`stt.whisper.api_key` -- also used by OpenAI TTS)
+
+```bash
+voxel configure                                   # interactive wizard
+voxel config set gateway.token <your-token>        # or set individual keys
+voxel config set stt.whisper.api_key <your-key>
+```
+
+See [Configuration guide](user-docs/guide/configuration.md) for all available settings.
+
+## Development
+
+For contributors and people building on Voxel. Uses [uv](https://docs.astral.sh/uv/) for all Python tooling (3.11-3.13).
+
+### Desktop preview
+
+The preview window renders 1:1 with the Pi LCD (240x280, same PIL renderer, corner mask, all components). Spacebar simulates the hardware button.
+
+```bash
+git clone https://github.com/Codename-11/voxel.git
+cd voxel
+
+uv run dev                        # PIL preview window (1:1 with Pi LCD)
+uv run dev --scale 3              # larger preview
+uv run dev --server               # with full voice pipeline (spawns server.py)
+uv run dev-watch                  # auto-restart on file changes
+```
+
+> **`uv run dev`** = PIL display preview (what runs on the Pi). This is the primary dev command.
+> **`npm run dev`** = React browser UI (design tool for expression iteration only, NOT the production renderer).
+
+### Dev pairing and push to Pi
+
+```bash
+uv run voxel dev-pair                       # auto-discover + pair with device
+uv run voxel dev-push --logs                # sync runtime to Pi + tail logs
+uv run voxel dev-push --watch               # watch for changes, auto-push
+uv run voxel dev-push --install-service     # set up systemd auto-start
+```
+
+### Testing
+
+```bash
+uv run pytest                     # run all tests
+uv run pytest tests/ -v           # verbose output
+```
+
+See the [Development workflow guide](user-docs/guide/dev-workflow.md) for the full dev setup, keyboard shortcuts, and remote development details.
 
 ## Architecture
 
-Three services run on the Pi. The **guardian** starts first, owns the display during boot, handles WiFi onboarding, and monitors health. The **backend** (`server.py`) manages state, AI pipelines, and hardware I/O over WebSocket. The **display service** renders PIL frames to the SPI LCD, handles button input, and runs the config web server. On desktop, frames display in a tkinter window. React app (`app/`) exists as a browser-based dev UI, not the production renderer.
+Three services run on the Pi. The **guardian** starts first, owns the display during boot, handles WiFi onboarding, and monitors health. The **backend** (`server.py`) manages state, AI pipelines, and hardware I/O over WebSocket. The **display service** renders PIL frames to the SPI LCD, handles button input, and runs the config web server. On desktop, frames display in a tkinter window.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -232,80 +255,19 @@ Three services run on the Pi. The **guardian** starts first, owns the display du
 └──────────────────────────────────────────────────────────────┘
 ```
 
-For full architecture details, protocol docs, and data flow diagrams, see [docs/architecture.md](docs/architecture.md).
+For full architecture details, see [Display architecture](user-docs/guide/display-architecture.md).
 
-## CLI Commands
+## Documentation
 
-After bootstrap, the `voxel` command is available globally on the Pi:
+Full documentation is available in the [user-docs/](user-docs/) directory:
 
-| Command | Description |
-|---------|-------------|
-| `voxel setup` | First-time install (deps, build, services, wizard) |
-| `voxel configure` | Interactive configuration wizard |
-| `voxel doctor` | Full system health diagnostics |
-| `voxel update` | Pull latest, rebuild, restart services |
-| `voxel build` | Rebuild Python deps + React app |
-| `voxel hw` | Install Whisplay HAT drivers + tune config.txt |
-| `voxel start` | Start services |
-| `voxel stop` | Stop services |
-| `voxel restart` | Restart services |
-| `voxel logs` | Tail service logs |
-| `voxel status` | Service/system/hardware status |
-| `voxel config` | Show config (`config set`/`config get` for changes) |
-| `voxel mcp` | Start MCP server (AI agent integration) |
-| `voxel display-test` | Direct Whisplay display sanity test |
-| `voxel dev-push` | Sync full runtime to Pi over SSH and run it |
-| `voxel version` | Show version |
-| `voxel uninstall` | Remove services + caches |
-
-### Development commands (from workstation, all via `uv`)
-
-| Command | Description |
-|---------|-------------|
-| `uv run dev` | Local PIL preview (tkinter window, 1:1 with Pi LCD) |
-| `uv run dev --scale 3` | Larger preview window |
-| `uv run dev-watch` | Local preview with auto-reload on file changes |
-| `uv run voxel dev-push` | Sync full runtime to Pi and run it |
-| `uv run voxel dev-push --logs` | Push and tail remote logs |
-| `uv run voxel dev-push --watch` | Watch for changes, auto-push to Pi |
-| `uv run voxel dev-push --install-service` | Set up systemd auto-start on boot |
-| `uv run voxel dev-pair` | Auto-discover and pair with device |
-| `uv run voxel dev-ssh` | SSH into Pi (uses saved creds) |
-| `uv run voxel dev-logs` | Tail Pi logs remotely |
-| `uv run voxel dev-restart` | Restart display service on Pi |
-| `uv run voxel dev-setup` | One-time setup (save SSH + enable dev mode) |
-
-## Development
-
-Uses [uv](https://docs.astral.sh/uv/) for all Python tooling (3.11-3.13). uv manages the venv, dependencies, and script entry points.
-
-```bash
-# Primary dev commands (all use uv)
-uv run dev                                  # PIL preview window (1:1 with Pi LCD)
-uv run dev --scale 3                        # larger preview
-uv run dev --server                         # with full voice pipeline (spawns server.py)
-uv run dev-watch                            # auto-restart on file changes
-
-# Deploy to Pi
-uv run voxel dev-push --host <pi-ip>        # first time (saves SSH config)
-uv run voxel dev-push --logs                # push + tail logs
-uv run voxel dev-push --install-service     # set up systemd auto-start
-
-# Dev convenience
-uv run voxel dev-pair                       # auto-discover + pair with device
-uv run voxel dev-ssh                        # SSH into Pi (uses saved creds)
-uv run voxel dev-logs                       # tail Pi logs remotely
-uv run voxel dev-restart                    # restart display service on Pi
-
-# Start MCP server (for AI agent integration)
-uv run mcp-server                           # SSE on :8082
-uv run python -m mcp                        # stdio (for Claude Code)
-voxel mcp                                   # via CLI on Pi
-```
-
-> **Note:** `npm run dev` starts the React browser UI (design tool for expression iteration). It is NOT the production display renderer. Use `uv run dev` for the actual Pi-equivalent preview.
-
-Editing `display/` or `shared/*.yaml` files triggers hot-reload with `dev-watch` or `dev-push --watch`.
+- [Quick Start](user-docs/guide/quick-start.md) -- getting Voxel running on a Pi
+- [Configuration](user-docs/guide/configuration.md) -- all settings and config options
+- [CLI Reference](user-docs/guide/cli-reference.md) -- every command explained
+- [Development Workflow](user-docs/guide/dev-workflow.md) -- contributing and dev setup
+- [Hardware](user-docs/guide/hardware.md) -- specs, pin mapping, assembly
+- [WiFi Setup](user-docs/guide/wifi-setup.md) -- AP mode and network configuration
+- [Troubleshooting](user-docs/guide/troubleshooting.md) -- common issues and fixes
 
 ## License
 

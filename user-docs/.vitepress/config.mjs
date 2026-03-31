@@ -3,6 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Voxel Docs',
   description: 'Documentation for the Voxel AI companion device',
+  base: '/voxel/',
   cleanUrls: true,
 
   appearance: 'dark',
