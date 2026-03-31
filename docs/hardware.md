@@ -170,7 +170,7 @@ curl http://localhost:8421/api/battery
 ### 1. Flash OS
 
 1. Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Select **"Raspberry Pi OS Lite (64-bit)"** (Bookworm or later)
+2. Select **"Raspberry Pi OS Lite (64-bit)"** (Bookworm or Trixie)
 3. Click the gear icon and configure:
    - Hostname: `voxel`
    - Enable SSH (password or key)
@@ -532,8 +532,8 @@ Reference config snippets are in `native/boot_splash/fbtft-config.txt` and
   kernel claims the SPI device. `/dev/spidev0.0` is no longer available, so the
   WhisPlay Python driver cannot work. You must use `--backend framebuffer`.
 - **Not validated on all OS versions:** The `mipi-dbi-spi` overlay availability
-  depends on the kernel version. Raspberry Pi OS Bookworm (kernel 6.1+) should
-  have it, but older versions may not.
+  depends on the kernel version. Raspberry Pi OS Bookworm (kernel 6.1+) and
+  Trixie (kernel 6.12+) should have it, but older versions may not.
 - **Y offset:** The ST7789 panel has a 20px vertical offset. The overlay's
   `y-offset=20` parameter handles this, but it may need adjustment for different
   panel variants.

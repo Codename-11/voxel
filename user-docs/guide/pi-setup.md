@@ -6,7 +6,7 @@ Detailed walkthrough for setting up Voxel on a Raspberry Pi Zero 2W from scratch
 
 1. Download and install [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
 2. Select **Raspberry Pi Zero 2W** as the device.
-3. Choose **Raspberry Pi OS Lite (64-bit)** — Bookworm or later. The Lite image is required; the desktop image wastes RAM on a 512MB device.
+3. Choose **Raspberry Pi OS Lite (64-bit)** — Bookworm or Trixie. The Lite image is required; the desktop image wastes RAM on a 512MB device.
 4. Click the gear icon to open advanced settings:
    - **Hostname:** `voxel`
    - **Enable SSH:** Yes, with password authentication
