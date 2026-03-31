@@ -469,6 +469,9 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
                     _send(),
                     return_exceptions=True,
                 )
+            finally:
+                _ws_connected = False
+                await ws.close()
 
         except Exception as e:
             _ws_connected = False
