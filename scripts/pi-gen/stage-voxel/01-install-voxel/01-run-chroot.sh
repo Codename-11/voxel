@@ -16,13 +16,20 @@ if [ ! -f "${VOXEL_DIR}/config/local.yaml" ]; then
 fi
 
 # ── Systemd services ────────────────────────────────────────────────────────
+# Install all 4 core services + first-boot driver installer
 
-cp "${VOXEL_DIR}/services/voxel.service" /etc/systemd/system/voxel.service
-cp "${VOXEL_DIR}/services/voxel-display.service" /etc/systemd/system/voxel-display.service
+cp "${VOXEL_DIR}/services/voxel-splash.service"     /etc/systemd/system/voxel-splash.service
+cp "${VOXEL_DIR}/services/voxel-guardian.service"    /etc/systemd/system/voxel-guardian.service
+cp "${VOXEL_DIR}/services/voxel.service"             /etc/systemd/system/voxel.service
+cp "${VOXEL_DIR}/services/voxel-display.service"     /etc/systemd/system/voxel-display.service
+cp "${VOXEL_DIR}/services/voxel-first-boot.service"  /etc/systemd/system/voxel-first-boot.service
 
 # Enable services (they start on boot)
+systemctl enable voxel-splash.service
+systemctl enable voxel-guardian.service
 systemctl enable voxel.service
 systemctl enable voxel-display.service
+systemctl enable voxel-first-boot.service
 
 # ── Global voxel CLI wrapper ────────────────────────────────────────────────
 
@@ -31,6 +38,18 @@ cat > /usr/local/bin/voxel << 'WRAPPER'
 exec /home/pi/.local/bin/uv run --project /home/pi/voxel voxel "$@"
 WRAPPER
 chmod +x /usr/local/bin/voxel
+
+# ── Boot splash frame ──────────────────────────────────────────────────────
+# Pre-copy the RGB565 splash frame so it's ready on first boot.
+# The splash C binary can't be compiled in chroot (ARM) — first-boot handles that.
+
+SPLASH_FRAME="${VOXEL_DIR}/native/boot_splash/splash.rgb565"
+if [ -f "${SPLASH_FRAME}" ]; then
+    cp "${SPLASH_FRAME}" /boot/voxel-splash.rgb565
+    echo "Splash frame installed to /boot/voxel-splash.rgb565"
+else
+    echo "WARNING: splash.rgb565 not found — splash will show blank on first boot"
+fi
 
 # ── Setup state ─────────────────────────────────────────────────────────────
 # Tracks which setup steps are already done in the pre-built image.

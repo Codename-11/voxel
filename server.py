@@ -899,10 +899,10 @@ async def _startup_greeting() -> None:
         log.debug("Startup greeting: no gateway client configured")
         return
 
-    # Wait briefly for a display client to connect
-    for _ in range(30):  # up to 15s
-        if _clients:
-            break
+    # Wait for a display client to connect.
+    # On Pi Zero 2W, the display service takes ~25s to start
+    # (boot splash + uv build + animation + config server).
+    for _ in range(60):  # up to 30s
         await asyncio.sleep(0.5)
     else:
         log.info("Startup greeting: no display client connected after 15s, skipping")

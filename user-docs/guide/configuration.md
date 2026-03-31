@@ -2,6 +2,18 @@
 
 Voxel uses a layered YAML configuration system with environment variable overrides.
 
+## Interactive Wizard
+
+The easiest way to configure Voxel is with the interactive wizard:
+
+```bash
+voxel configure
+```
+
+This walks through gateway connection, voice/TTS providers, display/character settings, MCP server, webhooks, and power management. Each section is optional -- press Enter to accept defaults or skip. All changes are saved to `config/local.yaml`.
+
+The wizard runs automatically at the end of `voxel setup`. To re-run it later or change settings, use `voxel configure` directly.
+
 ## Config Files
 
 | File | Purpose | Tracked in git |

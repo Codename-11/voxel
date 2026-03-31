@@ -66,6 +66,7 @@ MENU_ITEMS = [
     ("agent", ">", "Agent"),
     ("character", "#", "Character"),
     ("accent", "~", "Accent Color"),
+    ("wifi_setup", "w", "WiFi Setup"),
     ("setup", "@", "Setup"),
     ("brightness", "*", "Brightness"),
     ("volume", ")", "Volume"),
@@ -134,6 +135,7 @@ class MenuState:
         self._select_flash_idx: int = -1
         self._select_flash_time: float = 0.0
         self._reboot_confirmed: bool = False
+        self._wifi_setup_triggered: bool = False
         self._pending_value: int | None = None  # for brightness/volume preset cycling
         # Queued config changes to persist (consumed by the render loop)
         self._pending_config: dict | None = None
@@ -217,6 +219,11 @@ class MenuState:
                 self._pending_config = {"audio": {"volume": self._pending_value}}
             self._pending_value = None
             self.sub_screen = ""
+        elif self.sub_screen == "wifi_setup":
+            # Signal the guardian to start AP mode
+            self._wifi_setup_triggered = True
+            self.sub_screen = ""
+            self.open = False
         elif self.sub_screen == "reboot":
             self._reboot_confirmed = True
             self.sub_screen = ""
@@ -300,6 +307,8 @@ def draw_menu(draw: ImageDraw.ImageDraw, state: DisplayState,
         _draw_character_screen(draw, state, menu, font, font_sm)
     elif menu.sub_screen == "accent":
         _draw_accent_screen(draw, state, menu, font, font_sm)
+    elif menu.sub_screen == "wifi_setup":
+        _draw_wifi_setup_screen(draw, state, font, font_sm)
     elif menu.sub_screen == "setup":
         pass  # Drawn by renderer using QR overlay
     elif menu.sub_screen == "brightness":
@@ -730,6 +739,41 @@ def _icon_github(draw: ImageDraw.ImageDraw, x: int, y: int, color: tuple) -> Non
     draw.ellipse([x + 2, y, x + 4, y + 2], fill=color)
     draw.ellipse([x + 6, y + 1, x + 8, y + 3], fill=color)
     draw.ellipse([x + 2, y + 8, x + 4, y + 10], fill=color)
+
+
+def _draw_wifi_setup_screen(draw: ImageDraw.ImageDraw, state: DisplayState,
+                            font, font_sm) -> None:
+    """Draw WiFi setup confirmation screen."""
+    _draw_title(draw, "WIFI SETUP")
+
+    font_lg = get_font(FONT_VALUE)
+    y = 60
+
+    icon_text = "w"
+    iw = text_width(font_lg, icon_text)
+    draw.text(((SCREEN_W - iw) // 2, y), icon_text, fill=CYAN, font=font_lg)
+    y += 36
+
+    msg = "Start WiFi setup?"
+    mw = text_width(font, msg)
+    draw.text(((SCREEN_W - mw) // 2, y), msg, fill=TEXT_BRIGHT, font=font)
+    y += 28
+
+    hint_msg = "Starts AP hotspot mode"
+    hw = text_width(font_sm, hint_msg)
+    draw.text(((SCREEN_W - hw) // 2, y), hint_msg, fill=TEXT_DIM, font=font_sm)
+    y += 16
+
+    hint_msg2 = "Current WiFi will disconnect"
+    hw2 = text_width(font_sm, hint_msg2)
+    draw.text(((SCREEN_W - hw2) // 2, y), hint_msg2, fill=ORANGE, font=font_sm)
+    y += 36
+
+    confirm_text = "Hold to confirm"
+    cw = text_width(font_sm, confirm_text)
+    draw.text(((SCREEN_W - cw) // 2, y), confirm_text, fill=CYAN, font=font_sm)
+
+    _draw_hint_bar(draw, "hold=confirm")
 
 
 def _draw_reboot_screen(draw: ImageDraw.ImageDraw, state: DisplayState,

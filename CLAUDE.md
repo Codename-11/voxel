@@ -10,23 +10,37 @@ Voxel is a pocket-sized AI companion device built on Raspberry Pi Zero 2W + PiSu
 
 ## Architecture
 
-**PIL renderer + Python display service.** The display service (`display/service.py`) renders frames with PIL and pushes them to the SPI LCD via the WhisPlay driver on the Pi, or to a tkinter preview window on desktop. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. They communicate over WebSocket on port 8080. The React app (`app/`) exists as a browser-based dev UI but is NOT the production renderer.
+**Three services + PIL renderer + WebSocket backend.** The guardian (`display/guardian.py`) starts first, owns the display during boot, handles WiFi AP onboarding, and monitors service health. The display service (`display/service.py`) renders frames with PIL and pushes them to the SPI LCD via the WhisPlay driver on the Pi, or to a tkinter preview window on desktop. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. They communicate over WebSocket on port 8080. The React app (`app/`) exists as a browser-based dev UI but is NOT the production renderer.
 
 ```
-  Display Service (display/service.py)       Python Backend (server.py)
-  ┌───────────────────────────────────┐      ┌──────────────────────────┐
-  │ PIL Renderer → characters, menus  │◄─ws─►│ State Machine             │
-  │ Button polling, state management  │ :8080 │ Hardware (battery/LED)    │
-  │ Config server (:8081) + QR code   │      │ AI (OpenClaw, STT, TTS)   │
-  │ WiFi onboarding (AP mode)         │      └──────────────────────────┘
-  ├───────────────────────────────────┤
-  │ Backends:                         │      shared/*.yaml
-  │   Pi:      WhisPlay SPI driver    │      (expressions, styles, moods)
-  │   Desktop: tkinter preview window │
-  └───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Pi Zero 2W                               │
+│                                                                 │
+│  ┌──────────────┐    ┌──────────────┐    ┌───────────────────┐  │
+│  │   Guardian    │    │   Backend    │    │  Display Service  │  │
+│  │  (watchdog)   │    │  server.py   │    │  display/         │  │
+│  │              │    │              │    │   service.py      │  │
+│  │ Boot splash  │    │ State machine│◄ws►│ PIL renderer      │  │
+│  │ WiFi AP mode │    │ Voice pipeline│:8080│ Button polling    │  │
+│  │ Crash recovery│    │ Gateway/STT/ │    │ Animations/moods  │  │
+│  │ LED patterns │    │  TTS/battery │    │ Config srv :8081  │  │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬────────────┘  │
+│    lock file               │                SPI + GPIO          │
+│                       ┌────┴────┐         ┌─────┴──────────┐    │
+│                       │MCP :8082│         │ WhisPlay HAT   │    │
+│                       │stdio+SSE│         │ LCD 240x280    │    │
+│                       └────┬────┘         │ Mic/Spk/LED    │    │
+│                            │              │ Button (pin 11)│    │
+│                            │              └────────────────┘    │
+│              ┌─────────────┼──────────────┐                     │
+│              │  OpenClaw   │  Whisper API  │                     │
+│              │  Gateway    │  TTS Provider │                     │
+│              │  (HTTP+SSE) │  (HTTP)       │                     │
+│              └─────────────┴──────────────┘                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**On the Pi:** The display service renders PIL frames directly to the SPI LCD via PiSugar's WhisPlay driver. A config web server runs on port 8081 with QR code access and PIN auth.
+**On the Pi:** The guardian service starts first, owns the display during boot, handles WiFi AP mode onboarding, and monitors service health. It hands off to the display service once it's ready (via lock file at `/tmp/voxel-display.lock`). The display service renders PIL frames directly to the SPI LCD via PiSugar's WhisPlay driver. A config web server runs on port 8081 with QR code access and PIN auth.
 
 **On desktop:** `uv run dev` opens a tkinter preview window showing the 240x280 face alongside a dev panel control window for changing moods, states, and styles. `uv run dev-watch` adds auto-reload on file changes. Pass `--no-panel` to disable the dev panel.
 
@@ -42,6 +56,7 @@ voxel/
 ├── AGENTS_SETUP.md              # Agent integration guide (MCP setup, decision tree)
 ├── package.json                 # Root package.json (proxies to app/)
 ├── display/                     # PIL-based display engine (production)
+│   ├── guardian.py              # Display guardian — boot watchdog, WiFi AP, crash recovery (Pi only)
 │   ├── service.py               # Display service entry point (uv run dev, --server for voice pipeline)
 │   ├── __main__.py              # python -m display.service support
 │   ├── renderer.py              # PILRenderer — composites all layers into frames
@@ -106,7 +121,8 @@ voxel/
 │   ├── app.py                   # Argument parsing, all commands
 │   ├── doctor.py                # System health diagnostics
 │   ├── display.py               # Terminal colors, tables, status icons
-│   └── dev_push.py              # Sync full runtime to Pi over SSH
+│   ├── dev_push.py              # Sync full runtime to Pi over SSH
+│   └── setup_wizard.py          # Interactive TUI config wizard (gateway, voice, display, MCP, etc.)
 ├── core/                        # AI integration
 │   ├── gateway.py               # OpenClaw API client (chat completions)
 │   ├── stt.py                   # Speech-to-text (Whisper API)
@@ -124,9 +140,17 @@ voxel/
 ├── openclaw/                    # OpenClaw integration files
 │   ├── SKILL.md                 # Skill definition for OpenClaw agents
 │   └── README.md                # Integration guide
-├── native/                      # LVGL native PoC (C renderer experiment)
+├── native/                      # Native C programs
+│   ├── boot_splash/             # Early boot LCD splash (~3s after power-on)
+│   │   ├── splash.c             # C program: SPI init, ST7789 init, frame push
+│   │   ├── generate_splash.py   # Python script to generate RGB565 splash frame
+│   │   ├── Makefile             # Build, generate, and install targets
+│   │   ├── splash.rgb565        # Pre-rendered frame (134,400 bytes, generated)
+│   │   └── splash.png           # PNG preview (generated)
 │   └── lvgl_poc/                # Pre-renders RGB565 frames on workstation
 ├── services/                    # Systemd unit files
+│   ├── voxel-splash.service     # Boot splash (C, runs before guardian)
+│   ├── voxel-guardian.service   # Guardian watchdog (boot, WiFi, crash recovery)
 │   ├── voxel.service            # Backend (server.py)
 │   └── voxel-display.service    # Display service (display/service.py)
 ├── .github/workflows/           # CI/CD
@@ -135,7 +159,8 @@ voxel/
 ├── tests/                       # pytest test suite
 │   ├── test_mood_pipeline.py    # Mood transitions, battery, lockout, connection, demo
 │   ├── test_state_lifecycle.py  # DisplayState defaults, transcripts, blink/gaze/breathing
-│   └── test_characters.py       # All characters x all moods rendering, tilt, accents
+│   ├── test_characters.py       # All characters x all moods rendering, tilt, accents
+│   └── test_guardian.py         # Guardian screens, lock files, WiFi flag, menu integration
 ├── _legacy/                     # Archived code (not imported by active code)
 │   ├── main.py                  # Old pygame entry point
 │   ├── face/                    # Pygame renderer + sprites
@@ -291,13 +316,25 @@ OpenClaw skill definition at `openclaw/SKILL.md` teaches agents about Voxel's ca
 ## Audio Pipeline
 
 ```
-Button hold (>400ms from face view) → record from dual mics (WAV)
-  → Whisper API (cloud STT)
-  → text to OpenClaw gateway
-  → response text
-  → OpenAI TTS / ElevenLabs / edge-tts (cloud TTS)
-  → playback through speaker
-  → amplitude sent via WebSocket → mouth animation
+  Hold button >400ms (face view)
+  │
+  ▼
+LISTENING ──► Record from dual mics (16kHz WAV)
+  │              │
+  │         Button release
+  │              │
+  ▼              ▼
+THINKING ──► Whisper API (STT) ──► OpenClaw Gateway (SSE)
+  │              ~1-3s                  ~2-15s
+  │                                      │
+  │                              Response text + emoji?
+  │                                      │
+  ▼                                      ▼
+SPEAKING ──► TTS (edge/openai/11labs) ──► Playback + amplitude
+  │              ~1-3s                     mouth animation
+  │                                        │
+  ▼                                        ▼
+IDLE ◄──────────────── done ◄───────────── done
 ```
 
 **TTS providers:** Three providers available via `audio.tts_provider` config:
@@ -405,7 +442,9 @@ After bootstrap, all Pi management goes through the `voxel` command:
 
 ```bash
 # Setup & maintenance
-voxel setup          # First-time install (apt deps, Node, build, services)
+voxel setup          # First-time install (apt deps, Node, build, services, wizard)
+voxel setup --no-configure  # Skip the interactive wizard after setup
+voxel configure      # Interactive TUI wizard (gateway, voice, display, MCP, webhooks, power)
 voxel doctor         # Full system health diagnostics
 voxel update         # Pull latest, rebuild, restart services
 voxel build          # Just rebuild (Python deps + React app)
@@ -458,17 +497,20 @@ voxel uninstall      # Remove services + caches
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-This runs `voxel setup` which now includes hardware driver installation (`voxel hw`). After completion, reboot. The device auto-starts and guides the user through WiFi + config on the LCD.
+This runs `voxel setup` which includes hardware driver installation (`voxel hw`) and launches an interactive configuration wizard at the end (`voxel configure`). The wizard walks through gateway, voice, display, MCP, webhooks, and power settings. Skip with `--no-configure`. After completion, reboot. The device auto-starts and guides the user through WiFi + config on the LCD.
 
 **Setup state tracking:** `config/.setup-state` (YAML) tracks: `system_deps`, `drivers_installed`, `build_complete`, `config_created`, `services_installed`, `wifi_configured`, `gateway_configured`. The display service reads this to decide what to show (onboarding screens vs face).
 
-**Two production services:**
-- `voxel.service` — backend (server.py): state machine, AI pipelines, battery polling
-- `voxel-display.service` — display service (display/service.py `--url ws://localhost:8080`, PIL→SPI): button input, rendering, config server. Depends on and starts after `voxel.service`.
+**Five production services (boot order):**
+1. `voxel-splash.service` — C boot splash (native/boot_splash/splash.c): runs ~3s after power-on, drives ST7789 LCD via SPI directly from C, shows closed-eye bars on dark background. Type=oneshot, exits after pushing frame (image persists on LCD).
+2. `voxel-guardian.service` — display guardian (display/guardian.py): starts after splash, boot animation (wake-up sequence), WiFi AP mode onboarding, service health watchdog, crash recovery screens. Hands off display to voxel-display via lock file.
+3. `voxel.service` — backend (server.py): state machine, AI pipelines, battery polling. Starts after guardian.
+4. `voxel-display.service` — display service (display/service.py `--url ws://localhost:8080`, PIL→SPI): button input, rendering, config server. Starts after guardian and backend.
+5. `voxel-first-boot.service` — one-shot service that runs `voxel hw` on first boot to compile Whisplay HAT drivers. Disables itself after completion. Only used in the pre-built Pi image.
 
 WPE/Cog (`voxel-ui.service`) and static HTTP (`voxel-web.service`) are archived in `_legacy/services/`.
 
-**Pre-built Pi image:** GitHub Actions workflow (`build-pi-image.yml`) builds a flashable `.img` with everything pre-installed. User experience: flash → boot → configure WiFi from phone → done.
+**Pre-built Pi image:** GitHub Actions workflow (`build-pi-image.yml`) builds a flashable `.img` with everything pre-installed. All 5 services are installed and enabled. System packages include `build-essential` (for first-boot driver compilation) and `libportaudio2`. The splash frame (`splash.rgb565`) is pre-copied to `/boot/`. User experience: flash → boot → configure WiFi from phone → done.
 
 ## Development Workflow
 

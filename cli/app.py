@@ -13,7 +13,7 @@ from cli.display import header, section, info, ok, warn, fail, kv, cyan, bold, d
 from hw.detect import probe_hardware
 
 VOXEL_DIR = Path(__file__).resolve().parent.parent
-SERVICES = ["voxel", "voxel-display"]
+SERVICES = ["voxel-splash", "voxel-guardian", "voxel", "voxel-display"]
 
 
 def _run(cmd: list[str] | str, check: bool = False, **kwargs) -> subprocess.CompletedProcess:
@@ -127,6 +127,12 @@ def _save_setup_state(update: dict) -> None:
     _setup_state_path().write_text(yaml.dump(state, default_flow_style=False))
 
 
+def cmd_configure(args: argparse.Namespace) -> int:
+    """Launch the interactive configuration wizard."""
+    from cli.setup_wizard import run_wizard
+    return run_wizard()
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     header("Voxel Setup")
 
@@ -174,19 +180,24 @@ def cmd_setup(args: argparse.Namespace) -> int:
     ok("Setup complete!")
     console.print()
 
-    if IS_PI:
-        info("Reboot to activate hardware drivers:")
-        console.print(f"    {cyan('sudo reboot')}")
-        console.print()
-        info("After reboot, the device will auto-start and guide you through:")
-        console.print(f"    {dim('1.')} WiFi setup  {dim('(if not connected)')}")
-        console.print(f"    {dim('2.')} Configuration  {dim('(scan QR on screen)')}")
-        console.print(f"    {dim('3.')} Ready to use!")
+    # Launch interactive configuration wizard (unless --no-configure)
+    if not getattr(args, "no_configure", False):
+        from cli.setup_wizard import run_wizard
+        run_wizard()
     else:
-        info("Next steps:")
-        console.print(f"    {dim('1.')} Preview display: {cyan('uv run dev')}")
-        console.print(f"    {dim('2.')} Check health:    {cyan('voxel doctor')}")
-    console.print()
+        if IS_PI:
+            info("Reboot to activate hardware drivers:")
+            console.print(f"    {cyan('sudo reboot')}")
+            console.print()
+            info("After reboot, the device will auto-start and guide you through:")
+            console.print(f"    {dim('1.')} WiFi setup  {dim('(if not connected)')}")
+            console.print(f"    {dim('2.')} Configuration  {dim('(scan QR on screen)')}")
+            console.print(f"    {dim('3.')} Ready to use!")
+        else:
+            info("Next steps:")
+            console.print(f"    {dim('1.')} Preview display: {cyan('uv run dev')}")
+            console.print(f"    {dim('2.')} Check health:    {cyan('voxel doctor')}")
+        console.print()
     return 0
 
 
@@ -249,6 +260,8 @@ def cmd_hw(args: argparse.Namespace) -> int:
 
     if config_txt.exists():
         content = config_txt.read_text()
+
+        # Display / GPU settings
         if "gpu_mem=128" not in content:
             info(f"Tuning {config_txt}...")
             _run(
@@ -257,7 +270,37 @@ def cmd_hw(args: argparse.Namespace) -> int:
             )
             ok("Added gpu_mem=128, hdmi_blanking=2")
         else:
-            ok(f"{config_txt} already configured")
+            ok(f"{config_txt} display settings already configured")
+
+        # Early boot GPIO directives — processed by GPU firmware ~1.5s after
+        # power-on, before Linux starts.  LED turns cyan immediately; backlight
+        # stays off (no blue screen flash) until the guardian writes a frame.
+        #   RGB LED: active-LOW (common-anode) — dl = on, dh = off
+        #     GPIO 25 (red)   = dh → off
+        #     GPIO 24 (green) = dl → on
+        #     GPIO 23 (blue)  = dl → on  → cyan
+        #   LCD backlight: active-LOW — dh = off
+        #     GPIO 22 = dh → backlight off until splash ready
+        content = config_txt.read_text()  # re-read after possible append above
+        if "gpio=25=op,dh" not in content:
+            info("Adding early boot GPIO directives...")
+            gpio_block = "\n".join([
+                "",
+                "# ── Voxel early boot indicators ──",
+                "# RGB LED cyan at firmware time (active-LOW: dl=on, dh=off)",
+                "gpio=25=op,dh",
+                "gpio=24=op,dl",
+                "gpio=23=op,dl",
+                "# LCD backlight OFF until splash ready (active-LOW: dh=off)",
+                "gpio=22=op,dh",
+            ])
+            _run(
+                f"sudo tee -a {config_txt} > /dev/null <<'EOF'\n{gpio_block}\nEOF",
+                shell=True,
+            )
+            ok("Added early boot GPIO: cyan LED + backlight off")
+        else:
+            ok(f"{config_txt} early boot GPIO already configured")
 
     # Swap
     swapfile = Path("/etc/dphys-swapfile")
@@ -296,6 +339,119 @@ def cmd_hw(args: argparse.Namespace) -> int:
                 pass
         ok("Audio levels configured (effective after reboot if drivers were just installed)")
 
+    # Boot splash (C program for instant LCD image at boot)
+    section("Boot Splash")
+    splash_dir = VOXEL_DIR / "native" / "boot_splash"
+    splash_bin = Path("/usr/local/bin/voxel-splash")
+    splash_frame = Path("/boot/voxel-splash.rgb565")
+
+    # Generate the splash frame if not present
+    gen_script = splash_dir / "generate_splash.py"
+    frame_src = splash_dir / "splash.rgb565"
+    if gen_script.exists() and not frame_src.exists():
+        info("Generating splash frame...")
+        _run(f"python3 {gen_script} --output-dir {splash_dir}", shell=True, cwd=splash_dir)
+
+    # Install the frame
+    if frame_src.exists():
+        _run(f"sudo cp {frame_src} {splash_frame}", shell=True)
+        ok(f"Splash frame installed to {splash_frame}")
+    else:
+        warn("Splash frame not found — run 'python3 native/boot_splash/generate_splash.py'")
+
+    # Compile and install the C splash binary
+    splash_src = splash_dir / "splash.c"
+    if shutil.which("gcc") and splash_src.exists():
+        info("Compiling boot splash...")
+        result = _run(
+            f"gcc -O2 -Wall -o {splash_dir / 'splash'} {splash_src}",
+            shell=True,
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            _run(f"sudo cp {splash_dir / 'splash'} {splash_bin}", shell=True)
+            _run(f"sudo chmod 755 {splash_bin}", shell=True)
+            ok(f"Boot splash compiled and installed to {splash_bin}")
+        else:
+            warn(f"Splash compilation failed: {result.stderr.strip()}")
+    elif splash_bin.exists():
+        ok("Boot splash binary already installed")
+    else:
+        warn("gcc not available — skipping splash compilation (install with: sudo apt install gcc)")
+
+    # ── Optional: fbtft framebuffer overlay ────────────────────────────────
+    if getattr(args, "fbtft", False):
+        section("fbtft Framebuffer (Experimental)")
+        warn("This is EXPERIMENTAL and may conflict with the WhisPlay SPI driver.")
+        warn("When the fbtft overlay is active, /dev/spidev0.0 disappears.")
+        warn("The display service must use --backend framebuffer instead.")
+        console.print()
+
+        fb_config_txt = Path("/boot/firmware/config.txt")
+        if not fb_config_txt.exists():
+            fb_config_txt = Path("/boot/config.txt")
+
+        if not fb_config_txt.exists():
+            fail("Cannot find config.txt — is this a Raspberry Pi?")
+        else:
+            fb_content = fb_config_txt.read_text()
+
+            # Add fbtft overlay if not already present
+            if "mipi-dbi-spi" not in fb_content:
+                info(f"Adding mipi-dbi-spi overlay to {fb_config_txt}...")
+                fbtft_block = "\n".join([
+                    "",
+                    "# ── Voxel LCD Framebuffer (experimental — boot console on LCD) ──",
+                    "# WARNING: This makes the kernel own the SPI display.",
+                    "# The Python display service needs --backend framebuffer.",
+                    "dtoverlay=mipi-dbi-spi,speed=32000000",
+                    "dtparam=compatible=panel-mipi-dbi-spi",
+                    "dtparam=write-only",
+                    "dtparam=width=240,height=280",
+                    "dtparam=y-offset=20",
+                    "dtparam=reset-gpio=4,dc-gpio=27,backlight-gpio=22",
+                ])
+                _run(
+                    f"sudo tee -a {fb_config_txt} > /dev/null <<'EOF'\n{fbtft_block}\nEOF",
+                    shell=True,
+                )
+                ok("Added mipi-dbi-spi overlay to config.txt")
+            else:
+                ok("mipi-dbi-spi overlay already in config.txt")
+
+            # Add fbcon=map:10 to cmdline.txt
+            cmdline_txt = Path("/boot/firmware/cmdline.txt")
+            if not cmdline_txt.exists():
+                cmdline_txt = Path("/boot/cmdline.txt")
+
+            if cmdline_txt.exists():
+                cmdline = cmdline_txt.read_text().strip()
+                additions = []
+                if "fbcon=map:10" not in cmdline:
+                    additions.append("fbcon=map:10")
+                if "logo.nologo" not in cmdline:
+                    additions.append("logo.nologo")
+
+                if additions:
+                    new_cmdline = cmdline + " " + " ".join(additions)
+                    info(f"Adding {' '.join(additions)} to {cmdline_txt}...")
+                    _run(
+                        f"echo '{new_cmdline}' | sudo tee {cmdline_txt} > /dev/null",
+                        shell=True,
+                    )
+                    ok("Updated cmdline.txt")
+                else:
+                    ok("cmdline.txt already has fbcon and logo settings")
+            else:
+                warn("Cannot find cmdline.txt — skipping console routing")
+
+        console.print()
+        info("After reboot, boot console will appear on the LCD.")
+        info("Start the display service with: --backend framebuffer")
+        warn("To revert, remove the mipi-dbi-spi lines from config.txt")
+        warn("and remove 'fbcon=map:10 logo.nologo' from cmdline.txt.")
+        console.print()
+
     ok("Hardware setup complete")
     console.print()
     warn("Reboot to activate drivers: sudo reboot")
@@ -311,7 +467,7 @@ def cmd_install_services(args: argparse.Namespace) -> int:
 
     section("Services")
     svc_dir = VOXEL_DIR / "services"
-    for svc_file in ["voxel.service", "voxel-display.service"]:
+    for svc_file in ["voxel-splash.service", "voxel-guardian.service", "voxel.service", "voxel-display.service"]:
         src = svc_dir / svc_file
         if src.exists():
             _run(f"sudo cp {src} /etc/systemd/system/", shell=True)
@@ -955,10 +1111,15 @@ def build_parser() -> argparse.ArgumentParser:
     for flag, kw in _dev_ssh_flags:
         p_dev_setup.add_argument(flag, **kw)
 
-    sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
+    p_setup = sub.add_parser("setup", help="First-time setup (install deps, build, configure services)")
+    p_setup.add_argument("--no-configure", action="store_true",
+                         help="Skip the interactive configuration wizard after setup")
+    sub.add_parser("configure", help="Interactive configuration wizard")
     sub.add_parser("build", help="Build Python deps + React app")
     sub.add_parser("update", help="Pull latest, rebuild, restart services")
-    sub.add_parser("hw", help="Install Whisplay HAT drivers + tune config.txt")
+    p_hw = sub.add_parser("hw", help="Install Whisplay HAT drivers + tune config.txt")
+    p_hw.add_argument("--fbtft", action="store_true",
+                       help="(Experimental) Enable fbtft framebuffer overlay for boot console on LCD")
     sub.add_parser("start", help="Start Voxel services")
     sub.add_parser("stop", help="Stop Voxel services")
     sub.add_parser("restart", help="Restart Voxel services")
@@ -1016,6 +1177,7 @@ COMMANDS = {
     "dev-restart": cmd_dev_restart,
     "dev-pair": cmd_dev_pair,
     "dev-setup": cmd_dev_setup,
+    "configure": cmd_configure,
     "setup": cmd_setup,
     "build": cmd_build,
     "update": cmd_update,

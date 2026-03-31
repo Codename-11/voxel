@@ -62,6 +62,7 @@ This single command handles everything:
    - Installs and enables systemd services
    - Tunes `/boot/config.txt` (GPU memory, HDMI blanking)
    - Increases swap to 256MB
+   - Launches an interactive configuration wizard (gateway, voice, display, MCP, power)
 
 ### 3. Reboot
 

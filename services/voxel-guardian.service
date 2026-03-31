@@ -1,0 +1,28 @@
+[Unit]
+Description=Voxel Display Guardian (watchdog, WiFi onboarding, crash recovery)
+After=sysinit.target
+Before=voxel.service voxel-display.service
+DefaultDependencies=no
+# Guardian must start even without network — it handles WiFi setup
+Wants=sysinit.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/voxel
+
+ExecStart=/home/pi/.local/bin/uv run --no-dev python -m display.guardian
+Restart=always
+RestartSec=2
+
+Environment=HOME=/home/pi
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+PrivateDevices=no
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voxel-guardian
+
+[Install]
+WantedBy=multi-user.target

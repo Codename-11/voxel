@@ -109,12 +109,14 @@ Inside menus: tap = next item, hold > 500ms = select. Desktop: spacebar simulate
 
 ## Configuration
 
+- **Interactive wizard:** `voxel configure` -- guided setup for gateway, voice, display, MCP, webhooks, and power. Runs automatically after `voxel setup`.
 - **Web UI:** Settings menu on device, or scan QR code to open `http://<device-ip>:8081`
 - **Config files:** `config/default.yaml` (defaults) + `config/local.yaml` (overrides, gitignored)
 - **Required keys:** Gateway token (`gateway.token`), OpenAI API key (`stt.whisper.api_key` — also used by OpenAI TTS)
 
 ```bash
-voxel config set gateway.token <your-token>
+voxel configure                                   # interactive wizard
+voxel config set gateway.token <your-token>        # or set individual keys
 voxel config set stt.whisper.api_key <your-key>
 ```
 
@@ -201,17 +203,36 @@ Full agent integration guide: [`AGENTS_SETUP.md`](AGENTS_SETUP.md) (also availab
 
 ## Architecture
 
-PIL renderer writes frames directly to the SPI LCD via the WhisPlay driver on the Pi. On desktop, frames display in a tkinter window. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. The MCP server exposes device tools to external AI agents. React app (`app/`) exists as a browser-based dev UI.
+Three services run on the Pi. The **guardian** starts first, owns the display during boot, handles WiFi onboarding, and monitors health. The **backend** (`server.py`) manages state, AI pipelines, and hardware I/O over WebSocket. The **display service** renders PIL frames to the SPI LCD, handles button input, and runs the config web server. On desktop, frames display in a tkinter window. React app (`app/`) exists as a browser-based dev UI, not the production renderer.
 
 ```
-  MCP Server (:8082)          Display Service          Python Backend
-  +------------------+        +------------------+     +------------------+
-  | Tools for agents |--ws--->| PIL → LCD/tkinter|<--->| State, AI, HW    |
-  | stdio + SSE      | :8080  | Button, LED, cfg |     | OpenClaw gateway |
-  +------------------+        +------------------+     +------------------+
+┌──────────────────────────────────────────────────────────────┐
+│                       Pi Zero 2W                             │
+│                                                              │
+│  ┌──────────────┐   ┌───────────────┐   ┌────────────────┐  │
+│  │   Guardian    │   │   Backend     │   │ Display Service│  │
+│  │              │   │  server.py    │   │ display/       │  │
+│  │ Boot splash  │   │              │   │  service.py    │  │
+│  │ WiFi AP mode │   │ State machine│◄──►│ PIL renderer  │  │
+│  │ Crash recovery│   │ Voice pipeline│ws  │ Button polling│  │
+│  │ Watchdog     │   │ Gateway/STT/ │:8080│ Config :8081  │  │
+│  │              │   │  TTS/battery │   │ LED patterns  │  │
+│  └──────┬───────┘   └──────┬───────┘   └──────┬─────────┘  │
+│    lock file               │               SPI + GPIO       │
+│                       ┌────┴─────┐      ┌──────┴─────────┐  │
+│                       │MCP :8082 │      │ WhisPlay HAT   │  │
+│                       │stdio+SSE │      │ LCD/Mic/Spk/LED│  │
+│                       └────┬─────┘      └────────────────┘  │
+│                            │                                 │
+│              ┌─────────────┼──────────────┐                  │
+│              │  OpenClaw   │  Whisper API  │                  │
+│              │  Gateway    │  TTS Provider │                  │
+│              │  (HTTP+SSE) │  (HTTP)       │                  │
+│              └─────────────┴──────────────┘                  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-For full architecture details, protocol docs, and expression system specs, see [CLAUDE.md](CLAUDE.md).
+For full architecture details, protocol docs, and data flow diagrams, see [docs/architecture.md](docs/architecture.md).
 
 ## CLI Commands
 
@@ -219,7 +240,8 @@ After bootstrap, the `voxel` command is available globally on the Pi:
 
 | Command | Description |
 |---------|-------------|
-| `voxel setup` | First-time install (deps, build, services) |
+| `voxel setup` | First-time install (deps, build, services, wizard) |
+| `voxel configure` | Interactive configuration wizard |
 | `voxel doctor` | Full system health diagnostics |
 | `voxel update` | Pull latest, rebuild, restart services |
 | `voxel build` | Rebuild Python deps + React app |

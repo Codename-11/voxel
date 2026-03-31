@@ -1,12 +1,11 @@
 #!/bin/bash -e
-# Install a one-shot systemd service that runs on first boot to install
-# Whisplay HAT drivers (WM8960 kernel module). These cannot be compiled
-# in a chroot — they need real Pi hardware or matching kernel headers.
+# Verify first-boot service was installed by the previous stage.
+# The actual service unit is installed and enabled in 01-install-voxel.
+# This stage is kept as a safety check.
 
-VOXEL_DIR="/home/pi/voxel"
-
-# Copy the first-boot service unit
-cp "${VOXEL_DIR}/services/voxel-first-boot.service" /etc/systemd/system/voxel-first-boot.service
-
-# Enable it (runs once on first boot, then disables itself)
-systemctl enable voxel-first-boot.service
+if systemctl is-enabled voxel-first-boot.service >/dev/null 2>&1; then
+    echo "voxel-first-boot.service is enabled — OK"
+else
+    echo "ERROR: voxel-first-boot.service not enabled — check 01-install-voxel"
+    exit 1
+fi

@@ -1,7 +1,7 @@
 [Unit]
 Description=Voxel Display Service
-After=network.target voxel.service
-Wants=network-online.target voxel.service
+After=network.target voxel.service voxel-guardian.service
+Wants=network-online.target voxel.service voxel-guardian.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
@@ -11,9 +11,9 @@ User=pi
 
 WorkingDirectory=/home/pi/voxel
 
-# Boot splash — kills the blue screen and shows "Voxel Starting..."
-# The - prefix means failure is non-fatal (won't block main service)
-ExecStartPre=-/home/pi/.local/bin/uv run --no-dev python scripts/boot_splash.py
+# Boot splash is now handled by voxel-guardian.service (starts earlier, owns
+# display during boot). The guardian releases the display lock when this
+# service comes up.
 
 # Main display service
 # Connect to server.py backend for voice pipeline (STT/TTS/gateway)

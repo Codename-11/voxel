@@ -95,6 +95,10 @@ def _sftp_sync_dir(sftp, local_dir: Path, remote_base: str, quiet: bool = False)
             continue
         if "__pycache__" in str(local_path) or local_path.suffix == ".pyc":
             continue
+        # Never overwrite Pi's local.yaml — it has device-specific settings
+        # (WiFi, SSH creds, API keys) that differ from the dev machine
+        if local_path.name == "local.yaml":
+            continue
         rel = local_path.relative_to(ROOT)
         remote_path = f"{remote_base}/{rel.as_posix()}"
 

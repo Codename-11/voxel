@@ -16,7 +16,7 @@ Voxel is a pocket AI companion device (Raspberry Pi Zero 2W) with a 240x280 anim
 curl http://DEVICE_IP:8081/.well-known/mcp
 ```
 If that returns JSON with `"running": true`, skip to [Connect MCP](#connect-mcp).
-If `"running": false`, tell the user: "The Voxel MCP server isn't running. Run `voxel mcp` on the device or enable it in the web settings at http://DEVICE_IP:8081 under Integration."
+If `"running": false`, tell the user: "The Voxel MCP server isn't running. Enable it with `voxel configure` (interactive wizard), `voxel mcp` (manual start), or in the web settings at http://DEVICE_IP:8081 under Integration."
 
 **No → Ask the user:**
 "What's the IP address of your Voxel device? Check the device's LCD screen, or try `voxel.local` if you're on the same network."
@@ -176,7 +176,7 @@ These work even when the device is offline:
 ## Troubleshooting
 
 **"Connection refused" on port 8082:**
-The MCP server isn't running. Ask the user to run `voxel mcp` on the device, or enable it in the web UI at `http://DEVICE_IP:8081` under the Integration section.
+The MCP server isn't running. Ask the user to enable it with `voxel configure` (interactive wizard), run `voxel mcp` on the device, or enable it in the web UI at `http://DEVICE_IP:8081` under the Integration section.
 
 **"Connection refused" on port 8081:**
 The display service isn't running. Ask the user to run `voxel start` or check with `voxel status`.

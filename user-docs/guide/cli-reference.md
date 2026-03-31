@@ -12,13 +12,29 @@ uv run voxel <command>
 
 ### `voxel setup`
 
-Full first-time installation. Installs system packages, Whisplay drivers, Python and Node dependencies, builds the React app, creates config files, installs systemd services, and tunes system settings.
+Full first-time installation. Installs system packages, Whisplay drivers, Python and Node dependencies, builds the React app, creates config files, installs systemd services, and tunes system settings. At the end, launches the interactive configuration wizard (`voxel configure`).
 
 ```bash
 voxel setup
 ```
 
+To skip the wizard (e.g. in automated/CI environments):
+
+```bash
+voxel setup --no-configure
+```
+
 Typically called automatically by the bootstrap script. Safe to re-run.
+
+### `voxel configure`
+
+Interactive TUI wizard for post-setup configuration. Walks through gateway connection, voice/TTS settings, display/character preferences, MCP server, webhooks, and power management. Each section is optional -- press Enter to accept defaults or skip.
+
+```bash
+voxel configure
+```
+
+Settings are saved to `config/local.yaml`. This wizard runs automatically at the end of `voxel setup` unless `--no-configure` is passed. Can be re-run at any time to change settings.
 
 ### `voxel doctor`
 

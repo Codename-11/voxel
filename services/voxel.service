@@ -1,7 +1,7 @@
 [Unit]
 Description=Voxel Backend (WebSocket server, hardware I/O, AI pipelines)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target voxel-guardian.service
+Wants=network-online.target voxel-guardian.service
 
 [Service]
 Type=simple

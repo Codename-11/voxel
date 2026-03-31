@@ -1,0 +1,31 @@
+# ── Voxel LCD Framebuffer (optional — enables boot console on LCD) ──────────
+#
+# This overlay makes the kernel own the SPI display via the mipi-dbi-spi
+# driver, creating a /dev/fb1 framebuffer device.  Boot console logs
+# (systemd output, kernel messages) will appear on the LCD.
+#
+# WARNING: When this overlay is active, the kernel claims /dev/spidev0.0.
+# The Python display service can no longer use the WhisPlay SPI driver
+# directly.  You must switch to the framebuffer backend:
+#
+#   uv run display/service.py --backend framebuffer
+#
+# Or in the systemd unit (voxel-display.service):
+#   ExecStart=... --backend framebuffer
+#
+# TRADE-OFF:
+#   + Boot console visible on LCD (~3s after power-on)
+#   + Standard Linux fbdev — any tool can write to the display
+#   - Loses direct SPI control (no WhisPlay driver)
+#   - Slightly higher latency than raw SPI writes
+#   - Experimental — not validated on all Pi OS versions
+#
+# To enable, uncomment the lines below and add them to /boot/firmware/config.txt
+# (or /boot/config.txt on older Pi OS).  Then reboot.
+#
+# dtoverlay=mipi-dbi-spi,speed=32000000
+# dtparam=compatible=panel-mipi-dbi-spi
+# dtparam=write-only
+# dtparam=width=240,height=280
+# dtparam=y-offset=20
+# dtparam=reset-gpio=4,dc-gpio=27,backlight-gpio=22

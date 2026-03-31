@@ -23,8 +23,9 @@ voxel logs
 For a specific service:
 
 ```bash
-journalctl -u voxel-display -f
-journalctl -u voxel -f
+journalctl -u voxel-guardian -f   # Boot watchdog, WiFi AP, crash recovery
+journalctl -u voxel-display -f    # Display renderer
+journalctl -u voxel -f            # Backend (AI, voice)
 ```
 
 ## Common Issues

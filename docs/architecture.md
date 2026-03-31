@@ -2,22 +2,99 @@
 
 ## Overview
 
-Voxel uses a **PIL display service + WebSocket + Python backend** architecture. The display service (`display/service.py`) renders frames with PIL and pushes RGB565 data to the SPI LCD via the WhisPlay driver on Pi, or to a tkinter preview window on desktop. The Python backend (`server.py`) manages state, hardware, and AI pipelines. They communicate over WebSocket on port 8080.
+Voxel uses a **PIL display service + WebSocket + Python backend** architecture with a **guardian watchdog** for reliability. Three systemd services run on the Pi. The display service (`display/service.py`) renders frames with PIL and pushes RGB565 data to the SPI LCD via the WhisPlay driver on Pi, or to a tkinter preview window on desktop. The Python backend (`server.py`) manages state, hardware I/O, and AI pipelines. They communicate over WebSocket on port 8080. The guardian (`display/guardian.py`) starts first, owns the display during boot, handles WiFi onboarding, and monitors service health.
 
 The React app (`app/`) is a **browser-based dev tool** for rapid expression/style iteration with HMR — it is NOT the production renderer.
 
+### System Architecture
+
 ```
-  Display Service (display/service.py)       Python Backend (server.py)
-  ┌───────────────────────────────────┐      ┌──────────────────────────┐
-  │ PIL Renderer → characters, menus  │◄─ws─►│ State Machine             │
-  │ Button polling, state management  │ :8080 │ Hardware (battery/LED)    │
-  │ Config server (:8081) + QR code   │      │ AI (OpenClaw, STT, TTS)   │
-  │ WiFi onboarding (AP mode)         │      └──────────────────────────┘
-  ├───────────────────────────────────┤
-  │ Backends:                         │      shared/*.yaml
-  │   Pi:      WhisPlay SPI driver    │      (expressions, styles, moods)
-  │   Desktop: tkinter preview window │
-  └───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Raspberry Pi Zero 2W                        │
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐ │
+│  │    Guardian      │  │    Backend       │  │   Display Service   │ │
+│  │ display/         │  │   server.py      │  │ display/service.py  │ │
+│  │ guardian.py      │  │                  │  │                     │ │
+│  │                  │  │ State machine    │  │ PILRenderer         │ │
+│  │ Boot splash      │  │ Voice pipeline   │  │ Button polling      │ │
+│  │ WiFi AP mode     │  │ OpenClaw gateway │  │ Animations + moods  │ │
+│  │ Crash recovery   │  │ Battery polling  │  │ Config server :8081 │ │
+│  │ Service watchdog │  │ Chat history     │  │ LED patterns        │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └──────────┬──────────┘ │
+│           │                     │                        │           │
+│      lock file            ws :8080                  SPI + GPIO      │
+│   /tmp/voxel-display      ◄────►                        │           │
+│        .lock                    │                        │           │
+│                          ┌──────┴──────┐          ┌──────┴────────┐ │
+│                          │  MCP Server │          │ WhisPlay HAT  │ │
+│                          │   :8082     │          │ ST7789 LCD    │ │
+│                          │ stdio / SSE │          │ WM8960 audio  │ │
+│                          └──────┬──────┘          │ RGB LED       │ │
+│                                 │                 │ Button (pin11)│ │
+│                                 │                 └───────────────┘ │
+│                                 │                                   │
+│  ┌──────────────────────────────┼───────────────────────────────┐   │
+│  │         External Services    │                               │   │
+│  │                              │                               │   │
+│  │  ┌───────────────────┐  ┌───┴───────────────┐               │   │
+│  │  │ Whisper API (STT) │  │  OpenClaw Gateway  │               │   │
+│  │  │ cloud / HTTP POST │  │  HTTP + SSE        │               │   │
+│  │  └───────────────────┘  └───────────────────┘               │   │
+│  │  ┌───────────────────┐  ┌───────────────────┐               │   │
+│  │  │ TTS Provider      │  │  AI Agents (MCP)  │               │   │
+│  │  │ edge/openai/11labs│  │  Claude, OpenClaw  │               │   │
+│  │  └───────────────────┘  └───────────────────┘               │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Summary
+
+```
+┌──────────┐  UDP :41234   ┌──────────┐  ws :8080    ┌──────────────┐
+│ Dev      │◄─ broadcast ──│ Display  │◄────────────►│   Backend    │
+│ Machine  │  (discovery)  │ Service  │  state/cmds  │  server.py   │
+│          │               │          │              │              │
+│ dev-pair │─ PIN auth ───►│ Config   │              │ STT ────────►│
+│ dev-push │─ SSH/rsync ──►│ Server   │              │ Gateway ────►│
+│          │               │ :8081    │              │ TTS ────────►│
+└──────────┘               └──────────┘              └──────────────┘
+                                │                           │
+                           SPI + GPIO                  HTTP / SSE
+                                │                           │
+                           ┌────┴────┐               ┌──────┴──────┐
+                           │WhisPlay │               │  OpenClaw   │
+                           │  HAT    │               │  Gateway    │
+                           │ LCD/Mic │               │  + Whisper  │
+                           │ Spk/LED │               │  + TTS API  │
+                           └─────────┘               └─────────────┘
+```
+
+### WebSocket Message Flow
+
+```
+   Display Service                 Backend (server.py)              MCP Server
+   display/service.py              ws://localhost:8080              :8082
+        │                                │                            │
+        │── { set_mood, set_state } ────►│                            │
+        │◄── { state, mood, battery } ──│                            │
+        │◄── { transcript, partial } ────│◄── chat completions ──── OpenClaw
+        │◄── { reaction, emoji } ────────│                            │
+        │                                │◄── { set_mood } ──────────│
+        │                                │──► { state } ─────────────│
+        │                                │                            │
+        │── { button, press/release } ──►│                            │
+        │                                │── record audio ──► STT    │
+        │                                │── text ──────────► Gateway │
+        │                                │◄── response ──── Gateway  │
+        │                                │── text ──────────► TTS    │
+        │◄── { speaking, amplitude } ────│◄── audio ──────── TTS    │
+        │                                │                            │
+   React App (dev)                       │                            │
+   ws://localhost:8080                   │                   AI Agents
+        │── { text_input, set_mood } ───►│                  (Claude,
+        │◄── { state, transcript } ──────│                   OpenClaw)
 ```
 
 ## Layers
@@ -203,45 +280,212 @@ State transitions trigger mood changes (via `shared/moods.yaml` state_map) and W
 
 ## Data Flow: Voice Interaction
 
+### Voice Pipeline Flow
+
 ```
-1. User holds button >400ms from face view (hardware GPIO or WebSocket)
-   → server.py: State IDLE → LISTENING
-   → WebSocket push: { mood: "listening", state: "LISTENING" }
-   → Display: eyes widen, lean forward, sound wave icon
+  User holds button >400ms (face view only)
+  │
+  ▼
+IDLE ──────────────────────────────────────────────────────┐
+  │  hold >400ms                                           │
+  ▼                                                        │
+LISTENING ──► Record audio from dual mics (16kHz WAV)      │
+  │              │                                         │
+  │         Button release                                 │
+  │         (or tap to cancel ──► IDLE)                    │
+  │              │                                         │
+  ▼              ▼                                         │
+THINKING ──► Whisper API ──► OpenClaw Gateway              │
+  │            (STT)           (SSE streaming)              │
+  │            ~1-3s           ~2-15s                       │
+  │              │                │                         │
+  │              │         Response text                    │
+  │              │         + emoji prefix?                  │
+  │              │                │                         │
+  │   (tap to cancel ──► IDLE)   │                         │
+  │                              ▼                         │
+SPEAKING ◄───────────── TTS (edge/openai/11labs)           │
+  │                        ~1-3s                           │
+  │                                                        │
+  │  Playback through speaker                              │
+  │  Amplitude ──► ws ──► mouth animation                  │
+  │  (tap to cancel ──► IDLE)                              │
+  │                                                        │
+  ▼                                                        │
+IDLE ◄─────────────── playback complete ───────────────────┘
+```
+
+### Detailed Step-by-Step
+
+```
+1. User holds button >400ms from face view (hardware GPIO or spacebar)
+   -> server.py: State IDLE -> LISTENING
+   -> WebSocket push: { mood: "listening", state: "LISTENING" }
+   -> Display: eyes widen, lean forward, sound wave icon
 
 2. User releases button
-   → server.py: State LISTENING → THINKING (immediate, no frame flash)
-   → Audio: stop recording → WAV bytes
-   → WebSocket push: { mood: "thinking", state: "THINKING" }
-   → Display: asymmetric brow raise, gaze up, brain+cog icon
+   -> server.py: State LISTENING -> THINKING (immediate, no frame flash)
+   -> Audio: stop recording -> WAV bytes
+   -> WebSocket push: { mood: "thinking", state: "THINKING" }
+   -> Display: asymmetric brow raise, gaze up, brain+cog icon
 
 3. STT (Whisper API)
-   → WAV bytes → HTTP POST → transcript text
+   -> WAV bytes -> HTTP POST -> transcript text
 
 4. Gateway (OpenClaw)
-   → transcript → POST /v1/chat/completions → response text
+   -> transcript -> POST /v1/chat/completions -> response text (SSE stream)
+   -> Partial text emitted as { transcript, status: "partial" }
+   -> Leading emoji parsed -> { reaction } message + mood change
 
 5. TTS (OpenAI TTS / ElevenLabs / edge-tts)
-   → response text → HTTP POST → audio bytes
-   → server.py: State THINKING → SPEAKING
-   → WebSocket push: { mood: "neutral", state: "SPEAKING", speaking: true }
+   -> response text -> HTTP POST -> audio bytes
+   -> server.py: State THINKING -> SPEAKING
+   -> WebSocket push: { mood: "neutral", state: "SPEAKING", speaking: true }
 
 6. Playback
-   → Audio: play through speaker
-   → server.py: stream amplitude via WebSocket
-   → Display: mouth animation synced to amplitude
+   -> Audio: play through speaker
+   -> server.py: stream amplitude via WebSocket
+   -> Display: mouth animation synced to amplitude
 
 7. Complete
-   → server.py: State SPEAKING → IDLE
-   → WebSocket push: { mood: "neutral", state: "IDLE", speaking: false }
+   -> server.py: State SPEAKING -> IDLE
+   -> WebSocket push: { mood: "neutral", state: "IDLE", speaking: false }
+```
+
+## Button Interaction State Diagram
+
+```
+                 ┌─────── FACE VIEW ───────┐    ┌──── CHAT VIEW ────┐
+                 │                         │    │                    │
+                 │  IDLE                   │    │  IDLE              │
+                 │    │                    │    │    │               │
+                 │    ├─ tap ──► cycle     │    │    ├─ tap ► cycle  │
+                 │    │         view       │    │    │       view    │
+                 │    │                    │    │    │               │
+                 │    └─ hold >400ms       │    │    └─ hold >1s    │
+                 │         │               │    │         │          │
+                 │         ▼               │    │         ▼          │
+                 │    LISTENING             │    │    MENU opened    │
+                 │    (recording)           │    │    │     │        │
+                 │         │               │    │    │ tap: next     │
+                 │    ┌────┤               │    │    │ hold: select  │
+                 │    │    │               │    │    │ idle: close   │
+                 │    │  release           │    │    │               │
+                 │    │    │               │    │    └─ hold >5s    │
+                 │  tap    ▼               │    │         │          │
+                 │  (cancel) THINKING      │    │    SLEEPING        │
+                 │    │    │               │    │                    │
+                 │    │    ├─ tap ► IDLE   │    │    └─ hold >10s   │
+                 │    │    │  (cancel)     │    │         │          │
+                 │    │    │               │    │    SHUTDOWN        │
+                 │    ▼    ▼               │    │    (3s confirm)    │
+                 │    IDLE  SPEAKING       │    │                    │
+                 │         │               │    └────────────────────┘
+                 │         ├─ tap ► IDLE   │
+                 │         │  (cancel)     │
+                 │         │               │
+                 │         └─ done ► IDLE  │
+                 │                         │
+                 └─────────────────────────┘
+```
+
+### Hold Indicator Zones
+
+```
+ Time:  0s      0.4s        1s              5s              10s
+        │────────│───────────│───────────────│───────────────│
+        │        │           │               │               │
+ Face:  │ wait   │ RECORDING │               │               │
+        │        │ (until    │               │               │
+        │        │  release) │               │               │
+        │        │           │               │               │
+ Chat:  │ wait   │           │ MENU          │ SLEEP         │ SHUTDOWN
+        │        │           │ (fires at     │ (fires at     │ (fires at
+        │        │           │  threshold)   │  threshold)   │  threshold)
+        │        │           │               │               │
+ Ring:  │ dot    │ cyan fill │ bright cyan   │ orange ► red  │ full red
+ Label: │ (none) │ "Talk"    │ "Menu"        │ "Sleep"       │ "Shutdown"
+```
+
+## Display Rendering Pipeline
+
+```
+  DisplayState (mood, style, view, battery, ...)
+  + shared/*.yaml (expressions, styles, moods)
+  + Animation state (blink, gaze, breathing, dt)
+           │
+           ▼
+  ┌─ PILRenderer.render() ─────────────────────────┐
+  │                                                 │
+  │  Which view?                                    │
+  │  ┌──────────┐  ┌──────────────┐  ┌──────────┐  │
+  │  │   Face   │  │ Chat Drawer  │  │Chat Full │  │
+  │  └────┬─────┘  └──────┬───────┘  └────┬─────┘  │
+  │       │               │               │         │
+  │       ▼               ▼               ▼         │
+  │  Character.draw()  Face (small)   draw_chat()   │
+  │       │            + chat list    (transcript)   │
+  │       │               │               │         │
+  │       ▼               │               │         │
+  │  ┌─ Face layers ──┐   │               │         │
+  │  │ Eyes (pills,   │   │               │         │
+  │  │   perspective, │   │               │         │
+  │  │   blink, gaze) │   │               │         │
+  │  │ Mouth (smile,  │   │               │         │
+  │  │   openness)    │   │               │         │
+  │  │ Body (scale,   │   │               │         │
+  │  │   tilt, bounce)│   │               │         │
+  │  └────────────────┘   │               │         │
+  │       │               │               │         │
+  │       ▼               ▼               ▼         │
+  │  ┌─ Overlay layers (composited in order) ────┐  │
+  │  │ Mood decorations (sparkles, tears, ZZZs)  │  │
+  │  │ Status decorations (WiFi arcs, battery)   │  │
+  │  │ Emoji reactions (floating emoji)          │  │
+  │  │ Greeting overlay                          │  │
+  │  │ Peek bubble (chat preview on face view)   │  │
+  │  └───────────────────────────────────────────┘  │
+  │       │                                         │
+  │       ▼                                         │
+  │  Status bar (battery %, WiFi, agent name)       │
+  │       │                                         │
+  │       ▼                                         │
+  │  Button indicator / speaking pill               │
+  │       │                                         │
+  │       ▼                                         │
+  │  Menu overlay (if MENU state)                   │
+  │       │                                         │
+  │       ▼                                         │
+  │  Shutdown overlay (if shutting down)             │
+  │       │                                         │
+  │       ▼                                         │
+  │  Corner mask (rounded rect, ~40px radius)       │
+  │                                                 │
+  └──────────────────┬──────────────────────────────┘
+                     │
+                     ▼
+           ┌─── Backend ───┐
+           │               │
+     ┌─────┴─────┐  ┌─────┴──────┐
+     │  Pi: SPI  │  │  Desktop:  │
+     │  RGB565   │  │  tkinter   │
+     │  134KB/   │  │  window    │
+     │  frame    │  │  (or       │
+     │  ~20 FPS  │  │  pygame)   │
+     └───────────┘  └────────────┘
 ```
 
 ## Pi Deployment
 
-On the Raspberry Pi, two systemd services run:
+On the Raspberry Pi, three systemd services run in boot order:
 
-1. **`voxel.service`** — Python WebSocket backend (`server.py`): state machine, AI pipelines, battery polling
-2. **`voxel-display.service`** — PIL display service (`display/service.py`): renders frames to SPI LCD, button input, config server, WiFi onboarding. Connects to `server.py` via `--url ws://localhost:8080` and depends on `voxel.service`.
+| # | Service | Unit File | What it runs |
+|---|---------|-----------|-------------|
+| 1 | Guardian | `voxel-guardian.service` | `python -m display.guardian` -- boot splash, WiFi AP mode, crash recovery watchdog |
+| 2 | Backend | `voxel.service` | `uv run server.py` -- WebSocket :8080, state machine, AI pipelines, battery |
+| 3 | Display | `voxel-display.service` | `uv run display/service.py --url ws://localhost:8080` -- PIL renderer, SPI LCD, buttons, config :8081 |
+
+The guardian hands off display ownership to the display service via a lock file at `/tmp/voxel-display.lock`. If the display service crashes, the guardian reclaims the display and shows an error screen.
 
 Hardware drivers: WhisPlay HAT (SPI display, audio codec, button, RGB LED), PiSugar (battery) when attached.
 
@@ -262,14 +506,15 @@ Hardware drivers: WhisPlay HAT (SPI display, audio codec, button, RGB LED), PiSu
 First-boot flow on Pi:
 1. `setup.sh` bootstraps: clones repo, installs uv, runs `voxel setup` (includes `voxel hw`)
 2. User reboots (required for Whisplay kernel modules)
-3. `voxel-display.service` auto-starts, checks `config/.setup-state`
-4. If no WiFi: AP mode ("Voxel-Setup") with config portal on LCD
-5. If no gateway token: shows "scan to configure" QR screen
-6. After config: normal face mode
+3. `voxel-guardian.service` starts first -- boot splash, WiFi check
+4. If no WiFi: guardian starts AP mode ("Voxel-Setup") with config portal on LCD
+5. `voxel.service` and `voxel-display.service` start after guardian
+6. If no gateway token: shows "scan to configure" QR screen
+7. After config: normal face mode
 
 Setup state tracked in `config/.setup-state` (YAML checkpoints).
 
-Two production services: `voxel.service` (backend) + `voxel-display.service` (display).
+Three production services: `voxel-guardian.service` (watchdog) + `voxel.service` (backend) + `voxel-display.service` (display).
 
 ## Dev Panel
 

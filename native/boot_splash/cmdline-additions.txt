@@ -1,0 +1,13 @@
+# ── Kernel command-line additions for fbtft boot console ──
+#
+# Append these to /boot/firmware/cmdline.txt (or /boot/cmdline.txt)
+# on the SAME LINE as existing parameters (cmdline.txt must be one line).
+#
+# fbcon=map:10   — Route the kernel console to fb1 (the SPI LCD).
+#                  Without this, console output goes to fb0 (HDMI) only.
+#
+# logo.nologo    — Suppress the Raspberry Pi logo at boot.  Optional but
+#                  recommended so the LCD shows clean boot text.
+#
+# Example (original + additions):
+#   console=serial0,115200 console=tty1 root=PARTUUID=... rootfstype=ext4 ... fbcon=map:10 logo.nologo

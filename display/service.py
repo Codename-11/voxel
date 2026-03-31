@@ -305,8 +305,11 @@ ALL_MOODS_CYCLE = [
 ]
 
 
-def _create_backend(use_pygame: bool, scale: int):
+def _create_backend(use_pygame: bool, scale: int, backend_name: str = "auto"):
     """Create the appropriate output backend."""
+    if backend_name == "framebuffer":
+        from display.backends.framebuffer import FramebufferBackend
+        return FramebufferBackend()
     if use_pygame:
         try:
             from display.backends.pygame import PygameBackend
@@ -354,19 +357,38 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
 
     try:
         import websockets
+        log.info(f"websockets version: {websockets.__version__}")
     except ImportError:
         log.error("websockets package not installed")
         return
 
     _ws_outbound = asyncio.Queue(maxsize=32)
 
+    # Build connect kwargs — proxy param only exists in websockets >= 14
+    connect_kwargs = {
+        "open_timeout": 5,
+        "ping_interval": 20,
+        "ping_timeout": 10,
+    }
+    try:
+        import inspect
+        sig = inspect.signature(websockets.connect)
+        if "proxy" in sig.parameters:
+            connect_kwargs["proxy"] = None
+    except Exception:
+        pass
+
     while not stop.is_set():
         try:
-            log.info(f"Connecting to {url}")
-            async with websockets.connect(url) as ws:
+            log.info(f"WebSocket: connecting to {url}...")
+            ws = await asyncio.wait_for(
+                websockets.connect(url, **connect_kwargs).__aenter__(),
+                timeout=10,
+            )
+            log.info("WebSocket: connected!")
+            try:
                 _ws_connected = True
                 state.connected = True
-                log.info("WebSocket connected")
 
                 async def _receive():
                     async for raw in ws:
@@ -452,7 +474,7 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
             _ws_connected = False
             state.connected = False
             if not stop.is_set():
-                log.debug(f"WebSocket disconnected: {e}")
+                log.warning(f"WebSocket connection failed: {e} — retrying in 2s")
                 await asyncio.sleep(2.0)
 
     _ws_connected = False
@@ -603,6 +625,19 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
             except Exception as e:
                 log.error(f"Shutdown command failed: {e}")
 
+        # Check menu WiFi setup trigger
+        if renderer.menu._wifi_setup_triggered:
+            renderer.menu._wifi_setup_triggered = False
+            if IS_PI:
+                log.info("WiFi setup requested via menu — signalling guardian")
+                try:
+                    from pathlib import Path
+                    Path("/tmp/voxel-wifi-setup").touch()
+                except Exception as e:
+                    log.error(f"WiFi setup signal failed: {e}")
+            else:
+                log.info("WiFi setup requested on desktop — ignoring")
+
         # Check menu reboot confirmation
         if renderer.menu._reboot_confirmed:
             renderer.menu._reboot_confirmed = False
@@ -682,21 +717,21 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
             stop.set()
             break
 
-        # Frame timing
+        # Frame timing — always yield to event loop so background tasks
+        # (WebSocket client, etc.) get CPU time even when rendering is slow
         elapsed = time.time() - frame_start
         sleep_time = max(0, interval - elapsed)
-        if sleep_time > 0:
-            await asyncio.sleep(sleep_time)
+        await asyncio.sleep(sleep_time)
 
 
 async def _main(args: argparse.Namespace) -> None:
     use_pygame = not IS_PI
     if args.backend == "pygame":
         use_pygame = True
-    elif args.backend == "whisplay":
+    elif args.backend in ("whisplay", "framebuffer"):
         use_pygame = False
 
-    backend = _create_backend(use_pygame, args.scale)
+    backend = _create_backend(use_pygame, args.scale, backend_name=args.backend)
     backend.init()
     log.info("Display backend: %s", type(backend).__name__)
 
@@ -1178,8 +1213,9 @@ def main() -> None:
                         help="WebSocket server URL (e.g. ws://localhost:8080)")
     parser.add_argument("--scale", type=int, default=1,
                         help="Preview window scale factor (default: 1, true 1:1 with Pi LCD)")
-    parser.add_argument("--backend", choices=["auto", "pygame", "whisplay"], default="auto",
-                        help="Output backend (default: auto-detect)")
+    parser.add_argument("--backend", choices=["auto", "pygame", "whisplay", "framebuffer"],
+                        default="auto",
+                        help="Output backend (default: auto-detect; framebuffer for fbtft/mipi-dbi-spi)")
     parser.add_argument("--demo", action="store_true",
                         help="Enable demo mode (auto-cycle moods/characters/styles)")
     parser.add_argument("--no-panel", action="store_true",

@@ -76,6 +76,7 @@ def print_commands() -> None:
         ("lvgl-deploy", "🚀  Render, sync, and play on the Pi"),
         ("lvgl-dev", "🛠️  Default LVGL dev loop with interactive Pi preview"),
         ("setup",    "📦  First-time install & configure"),
+        ("configure","🧙  Interactive configuration wizard"),
         ("build",    "🔨  Build Python deps + React app"),
         ("update",   "🔄  Pull latest, rebuild, restart"),
         ("hw",       "🔧  Install Whisplay HAT drivers"),

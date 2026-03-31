@@ -305,14 +305,241 @@ voxel version     # Show version
 
 ## Services on the Pi
 
-The production deployment uses two systemd services:
+The production deployment uses three systemd services:
 
 | Service | Unit File | What it runs |
 |---------|-----------|-------------|
-| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, battery polling, AI pipelines |
-| Display | `voxel-display.service` | `uv run display/service.py --url ws://localhost:8080` — PIL renderer → SPI LCD, button input, config server on port 8081. Depends on and starts after `voxel.service`. |
+| Guardian | `voxel-guardian.service` | `python -m display.guardian` — starts first, owns display during boot, WiFi AP mode onboarding, crash recovery watchdog. Starts before all other Voxel services. |
+| Backend | `voxel.service` | `uv run server.py` — WebSocket server, state machine, battery polling, AI pipelines. Starts after guardian. |
+| Display | `voxel-display.service` | `uv run display/service.py --url ws://localhost:8080` — PIL renderer, SPI LCD, button input, config server on port 8081. Starts after guardian and backend. |
+
+### Boot Sequence
+
+#### Timeline
+
+```
+ Time    Event                                    Visual Feedback
+ ─────   ─────────────────────────────────────    ────────────────────
+ ~0s     Power applied                            (nothing)
+         │
+ ~1.5s   GPU firmware reads config.txt            LED: cyan
+         │  gpio= directives set GPIOs            LCD: backlight OFF
+         │                                        (no blue flash)
+         │
+ ~3-5s   Linux kernel boots, systemd starts
+         │
+         ├─► voxel-guardian.service               LED: white solid
+         │   (After=sysinit.target)               Screen: "V O X E L"
+         │   │                                           "Starting..."
+         │   ├── Init SPI display + LED
+         │   ├── Write first frame to LCD
+         │   ├── Enable backlight (now safe)
+         │   │
+         │   ├── Check WiFi via nmcli
+         │   │   ├─ Connected:                    Screen: "WiFi: OK"
+         │   │   │  LED: cyan flash                      + IP address
+         │   │   │
+         │   │   └─ No WiFi:                      Screen: WiFi setup
+         │   │      Start AP mode                 LED: magenta blink
+         │   │      ("Voxel-Setup" hotspot)       QR code + PIN
+         │   │      Config server on :8083
+         │   │      Wait for WiFi connect...
+         │   │
+ ~5-8s   │   ├── Wait for display service ready
+         │   ├── Hand off display (release lock)
+         │   └── Enter monitoring loop
+         │
+ ~5s     ├─► voxel.service                       (no visual change)
+         │   (After=guardian)
+         │   WebSocket server on :8080
+         │   Battery polling, state machine
+         │
+ ~8-12s  └─► voxel-display.service               Boot animation
+             (After=guardian + backend)           (eye open, ~3s)
+             Acquire display from guardian
+             Connect to ws://localhost:8080
+             │
+ ~12-15s    Normal operation                      Face visible
+             Button input active                  Voice pipeline ready
+             Config server on :8081
+```
+
+#### Service Start Order
+
+```
+ 0s        1.5s       3s         5s         8s        12s       15s
+ │──────────│──────────│──────────│──────────│─────────│─────────│
+ │          │          │          │          │         │         │
+ Power ─────┘          │          │          │         │         │
+                       │          │          │         │         │
+ config.txt ───────────┘          │          │         │         │
+ GPIO: LED=cyan                   │          │         │         │
+ GPIO: backlight=OFF              │          │         │         │
+                                  │          │         │         │
+ Guardian ────────────────────────┘          │         │         │
+ SPI init, splash, backlight ON             │         │         │
+ WiFi check / AP mode                       │         │         │
+                                            │         │         │
+ Backend ───────────────────────────────────┘         │         │
+ ws :8080, state machine                              │         │
+ Battery, gateway                                     │         │
+                                                      │         │
+ Display ─────────────────────────────────────────────┘         │
+ Acquire from guardian, boot animation (3s)                     │
+                                                                │
+ Ready ─────────────────────────────────────────────────────────┘
+ Face visible, voice pipeline active
+```
+
+### Early Boot Indicators (config.txt GPIO)
+
+The Raspberry Pi firmware processes `gpio=` directives in `config.txt` very early
+in the boot sequence -- approximately 1.5 seconds after power-on, before the Linux
+kernel starts. Voxel uses this to provide immediate visual feedback and prevent the
+blue screen flash that occurs when the LCD backlight powers on before any content is
+rendered.
+
+`voxel hw` appends these directives to `config.txt`:
+
+```ini
+# Voxel early boot indicators
+# RGB LED cyan at firmware time (active-LOW: dl=on, dh=off)
+gpio=25=op,dh   # Red   OFF
+gpio=24=op,dl   # Green ON
+gpio=23=op,dl   # Blue  ON  -> cyan
+# LCD backlight OFF until splash ready (active-LOW: dh=off)
+gpio=22=op,dh   # Backlight OFF
+```
+
+**What this achieves:**
+
+| Time | What happens |
+|------|-------------|
+| ~0s | Power applied |
+| ~1.5s | GPU firmware reads config.txt, sets GPIOs: LED turns **cyan**, backlight stays **off** |
+| ~3-8s | Linux boots, systemd starts `voxel-guardian.service` |
+| Guardian init | Guardian writes first frame to SPI LCD, then turns backlight **on** via software PWM |
+
+**Why it matters:**
+- Without the backlight directive, the LCD powers on with a bright blue screen for
+  several seconds before any software can render content -- jarring on a device that
+  boots in someone's pocket or on a nightstand.
+- The cyan LED gives immediate confirmation that the device is alive, before any
+  software-controlled LED patterns begin.
+- These directives are idempotent: `voxel hw` checks for their presence before
+  appending. They survive OS updates since config.txt is on the boot partition.
+
+**Pin reference:** See the [Pin Mapping](#pin-mapping) table above for BCM GPIO
+numbers and their corresponding hardware functions.
+
+### Health Monitoring
+
+The guardian monitors service health every 5 seconds:
+- If `voxel-display` is active: guardian idles (does not touch display)
+- If `voxel-display` crashes: guardian reclaims display, shows error screen with journalctl output, LED blinks red
+- Display handoff uses a lock file (`/tmp/voxel-display.lock`)
+
+### WiFi Setup from Menu
+
+The LCD settings menu includes a "WiFi Setup" option that signals the guardian to enter AP mode. The signal uses a file flag (`/tmp/voxel-wifi-setup`) -- the guardian watches for this file and starts AP mode when it appears.
 
 > **Archived services:** `voxel-ui.service` (WPE/Cog browser) and `voxel-web.service` (static HTTP server for remote browser UI) are no longer used. They were from an earlier architecture where the React app was the production renderer. The PIL display service replaced both.
+
+## fbtft Framebuffer — Experimental Boot Console on LCD
+
+> **Status:** Experimental (Phase 3 of early boot display). Not validated on all
+> Pi OS versions. The default production setup uses the WhisPlay SPI driver.
+
+The `mipi-dbi-spi` device-tree overlay (available in recent Pi kernels) can turn
+the ST7789 LCD into a standard Linux framebuffer (`/dev/fb1`). This enables:
+
+- Kernel boot console messages visible on the LCD
+- Standard Linux framebuffer tools (e.g., `fbset`, `fbi`) work with the display
+- Any framebuffer-aware application can write to the screen
+
+### Trade-off: Framebuffer vs Direct SPI
+
+| Aspect | Direct SPI (default) | fbtft Framebuffer |
+|--------|---------------------|-------------------|
+| Boot console on LCD | No | Yes |
+| WhisPlay driver compatible | Yes | **No** (`/dev/spidev0.0` disappears) |
+| Display service backend | `--backend whisplay` (default) | `--backend framebuffer` |
+| Latency | Lowest (direct SPI writes) | Slightly higher (kernel fb layer) |
+| Complexity | Userspace driver | Kernel overlay + config |
+
+### How to Enable
+
+1. **Run `voxel hw --fbtft`** on the Pi:
+
+   ```bash
+   voxel hw --fbtft
+   ```
+
+   This appends the `mipi-dbi-spi` overlay to `config.txt` and adds
+   `fbcon=map:10 logo.nologo` to `cmdline.txt`.
+
+2. **Reboot** the Pi:
+
+   ```bash
+   sudo reboot
+   ```
+
+   After reboot, boot logs should appear on the LCD.
+
+3. **Switch the display service backend:**
+
+   ```bash
+   # Manual run
+   uv run display/service.py --backend framebuffer
+
+   # Or update the systemd unit
+   # Edit voxel-display.service ExecStart to include --backend framebuffer
+   ```
+
+### Manual Configuration (without `voxel hw --fbtft`)
+
+Add to `/boot/firmware/config.txt` (or `/boot/config.txt`):
+
+```ini
+# Voxel LCD Framebuffer (experimental)
+dtoverlay=mipi-dbi-spi,speed=32000000
+dtparam=compatible=panel-mipi-dbi-spi
+dtparam=write-only
+dtparam=width=240,height=280
+dtparam=y-offset=20
+dtparam=reset-gpio=4,dc-gpio=27,backlight-gpio=22
+```
+
+Append to the **single line** in `/boot/firmware/cmdline.txt`:
+
+```
+fbcon=map:10 logo.nologo
+```
+
+Reference config snippets are in `native/boot_splash/fbtft-config.txt` and
+`native/boot_splash/cmdline-additions.txt`.
+
+### How to Revert
+
+1. Remove or comment out the `mipi-dbi-spi` overlay lines from `config.txt`
+2. Remove `fbcon=map:10` and `logo.nologo` from `cmdline.txt`
+3. Reboot
+4. Switch the display service back to the default backend (remove `--backend framebuffer`)
+
+### Known Limitations
+
+- **Conflict with WhisPlay SPI driver:** When the fbtft overlay is active, the
+  kernel claims the SPI device. `/dev/spidev0.0` is no longer available, so the
+  WhisPlay Python driver cannot work. You must use `--backend framebuffer`.
+- **Not validated on all OS versions:** The `mipi-dbi-spi` overlay availability
+  depends on the kernel version. Raspberry Pi OS Bookworm (kernel 6.1+) should
+  have it, but older versions may not.
+- **Y offset:** The ST7789 panel has a 20px vertical offset. The overlay's
+  `y-offset=20` parameter handles this, but it may need adjustment for different
+  panel variants.
+- **Backlight control:** The framebuffer backend does not directly manage the
+  backlight. The `backlight-gpio=22` parameter in the overlay tells the kernel
+  to control it, but software PWM dimming is not available through this path.
 
 ## WPE/Cog — Future Optimization (Not Currently Used)
 

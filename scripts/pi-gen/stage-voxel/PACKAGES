@@ -1,5 +1,7 @@
 git
+build-essential
 portaudio19-dev
+libportaudio2
 libasound2-dev
 python3-dev
 ffmpeg

@@ -11,6 +11,7 @@ import { MOOD_LIST } from "./expressions";
 import { STYLE_LIST, STYLES, DEFAULT_STYLE } from "./styles";
 import useVoxelSocket from "./hooks/useVoxelSocket";
 import useAudioAmplitude from "./hooks/useAudioAmplitude";
+import useVoice from "./hooks/useVoice";
 import "./App.css";
 
 // Agent definitions (from config/default.yaml)
@@ -55,6 +56,7 @@ function App() {
     maxAmp: 1.3,         // wave ceiling
   });
   const mic = useAudioAmplitude(audioTuning);
+  const voice = useVoice();
 
   // Local overrides for when backend isn't connected (standalone dev)
   const [localMood, setLocalMood] = useState("neutral");
@@ -381,6 +383,26 @@ function App() {
     clearTimeout(transcriptTimerRef.current);
   }, [wsConnected, state.transcript]);
 
+  // TTS: speak assistant messages when voice output is enabled
+  const lastSpokenRef = useRef("");
+  useEffect(() => {
+    if (!voice.ttsEnabled || !state.transcript) return;
+    const t = state.transcript;
+    if (t.role !== "assistant" || t.status !== "done") return;
+    if (t.text === lastSpokenRef.current) return;
+    lastSpokenRef.current = t.text;
+    voice.speak(t.text);
+  }, [state.transcript, voice.ttsEnabled, voice.speak]);
+
+  // Cancel TTS when a new assistant message starts streaming (partial)
+  useEffect(() => {
+    if (!state.transcript) return;
+    const t = state.transcript;
+    if (t.role === "assistant" && t.status === "partial" && voice.ttsSpeaking) {
+      voice.cancelSpeech();
+    }
+  }, [state.transcript, voice.ttsSpeaking, voice.cancelSpeech]);
+
   // Auto-hide transcript after returning to IDLE
   useEffect(() => {
     if (stateName === "IDLE" && transcript.visible) {
@@ -390,6 +412,19 @@ function App() {
     }
     return () => clearTimeout(transcriptTimerRef.current);
   }, [stateName, transcript.visible]);
+
+  // sendTextInput wrapper — handles no-backend fallback
+  const handleSendText = useCallback((text) => {
+    if (wsConnected) {
+      sendTextInput(text);
+    } else {
+      // No backend — add as a local user message and log it
+      const msg = { role: "user", text, timestamp: Date.now() / 1000 };
+      // Append to local chat history via state override
+      // (state.chatHistory won't update from WS, so we track locally)
+      addLog(`[voice] "${text}" (no backend)`);
+    }
+  }, [wsConnected, sendTextInput, addLog]);
 
   // Check if expression override has any non-empty values
   const hasOverride = Object.values(expressionOverride).some(
@@ -473,10 +508,12 @@ function App() {
               <ChatPanel
                 messages={state.chatHistory || []}
                 visible={chatOpen && !menuOpen}
-                onSendText={sendTextInput}
+                onSendText={handleSendText}
                 onClose={() => setChatOpen(false)}
                 currentAgent={agentInfo?.name || "vxl"}
                 stateName={stateName}
+                wsConnected={wsConnected}
+                voice={voice}
               />
 
               <MenuOverlay

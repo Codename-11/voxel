@@ -92,6 +92,8 @@ Installs and enables:
 
 | Service | Unit File | Purpose |
 |---------|-----------|---------|
+| `voxel-splash` | `voxel-splash.service` | C boot splash (instant LCD image ~3s after power-on) |
+| `voxel-guardian` | `voxel-guardian.service` | Display guardian (wake-up animation, WiFi AP onboarding, crash recovery watchdog) |
 | `voxel` | `voxel.service` | Python backend (state machine, hardware, AI) |
 | `voxel-display` | `voxel-display.service` | PIL display service (renders face to LCD, config UI on port 8081) |
 
