@@ -239,6 +239,18 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_hw(args: argparse.Namespace) -> int:
     header("Hardware Setup")
 
+    # Kernel headers (needed for DKMS driver compilation)
+    r = _run("dpkg -s raspberrypi-kernel-headers >/dev/null 2>&1", shell=True)
+    if r.returncode != 0:
+        info("Installing kernel headers for driver compilation...")
+        kernel = _run("uname -r", shell=True, capture_output=True, text=True).stdout.strip()
+        header_pkg = f"linux-headers-{kernel}"
+        r2 = _run(f"sudo apt-get install -y -qq {header_pkg}", shell=True)
+        if r2.returncode == 0:
+            ok(f"Kernel headers installed ({header_pkg})")
+        else:
+            warn(f"Could not install {header_pkg} — driver compilation may fail")
+
     # Whisplay drivers
     if not Path("/dev/fb1").exists():
         info("Installing Whisplay HAT drivers...")
@@ -246,7 +258,8 @@ def cmd_hw(args: argparse.Namespace) -> int:
         _run(f"git clone --depth 1 https://github.com/PiSugar/Whisplay.git {tmp}", shell=True)
         driver_script = tmp / "Driver" / "install_wm8960_drive.sh"
         if driver_script.exists():
-            _run(f"sudo bash {driver_script}", shell=True, cwd=tmp / "Driver")
+            # Pipe 'y' to accept the interactive prompt
+            _run(f"echo y | sudo bash {driver_script}", shell=True, cwd=tmp / "Driver")
         else:
             warn("Whisplay driver script not found in repo")
         shutil.rmtree(tmp, ignore_errors=True)
