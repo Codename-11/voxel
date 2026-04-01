@@ -626,15 +626,10 @@ def _build_html(settings: dict) -> str:
     mcp_status_class = "running" if mcp_running else "stopped"
     mcp_checked = "checked" if mcp_enabled else ""
     mcp_display = "" if mcp_enabled else 'style="display:none"'
-    mcp_class = "enabled" if mcp_enabled else "disabled"
 
     wh_cfg = settings.get("webhook", {})
     webhook_url = escape(wh_cfg.get("url", ""))
     webhook_checked = "checked" if wh_cfg.get("enabled") else ""
-    webhook_class = "enabled" if wh_cfg.get("enabled") else "disabled"
-
-    claude_config = json.dumps({"mcpServers": {"voxel": {"url": f"http://{device_ip}:{mcp_port}/sse"}}}, indent=2)
-    claude_stdio = json.dumps({"mcpServers": {"voxel": {"command": "uv", "args": ["run", "python", "-m", "mcp"], "cwd": "/path/to/voxel"}}}, indent=2)
     setup_url = f"http://{device_ip}:{config_port}/setup"
     skill_url = f"http://{device_ip}:{config_port}/skill"
     mcp_sse_url = f"http://{device_ip}:{mcp_port}/sse"
@@ -874,7 +869,6 @@ def _build_html(settings: dict) -> str:
   .btn-secondary {{ background: var(--btn-secondary-bg); color: var(--text); border: 1px solid var(--btn-secondary-border); }}
   .btn-secondary:hover {{ background: var(--btn-secondary-hover); }}
   .btn-secondary:active {{ background: var(--btn-secondary-active); }}
-  .agent-tab.active {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
   .btn-destructive {{
     background: transparent; color: var(--danger);
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
@@ -906,22 +900,32 @@ def _build_html(settings: dict) -> str:
   .badge.err {{ background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }}
 
   /* ── Integration section ──────────────────────────────────────── */
-  .mode-cards {{ display: flex; gap: 8px; margin: 12px 0; }}
-  .mode-card {{
-    flex: 1; padding: 10px; border-radius: 8px; text-align: center;
-    background: var(--bg-input); border: 1px solid var(--border);
-    font-size: 13px;
-  }}
-  .mode-card strong {{ display: block; font-size: 14px; margin-bottom: 4px; }}
-  .mode-card p {{ color: var(--text-dim); font-size: 11px; margin: 0; }}
-  .mode-card.active {{ border-color: var(--accent); }}
-  .mode-card.enabled {{ border-color: var(--success); }}
-  .mode-card.disabled {{ opacity: 0.5; }}
-
   .status-row {{ display: flex; align-items: center; gap: 8px; margin: 8px 0; }}
   .status-badge {{ padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }}
   .status-badge.running {{ background: rgba(52,211,129,0.15); color: var(--success); }}
   .status-badge.stopped {{ background: rgba(255,92,92,0.1); color: var(--text-dim); }}
+
+  .mcp-actions {{ display: flex; gap: 8px; margin: 10px 0; }}
+  .mcp-actions button {{ flex: 1; font-size: 13px; padding: 8px; }}
+
+  .endpoint-row {{
+    display: flex; align-items: center; gap: 8px; padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }}
+  .endpoint-row:last-child {{ border-bottom: none; }}
+  .endpoint-label {{ font-size: 12px; color: var(--text-dim); min-width: 90px; flex-shrink: 0; }}
+  .endpoint-url {{
+    flex: 1; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px; color: var(--accent-text); word-break: break-all;
+  }}
+  .endpoint-copy {{
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-muted); cursor: pointer; padding: 4px 8px; font-size: 12px;
+    min-height: auto; width: auto; flex-shrink: 0;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }}
+  .endpoint-copy:hover {{ color: var(--text); border-color: var(--border-input); }}
+  .endpoint-copy.copied {{ color: var(--success); border-color: var(--success); }}
 
   .connect-info {{ margin-top: 12px; }}
   .connect-info h3 {{ font-size: 13px; color: var(--text-dim); margin: 12px 0 4px; }}
@@ -1322,81 +1326,65 @@ def _build_html(settings: dict) -> str:
   </summary>
   <div class="card-body">
 
-    <!-- Agent Setup card (Moltbook-style) -->
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button type="button" class="btn-secondary agent-tab active" onclick="showAgentTab('human',this)" style="flex:1;font-size:13px;padding:8px">I'm a Human</button>
-        <button type="button" class="btn-secondary agent-tab" onclick="showAgentTab('agent',this)" style="flex:1;font-size:13px;padding:8px">I'm an Agent</button>
-      </div>
-      <div id="tab-human">
-        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Connect an AI Agent to Voxel</div>
-        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
-          <div class="code-hint">Send this URL to your agent</div>
-          <code>{setup_url}</code>
-          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-        </div>
-        <div style="font-size:12px;color:var(--text-dim);line-height:1.5">
-          1. Send the setup URL to your AI agent<br>
-          2. Agent reads instructions + installs skill<br>
-          3. Agent connects via MCP (enable below)
-        </div>
-      </div>
-      <div id="tab-agent" style="display:none">
-        <div style="font-size:14px;font-weight:500;margin-bottom:8px">Agent Self-Setup</div>
-        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
-          <div class="code-hint">Read setup instructions</div>
-          <code>curl {setup_url}</code>
-          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-        </div>
-        <div class="code-block" onclick="copyCode(this)" style="margin-bottom:8px">
-          <div class="code-hint">Install skill definition</div>
-          <code>curl {skill_url}</code>
-          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-        </div>
-        <div class="code-block" onclick="copyCode(this)">
-          <div class="code-hint">MCP discovery endpoint</div>
-          <code>{discovery_url}</code>
-          <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-        </div>
-      </div>
-    </div>
-
-    <div style="border-top:1px solid var(--border);margin:14px 0"></div>
-
+    <!-- MCP Server -->
     <h2 style="font-size:15px;margin:0 0 8px">MCP Server</h2>
     <div class="status-row">
       <span>Status:</span>
-      <span class="status-badge {mcp_status_class}">{mcp_status_text}</span>
+      <span class="status-badge {mcp_status_class}" id="mcp-status-badge">{mcp_status_text}</span>
     </div>
 
     <label class="check-row">
       <input type="checkbox" name="mcp.enabled" value="true" {mcp_checked} onchange="toggleMcp(this.checked)">
-      <span class="check-label">Enable MCP Server (port {mcp_port})</span>
+      <span class="check-label">Enable MCP Server</span>
     </label>
-    <div class="hint">Auto-starts with display service when enabled</div>
+    <div class="hint">Auto-starts with display service when enabled (port {mcp_port})</div>
 
-    <div class="connect-info" id="mcp-connect-info" {mcp_display}>
-      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">OpenClaw (remote, SSE)</div>
-      <div class="code-block" onclick="copyCode(this)">
-        <code>mcporter config add voxel --url {mcp_sse_url}</code>
-        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-      </div>
-
-      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">Claude Code / Codex (remote, SSE)</div>
-      <div class="code-block" onclick="copyCode(this)">
-        <code>{escape(claude_config)}</code>
-        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
-      </div>
-
-      <div style="font-size:13px;font-weight:500;color:var(--text-label);margin:10px 0 6px">Claude Code (local, stdio)</div>
-      <div class="code-block" onclick="copyCode(this)">
-        <code>{escape(claude_stdio)}</code>
-        <button type="button" class="copy-btn" aria-label="Copy">&#128203;</button>
+    <div id="mcp-controls" {mcp_display}>
+      <div class="mcp-actions">
+        <button type="button" class="btn-secondary" onclick="mcpAction('start')">Start</button>
+        <button type="button" class="btn-secondary" onclick="mcpAction('stop')">Stop</button>
       </div>
     </div>
 
     <div style="border-top:1px solid var(--border);margin:14px 0"></div>
 
+    <!-- Endpoints Reference -->
+    <details style="margin-bottom:0">
+      <summary style="font-size:14px;font-weight:500;cursor:pointer;color:var(--text-label);padding:4px 0">
+        Endpoints Reference
+      </summary>
+      <div style="margin-top:10px">
+        <div class="endpoint-row">
+          <span class="endpoint-label">Setup guide</span>
+          <span class="endpoint-url">{setup_url}</span>
+          <button type="button" class="endpoint-copy" onclick="copyText('{setup_url}', this)" aria-label="Copy">Copy</button>
+        </div>
+        <div class="endpoint-row">
+          <span class="endpoint-label">MCP (SSE)</span>
+          <span class="endpoint-url">{mcp_sse_url}</span>
+          <button type="button" class="endpoint-copy" onclick="copyText('{mcp_sse_url}', this)" aria-label="Copy">Copy</button>
+        </div>
+        <div class="endpoint-row">
+          <span class="endpoint-label">MCP (stdio)</span>
+          <span class="endpoint-url">python -m mcp</span>
+          <button type="button" class="endpoint-copy" onclick="copyText('python -m mcp', this)" aria-label="Copy">Copy</button>
+        </div>
+        <div class="endpoint-row">
+          <span class="endpoint-label">Skill definition</span>
+          <span class="endpoint-url">{skill_url}</span>
+          <button type="button" class="endpoint-copy" onclick="copyText('{skill_url}', this)" aria-label="Copy">Copy</button>
+        </div>
+        <div class="endpoint-row">
+          <span class="endpoint-label">Discovery</span>
+          <span class="endpoint-url">{discovery_url}</span>
+          <button type="button" class="endpoint-copy" onclick="copyText('{discovery_url}', this)" aria-label="Copy">Copy</button>
+        </div>
+      </div>
+    </details>
+
+    <div style="border-top:1px solid var(--border);margin:14px 0"></div>
+
+    <!-- Webhooks -->
     <h2 style="font-size:15px;margin:0 0 8px">Webhooks</h2>
     <label>Webhook URL</label>
     <input type="url" name="webhook.url" value="{webhook_url}" placeholder="http://gateway:18789/hooks/agent" style="width:100%;padding:10px;border:1px solid var(--border-input);border-radius:6px;background:var(--bg-input);color:var(--text);font-size:13px">
@@ -1909,8 +1897,8 @@ async function wifiConnect() {{
 
 /* ── Integration: MCP toggle ──────────────────────────────────── */
 function toggleMcp(enabled) {{
-  var info = document.getElementById('mcp-connect-info');
-  if (info) info.style.display = enabled ? '' : 'none';
+  var controls = document.getElementById('mcp-controls');
+  if (controls) controls.style.display = enabled ? '' : 'none';
   fetch('/api/config', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json'}},
@@ -1918,17 +1906,62 @@ function toggleMcp(enabled) {{
   }});
   if (enabled) {{
     fetch('/api/mcp/start', {{method: 'POST'}});
+    updateMcpBadge(true);
   }} else {{
     fetch('/api/mcp/stop', {{method: 'POST'}});
+    updateMcpBadge(false);
   }}
 }}
 
-/* ── Integration: Agent tab switch ────────────────────────────── */
-function showAgentTab(tab, btn) {{
-  document.getElementById('tab-human').style.display = tab === 'human' ? '' : 'none';
-  document.getElementById('tab-agent').style.display = tab === 'agent' ? '' : 'none';
-  document.querySelectorAll('.agent-tab').forEach(function(b) {{ b.classList.remove('active'); }});
-  btn.classList.add('active');
+function mcpAction(action) {{
+  fetch('/api/mcp/' + action, {{method: 'POST'}}).then(function(r) {{
+    return r.json();
+  }}).then(function(d) {{
+    if (action === 'start') {{
+      showToast('MCP server starting');
+      setTimeout(function() {{ refreshMcpStatus(); }}, 1500);
+    }} else {{
+      showToast('MCP server stopped');
+      updateMcpBadge(false);
+    }}
+  }}).catch(function() {{
+    showToast('Action failed', 'err');
+  }});
+}}
+
+function updateMcpBadge(running) {{
+  var badge = document.getElementById('mcp-status-badge');
+  if (!badge) return;
+  badge.textContent = running ? 'Running' : 'Stopped';
+  badge.className = 'status-badge ' + (running ? 'running' : 'stopped');
+}}
+
+function refreshMcpStatus() {{
+  fetch('/api/mcp/status').then(function(r) {{ return r.json(); }}).then(function(d) {{
+    updateMcpBadge(d.running);
+  }}).catch(function() {{}});
+}}
+
+/* ── Integration: copy text helper ────────────────────────────── */
+function copyText(text, btn) {{
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try {{ ok = document.execCommand('copy'); }} catch(e) {{}}
+  document.body.removeChild(ta);
+  if (ok) {{
+    showToast('Copied to clipboard');
+    if (btn) {{
+      btn.classList.add('copied');
+      btn.textContent = 'Copied';
+      setTimeout(function() {{ btn.classList.remove('copied'); btn.textContent = 'Copy'; }}, 1500);
+    }}
+  }} else {{
+    showToast('Copy failed', 'err');
+  }}
 }}
 
 /* ── Integration: click-to-copy code blocks ───────────────────── */
