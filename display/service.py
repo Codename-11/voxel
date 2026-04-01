@@ -540,14 +540,23 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
         prev_frame_time = frame_start
         frame_count += 1
 
-        # Start tutorial on first frame (accurate elapsed timing)
+        # Start tutorial only when no other overlays are active.
+        # Defer until greeting, WiFi events, and boot settle are done.
         if state._tutorial_pending:
-            state._tutorial_pending = False
-            state.tutorial_active = True
-            state.tutorial_phase = 1
-            state._tutorial_start = frame_start
-            state._tutorial_phase_start = frame_start
-            log.info("Gesture tutorial: started")
+            overlays_clear = (
+                not state.greeting_text
+                and not state.shutdown_confirm
+                and not state.pairing_mode
+                and not state.wifi_ap_mode
+                and frame_count > 30  # let first second of rendering settle
+            )
+            if overlays_clear:
+                state._tutorial_pending = False
+                state.tutorial_active = True
+                state.tutorial_phase = 1
+                state._tutorial_start = frame_start
+                state._tutorial_phase_start = frame_start
+                log.info("Gesture tutorial: started")
 
         # Poll hardware button (Whisplay single button on Pi)
         if hasattr(backend, '_board') and backend._board is not None:

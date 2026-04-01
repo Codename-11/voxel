@@ -473,31 +473,33 @@ class PILRenderer:
                 state.connection_event or state.battery_warning
             )
 
-            if has_mood_deco or has_status_deco:
-                face_cx = character._last_face_cx
-                face_cy = character._last_face_cy
-                left_eye = character._last_left_eye
-                right_eye = character._last_right_eye
-                img_rgba = img.convert("RGBA")
+            # Suppress decorations during tutorial (they'd render under the overlay)
+            if not state.tutorial_active:
+                if has_mood_deco or has_status_deco:
+                    face_cx = character._last_face_cx
+                    face_cy = character._last_face_cy
+                    left_eye = character._last_left_eye
+                    right_eye = character._last_right_eye
+                    img_rgba = img.convert("RGBA")
 
-                if has_mood_deco:
-                    draw_mood_decorations(
-                        draw, img_rgba, state.mood, now,
-                        face_cx, face_cy, left_eye, right_eye,
-                    )
-                if has_status_deco:
-                    draw_status_decorations(
-                        draw, img_rgba, now,
-                        state.connection_event, state.connection_event_time,
-                        state.battery_warning,
-                    )
+                    if has_mood_deco:
+                        draw_mood_decorations(
+                            draw, img_rgba, state.mood, now,
+                            face_cx, face_cy, left_eye, right_eye,
+                        )
+                    if has_status_deco:
+                        draw_status_decorations(
+                            draw, img_rgba, now,
+                            state.connection_event, state.connection_event_time,
+                            state.battery_warning,
+                        )
 
-                img.paste(img_rgba.convert("RGB"))
-                draw = ImageDraw.Draw(img)
+                    img.paste(img_rgba.convert("RGB"))
+                    draw = ImageDraw.Draw(img)
 
-            # Emoji reactions (agent-driven, auto-dismissing)
-            if state.reaction_emoji:
-                draw_emoji_reaction(draw, img, state, now)
+                # Emoji reactions (agent-driven, auto-dismissing)
+                if state.reaction_emoji:
+                    draw_emoji_reaction(draw, img, state, now)
 
             # Idle quirks and prompt (face view only, during IDLE)
             if state.state == "IDLE":
