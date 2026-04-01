@@ -1434,7 +1434,26 @@ def _build_html(settings: dict) -> str:
   </div>
 </details>
 
-<!-- Reboot -->
+<!-- Help & Tutorial -->
+<details>
+  <summary>
+    <span class="section-icon">&#x2753;</span><span class="section-title">Help &amp; Tutorial</span>
+  </summary>
+  <div class="card-body">
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Replay the gesture tutorial on the device display. Shows how to use the single-button controls (hold to talk, tap to switch views, hold for menu).</p>
+    <button type="button" onclick="replayTutorial()" class="btn-secondary">Replay Gesture Tutorial</button>
+    <div id="tutorial-status"></div>
+    <hr style="border-color:var(--border);margin:16px 0">
+    <p style="font-size:13px;color:var(--text-dim)"><strong>Quick reference:</strong></p>
+    <ul style="font-size:13px;color:var(--text-dim);margin:4px 0 0 16px;padding:0">
+      <li>Face view: <strong>Hold</strong> = talk, <strong>Tap</strong> = switch to chat</li>
+      <li>Chat view: <strong>Hold 1s</strong> = settings menu, <strong>Tap</strong> = switch to face</li>
+      <li>Menu: <strong>Tap</strong> = next item, <strong>Hold</strong> = select</li>
+    </ul>
+  </div>
+</details>
+
+<!-- Service Control -->
 <details>
   <summary>
     <span class="section-icon">&#x1f504;</span><span class="section-title">Service Control</span>
@@ -1601,6 +1620,22 @@ function showStatus(el, cls, msg, autoDismiss) {{
       setTimeout(() => {{ el.style.display = 'none'; }}, 300);
     }}, 4000);
   }}
+}}
+
+/* ── Tutorial ───────────────────────────────────────────────────── */
+async function replayTutorial() {{
+  const rs = document.getElementById('tutorial-status');
+  showStatus(rs, 'ok', 'Starting tutorial on display...', false);
+  try {{
+    const r = await fetch('/api/tutorial', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: '{{}}'
+    }});
+    const d = await r.json();
+    if (d.ok) {{ showStatus(rs, 'ok', 'Tutorial started — look at the device display.'); }}
+    else {{ showStatus(rs, 'err', 'Error: ' + (d.error || 'unknown')); }}
+  }} catch(e) {{ showStatus(rs, 'err', e.message); }}
 }}
 
 /* ── Restart Services ───────────────────────────────────────────── */
@@ -3532,6 +3567,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._backup_import(body)
             return
 
+        if self.path == "/api/tutorial":
+            self._replay_tutorial(body)
+            return
+
         if self.path == "/api/restart-services":
             self._restart_services(body)
             return
@@ -3822,6 +3861,20 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
 
         threading.Thread(target=_do_reboot, daemon=True).start()
+
+    def _replay_tutorial(self, body: bytes):
+        """Trigger the gesture tutorial on the device display."""
+        import time as _t
+        if _display_state is None:
+            self._json_response(500, {"ok": False, "error": "Display state not available"})
+            return
+
+        _display_state.tutorial_active = True
+        _display_state.tutorial_phase = 1
+        _display_state._tutorial_start = _t.time()
+        _display_state._tutorial_phase_start = _t.time()
+        log.info("Gesture tutorial: triggered from web UI by %s", self.client_address[0])
+        self._json_response(200, {"ok": True, "message": "Tutorial started on display"})
 
     def _restart_services(self, body: bytes):
         """Restart Voxel services without a full reboot."""
