@@ -335,7 +335,7 @@ class OpenClawClient:
         try:
             resp = requests.get(
                 f"{self.base_url}/v1/models",
-                headers={"Authorization": f"Bearer {self.token}"},
+                headers=self._headers(),
                 timeout=5,
             )
             return resp.status_code == 200

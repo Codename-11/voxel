@@ -154,6 +154,7 @@ def _test_gateway(url: str, token: str) -> bool:
     req = urllib.request.Request(test_url, method="GET")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("x-openclaw-scopes", "operator.read,operator.write")
     try:
         resp = urllib.request.urlopen(req, timeout=8)
         if resp.status == 200:

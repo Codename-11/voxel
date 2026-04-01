@@ -4034,6 +4034,7 @@ class _Handler(BaseHTTPRequestHandler):
             req = urllib.request.Request(f"{url}/v1/models", method="GET")
             if token:
                 req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("x-openclaw-scopes", "operator.read,operator.write")
             resp = urllib.request.urlopen(req, timeout=8)
             resp_data = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
@@ -4078,6 +4079,7 @@ class _Handler(BaseHTTPRequestHandler):
                 req = urllib.request.Request(f"{url}/v1/models", method="GET")
                 if token:
                     req.add_header("Authorization", f"Bearer {token}")
+                req.add_header("x-openclaw-scopes", "operator.read,operator.write")
                 resp = urllib.request.urlopen(req, timeout=5)
                 resp_data = json.loads(resp.read().decode())
                 agents = []
