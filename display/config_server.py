@@ -1073,19 +1073,26 @@ def _build_html(settings: dict) -> str:
   </summary>
   <div class="card-body">
     <label>Gateway URL</label>
-    <input name="gateway.url" type="url" value="{escape(gw.get('url', ''))}" placeholder="http://gateway-host:18789">
+    <input id="gw-url" name="gateway.url" type="url" value="{escape(gw.get('url', ''))}" placeholder="http://gateway-host:18789">
     <div class="hint">OpenClaw gateway server address</div>
 
     <label>Gateway Token</label>
     <div class="pw-wrap">
-      <input name="gateway.token" type="text" autocomplete="off" data-secret value="{escape(gw.get('token', ''))}" placeholder="Enter token">
+      <input id="gw-token" name="gateway.token" type="text" autocomplete="off" data-secret value="{escape(gw.get('token', ''))}" placeholder="Enter token">
       <button type="button" class="pw-toggle" onclick="togglePw(this)" aria-label="Show password">&#128065;</button>
     </div>
     <div class="hint">Authentication token for the gateway. <a href="https://github.com/Codename-11/openclaw" target="_blank" rel="noopener">OpenClaw docs</a></div>
 
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <button type="button" onclick="testGateway()" class="btn-secondary" style="font-size:13px;padding:6px 12px">Test Connection</button>
+      <button type="button" onclick="fetchAgents()" class="btn-secondary" style="font-size:13px;padding:6px 12px">Refresh Agents</button>
+    </div>
+    <div id="gw-test-status"></div>
+
     <label>Default Agent</label>
-    <select name="gateway.default_agent">
+    <select id="agent-select" name="gateway.default_agent">
     {agent_options}</select>
+    <div class="hint" id="agent-source">Agents loaded from config</div>
   </div>
 </details>
 
@@ -1620,6 +1627,58 @@ function showStatus(el, cls, msg, autoDismiss) {{
       setTimeout(() => {{ el.style.display = 'none'; }}, 300);
     }}, 4000);
   }}
+}}
+
+/* ── Gateway test & agent fetch ─────────────────────────────────── */
+async function testGateway() {{
+  const rs = document.getElementById('gw-test-status');
+  const url = document.getElementById('gw-url').value.trim();
+  const token = document.getElementById('gw-token').value.trim();
+  if (!url) {{ showStatus(rs, 'err', 'Enter a gateway URL first'); return; }}
+  showStatus(rs, 'ok', 'Testing...', false);
+  try {{
+    const r = await fetch('/api/gateway-test', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{url, token}})
+    }});
+    const d = await r.json();
+    if (d.ok) {{
+      showStatus(rs, 'ok', 'Connected! ' + (d.agents ? d.agents.length + ' agents available' : ''));
+      if (d.agents && d.agents.length > 0) {{ _populateAgents(d.agents, d.current); }}
+    }} else {{
+      showStatus(rs, 'err', d.error || 'Connection failed');
+    }}
+  }} catch(e) {{ showStatus(rs, 'err', e.message); }}
+}}
+
+async function fetchAgents() {{
+  const rs = document.getElementById('gw-test-status');
+  showStatus(rs, 'ok', 'Fetching agents...', false);
+  try {{
+    const r = await fetch('/api/gateway-agents');
+    const d = await r.json();
+    if (d.ok && d.agents) {{
+      _populateAgents(d.agents, d.current);
+      showStatus(rs, 'ok', d.agents.length + ' agents loaded from gateway');
+      document.getElementById('agent-source').textContent = 'Agents loaded from gateway';
+    }} else {{
+      showStatus(rs, 'err', d.error || 'Could not fetch agents');
+    }}
+  }} catch(e) {{ showStatus(rs, 'err', e.message); }}
+}}
+
+function _populateAgents(agents, current) {{
+  const sel = document.getElementById('agent-select');
+  sel.innerHTML = '';
+  agents.forEach(a => {{
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = (a.emoji || '') + ' ' + (a.name || a.id) + (a.description ? ' — ' + a.description : '');
+    if (a.id === current) opt.selected = true;
+    sel.appendChild(opt);
+  }});
+  document.getElementById('agent-source').textContent = 'Agents loaded from gateway';
 }}
 
 /* ── Tutorial ───────────────────────────────────────────────────── */
@@ -3371,6 +3430,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._wifi_scan()
             return
 
+        if self.path == "/api/gateway-agents":
+            self._gateway_agents()
+            return
+
         if self.path == "/api/update/check":
             self._update_check()
             return
@@ -3569,6 +3632,10 @@ class _Handler(BaseHTTPRequestHandler):
 
         if self.path == "/api/tutorial":
             self._replay_tutorial(body)
+            return
+
+        if self.path == "/api/gateway-test":
+            self._gateway_test(body)
             return
 
         if self.path == "/api/restart-services":
@@ -3861,6 +3928,97 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
 
         threading.Thread(target=_do_reboot, daemon=True).start()
+
+    def _gateway_test(self, body: bytes):
+        """Test gateway connection and optionally fetch agents."""
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            data = {}
+        url = data.get("url", "").strip().rstrip("/")
+        token = data.get("token", "").strip()
+
+        if not url:
+            self._json_response(400, {"ok": False, "error": "URL required"})
+            return
+
+        import urllib.request
+        import urllib.error
+
+        # Test connection
+        try:
+            req = urllib.request.Request(f"{url}/v1/models", method="GET")
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
+            resp = urllib.request.urlopen(req, timeout=8)
+            resp_data = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                self._json_response(200, {"ok": False, "error": f"Auth failed (HTTP {e.code}) — check token"})
+            else:
+                self._json_response(200, {"ok": False, "error": f"HTTP {e.code}"})
+            return
+        except Exception as e:
+            self._json_response(200, {"ok": False, "error": f"Connection failed: {e}"})
+            return
+
+        # Parse agents from response (OpenClaw returns models as agents)
+        agents = []
+        current = _load_settings().get("gateway", {}).get("default_agent", "daemon")
+        if isinstance(resp_data, dict):
+            models = resp_data.get("data", resp_data.get("models", []))
+            if isinstance(models, list):
+                for m in models:
+                    if isinstance(m, dict):
+                        agents.append({
+                            "id": m.get("id", ""),
+                            "name": m.get("name", m.get("id", "")),
+                            "emoji": m.get("emoji", ""),
+                            "description": m.get("description", ""),
+                        })
+
+        self._json_response(200, {"ok": True, "agents": agents, "current": current})
+
+    def _gateway_agents(self):
+        """Fetch agents from the gateway, fall back to config."""
+        settings = _load_settings()
+        gw = settings.get("gateway", {})
+        url = gw.get("url", "").strip().rstrip("/")
+        token = gw.get("token", "")
+        current = gw.get("default_agent", "daemon")
+
+        # Try gateway first
+        if url:
+            import urllib.request
+            try:
+                req = urllib.request.Request(f"{url}/v1/models", method="GET")
+                if token:
+                    req.add_header("Authorization", f"Bearer {token}")
+                resp = urllib.request.urlopen(req, timeout=5)
+                resp_data = json.loads(resp.read().decode())
+                agents = []
+                models = resp_data.get("data", resp_data.get("models", []))
+                if isinstance(models, list):
+                    for m in models:
+                        if isinstance(m, dict):
+                            agents.append({
+                                "id": m.get("id", ""),
+                                "name": m.get("name", m.get("id", "")),
+                                "emoji": m.get("emoji", ""),
+                                "description": m.get("description", ""),
+                            })
+                if agents:
+                    self._json_response(200, {"ok": True, "agents": agents, "current": current, "source": "gateway"})
+                    return
+            except Exception:
+                pass
+
+        # Fall back to config
+        config_agents = [
+            {"id": a["id"], "name": a.get("name", a["id"]), "emoji": a.get("emoji", ""), "description": a.get("description", "")}
+            for a in settings.get("agents", [])
+        ]
+        self._json_response(200, {"ok": True, "agents": config_agents, "current": current, "source": "config"})
 
     def _replay_tutorial(self, body: bytes):
         """Trigger the gesture tutorial on the device display."""
