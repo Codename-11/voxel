@@ -587,7 +587,9 @@ def _build_html(settings: dict) -> str:
 
     tts_provider = audio.get("tts_provider", "edge")
     edge_sel = "selected" if tts_provider == "edge" else ""
+    openai_tts_sel = "selected" if tts_provider == "openai" else ""
     eleven_sel = "selected" if tts_provider == "elevenlabs" else ""
+    openai_tts_cfg = settings.get("tts", {}).get("openai", {})
 
     wifi_badge = ""
     if wifi["connected"]:
@@ -1113,8 +1115,23 @@ def _build_html(settings: dict) -> str:
     <label>TTS Provider</label>
     <select name="audio.tts_provider">
       <option value="edge" {edge_sel}>Edge TTS (free)</option>
+      <option value="openai" {openai_tts_sel}>OpenAI TTS</option>
       <option value="elevenlabs" {eleven_sel}>ElevenLabs</option>
     </select>
+
+    <label>OpenAI TTS Voice</label>
+    <select name="tts.openai.voice">
+      <option value="nova" {"selected" if openai_tts_cfg.get("voice", "nova") == "nova" else ""}>Nova (warm female)</option>
+      <option value="alloy" {"selected" if openai_tts_cfg.get("voice") == "alloy" else ""}>Alloy (neutral)</option>
+      <option value="ash" {"selected" if openai_tts_cfg.get("voice") == "ash" else ""}>Ash (conversational male)</option>
+      <option value="coral" {"selected" if openai_tts_cfg.get("voice") == "coral" else ""}>Coral (warm female)</option>
+      <option value="echo" {"selected" if openai_tts_cfg.get("voice") == "echo" else ""}>Echo (deep male)</option>
+      <option value="fable" {"selected" if openai_tts_cfg.get("voice") == "fable" else ""}>Fable (British male)</option>
+      <option value="onyx" {"selected" if openai_tts_cfg.get("voice") == "onyx" else ""}>Onyx (deep male)</option>
+      <option value="sage" {"selected" if openai_tts_cfg.get("voice") == "sage" else ""}>Sage (calm female)</option>
+      <option value="shimmer" {"selected" if openai_tts_cfg.get("voice") == "shimmer" else ""}>Shimmer (cheerful female)</option>
+    </select>
+    <div class="hint">Uses same API key as STT (Whisper). Falls back to Edge TTS if no key set.</div>
 
     <label>ElevenLabs API Key</label>
     <div class="pw-wrap">
