@@ -131,22 +131,15 @@ def start_recording() -> None:
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
-        # On Pi, try the ALSA "capture" PCM (dsnoop-based, supports shared access)
-        # before falling back to the device detection chain. This avoids
-        # PortAudio's cached device list which may be stale.
-        device = None
+        # On Pi, use the ALSA "capture" PCM directly. This is defined in
+        # asound.conf as a plug→dsnoop device that supports shared mic access.
+        # We skip the parameter check because PortAudio caches device info at
+        # import time, and that cache is stale if the ambient monitor was
+        # holding the device when sounddevice was first imported.
         if IS_PI:
-            for try_dev in (_PI_CAPTURE_PCM, _PI_DEVICE_PLUG, _PI_DEVICE_PLUG_NAMED):
-                try:
-                    test = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
-                                          dtype="int16", blocksize=CHUNK, device=try_dev)
-                    test.close()
-                    device = try_dev
-                    log.info("Recording: using ALSA PCM '%s'", device)
-                    break
-                except Exception:
-                    continue
-        if device is None:
+            device = _PI_CAPTURE_PCM
+            log.info("Recording: using ALSA PCM '%s' (Pi)", device)
+        else:
             device = _get_sd_device("input")
         _stream_in = sd.InputStream(
             samplerate=SAMPLE_RATE,

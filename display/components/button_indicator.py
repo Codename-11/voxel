@@ -125,76 +125,94 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
     bg_color = _scale_color((30, 30, 50), ring_alpha)
     _draw_ring(draw, ARC_CX, ARC_CY, ARC_R, ARC_THICKNESS, bg_color)
 
-    # Tick marks at zone boundaries
-    _draw_zone_tick(draw, ZONE_MENU, ring_alpha)
-    _draw_zone_tick(draw, ZONE_SLEEP, ring_alpha)
-
-    # ── Progress arc — zones matching the new button model ──
+    # ── Progress arc ──
     start_angle = -90  # 12 o'clock
     bbox = [ARC_CX - ARC_R, ARC_CY - ARC_R, ARC_CX + ARC_R, ARC_CY + ARC_R]
 
-    if progress <= ZONE_MENU:
-        # Zone 1: 0.4-1s — cyan (Talk/recording active)
-        end_angle = start_angle + int(360 * progress)
-        t = min(progress / ZONE_MENU, 1.0)
-        ring_color = _scale_color(_lerp_color(CYAN_DIM, CYAN, t), ring_alpha)
+    # During recording, show a simple pulsing cyan arc — no zone ticks or transitions.
+    is_recording = state.state == "LISTENING" and state.view == "face"
+    if is_recording:
+        # Smooth growing arc capped at full circle
+        end_angle = start_angle + min(int(360 * progress / 0.3), 360)
+        pulse = math.sin(now * 4.0) * 0.15 + 0.85
+        ring_color = _scale_color(CYAN, ring_alpha * pulse)
         draw.arc(bbox, start_angle, end_angle, fill=ring_color, width=ARC_THICKNESS)
-
-        # Pulsing center dot while recording
-        pulse = math.sin(now * 6.0) * 0.3 + 0.7
+        # Pulsing center dot
         dot_color = _scale_color(CYAN, ring_alpha * pulse)
         draw.ellipse(
             [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
             fill=dot_color,
         )
-    elif progress <= ZONE_SLEEP:
-        # Zone 1 full (cyan) + Zone 2 partial (bright cyan)
-        menu_end = start_angle + int(360 * ZONE_MENU)
-        draw.arc(bbox, start_angle, menu_end,
-                 fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
-
-        zone2_progress = (progress - ZONE_MENU) / (ZONE_SLEEP - ZONE_MENU)
-        t2 = min(zone2_progress, 1.0)
-        zone2_color = _scale_color(_lerp_color(CYAN, CYAN_BRIGHT, t2), ring_alpha)
-        end_angle = menu_end + int(360 * (ZONE_SLEEP - ZONE_MENU) * zone2_progress)
-        draw.arc(bbox, menu_end, end_angle, fill=zone2_color, width=ARC_THICKNESS)
-
-        # Center dot — bright cyan
-        dot_color = _scale_color(CYAN_BRIGHT, ring_alpha)
-        draw.ellipse(
-            [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
-            fill=dot_color,
-        )
     else:
-        # Zone 1 + Zone 2 full + Zone 3 partial (orange→red)
-        menu_end = start_angle + int(360 * ZONE_MENU)
-        sleep_end = start_angle + int(360 * ZONE_SLEEP)
-        draw.arc(bbox, start_angle, menu_end,
-                 fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
-        draw.arc(bbox, menu_end, sleep_end,
-                 fill=_scale_color(CYAN_BRIGHT, ring_alpha), width=ARC_THICKNESS)
+        # Non-recording: show zone ticks and multi-zone ring
+        _draw_zone_tick(draw, ZONE_MENU, ring_alpha)
+        _draw_zone_tick(draw, ZONE_SLEEP, ring_alpha)
 
-        zone3_progress = (progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP)
-        t3 = min(zone3_progress, 1.0)
-        zone3_color = _scale_color(_lerp_color(ORANGE_DIM, RED, t3), ring_alpha)
-        end_angle = sleep_end + int(360 * (1.0 - ZONE_SLEEP) * zone3_progress)
-        draw.arc(bbox, sleep_end, end_angle, fill=zone3_color, width=ARC_THICKNESS)
+        if progress <= ZONE_MENU:
+            # Zone 1: 0.4-1s — cyan
+            end_angle = start_angle + int(360 * progress)
+            t = min(progress / ZONE_MENU, 1.0)
+            ring_color = _scale_color(_lerp_color(CYAN_DIM, CYAN, t), ring_alpha)
+            draw.arc(bbox, start_angle, end_angle, fill=ring_color, width=ARC_THICKNESS)
 
-        # Center dot — orange/red
-        dot_color = _scale_color(_lerp_color(ORANGE, RED, t3), ring_alpha)
-        draw.ellipse(
-            [ARC_CX - 4, ARC_CY - 4, ARC_CX + 4, ARC_CY + 4],
-            fill=dot_color,
-        )
+            pulse = math.sin(now * 6.0) * 0.3 + 0.7
+            dot_color = _scale_color(CYAN, ring_alpha * pulse)
+            draw.ellipse(
+                [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
+                fill=dot_color,
+            )
+        elif progress <= ZONE_SLEEP:
+            # Zone 1 full (cyan) + Zone 2 partial (bright cyan)
+            menu_end = start_angle + int(360 * ZONE_MENU)
+            draw.arc(bbox, start_angle, menu_end,
+                     fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
+
+            zone2_progress = (progress - ZONE_MENU) / (ZONE_SLEEP - ZONE_MENU)
+            t2 = min(zone2_progress, 1.0)
+            zone2_color = _scale_color(_lerp_color(CYAN, CYAN_BRIGHT, t2), ring_alpha)
+            end_angle = menu_end + int(360 * (ZONE_SLEEP - ZONE_MENU) * zone2_progress)
+            draw.arc(bbox, menu_end, end_angle, fill=zone2_color, width=ARC_THICKNESS)
+
+            # Center dot — bright cyan
+            dot_color = _scale_color(CYAN_BRIGHT, ring_alpha)
+            draw.ellipse(
+                [ARC_CX - 3, ARC_CY - 3, ARC_CX + 3, ARC_CY + 3],
+                fill=dot_color,
+            )
+        else:
+            # Zone 1 + Zone 2 full + Zone 3 partial (orange→red)
+            menu_end = start_angle + int(360 * ZONE_MENU)
+            sleep_end = start_angle + int(360 * ZONE_SLEEP)
+            draw.arc(bbox, start_angle, menu_end,
+                     fill=_scale_color(CYAN, ring_alpha), width=ARC_THICKNESS)
+            draw.arc(bbox, menu_end, sleep_end,
+                     fill=_scale_color(CYAN_BRIGHT, ring_alpha), width=ARC_THICKNESS)
+
+            zone3_progress = (progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP)
+            t3 = min(zone3_progress, 1.0)
+            zone3_color = _scale_color(_lerp_color(ORANGE_DIM, RED, t3), ring_alpha)
+            end_angle = sleep_end + int(360 * (1.0 - ZONE_SLEEP) * zone3_progress)
+            draw.arc(bbox, sleep_end, end_angle, fill=zone3_color, width=ARC_THICKNESS)
+
+            # Center dot — orange/red
+            dot_color = _scale_color(_lerp_color(ORANGE, RED, t3), ring_alpha)
+            draw.ellipse(
+                [ARC_CX - 4, ARC_CY - 4, ARC_CX + 4, ARC_CY + 4],
+                fill=dot_color,
+            )
 
     # ── Label below the ring — shows current zone ──
-    # View-aware: on face view "Talk" shows in the 0.4-1s zone.
-    # On chat view, nothing fires in that zone (hold-to-talk is face-only),
-    # so we suppress the label until "Menu" at 1s to avoid confusion.
+    # During RECORDING (face view, mic active), only show "Talk" — the user
+    # is speaking, menu/sleep/shutdown zones don't apply.
+    # On chat view, suppress "Talk" label in the 0.4-1s zone.
+    is_recording = state.state == "LISTENING" and state.view == "face"
     font = get_font(16)
     label = ""
     color = CYAN
-    if progress >= ZONE_SLEEP:
+    if is_recording:
+        label = "Talk"
+        color = GREEN_BRIGHT
+    elif progress >= ZONE_SLEEP:
         t3 = min((progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP), 1.0)
         if t3 > 0.8:
             label = "Shutdown"
