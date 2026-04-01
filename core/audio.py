@@ -131,14 +131,16 @@ def start_recording() -> None:
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
-        # On Pi, use the ALSA "capture" PCM directly. This is defined in
-        # asound.conf as a plug→dsnoop device that supports shared mic access.
-        # We skip the parameter check because PortAudio caches device info at
-        # import time, and that cache is stale if the ambient monitor was
-        # holding the device when sounddevice was first imported.
+        # On Pi, use the ALSA default device for recording. The asound.conf
+        # (installed by Whisplay driver) routes the default capture through
+        # dsnoop for shared mic access. We use "default" because sounddevice/
+        # PortAudio doesn't resolve custom ALSA PCM names like "capture" —
+        # it only sees devices from its internal enumeration.
+        # The ambient monitor is paused before we get here (via WebSocket
+        # ambient_control message), so the device should be available.
         if IS_PI:
-            device = _PI_CAPTURE_PCM
-            log.info("Recording: using ALSA PCM '%s' (Pi)", device)
+            device = "default"
+            log.info("Recording: using ALSA default device (Pi, routed via asound.conf)")
         else:
             device = _get_sd_device("input")
         _stream_in = sd.InputStream(
