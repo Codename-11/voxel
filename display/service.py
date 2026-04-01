@@ -64,7 +64,7 @@ SLEEP_THRESHOLD = 5.0          # seconds — enter sleep mode
 SHUTDOWN_THRESHOLD = 10.0      # seconds — shutdown Pi
 MENU_TAP_THRESHOLD = 0.5       # seconds — max hold for "tap" inside menu
 MENU_SELECT_THRESHOLD = 0.5    # seconds — hold to select inside menu
-MENU_IDLE_TIMEOUT = 5.0        # seconds — auto-close menu after no input
+MENU_IDLE_TIMEOUT = 15.0       # seconds — auto-close menu after no input
 
 # Unified button state machine — shared by hardware (Pi) and desktop (spacebar)
 # States: IDLE, PRESSED, RECORDING, IN_MENU_IDLE, IN_MENU_PRESSED
