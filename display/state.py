@@ -116,6 +116,7 @@ class DisplayState:
     # Gesture tutorial
     tutorial_active: bool = False
     tutorial_phase: int = 0  # 0=inactive, 1=hold-to-talk, 2=tap-to-chat, 3=hold-for-menu
+    _tutorial_pending: bool = False  # queued but not started (waits for render loop)
     _tutorial_start: float = 0.0
     _tutorial_phase_start: float = 0.0
 

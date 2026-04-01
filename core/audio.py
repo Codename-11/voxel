@@ -131,16 +131,17 @@ def start_recording() -> None:
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
-        # On Pi, use device index 0 directly for recording. PortAudio caches
-        # its device list at import time, and if the ambient monitor held the
-        # ALSA device then, all string-based lookups ("default", "capture",
-        # "hw:0,0") fail because PortAudio reports 0 input channels.
-        # Integer device indices bypass name matching entirely and go straight
-        # to the underlying ALSA device. The ambient monitor is paused before
-        # we get here (via WebSocket ambient_control message).
+        # On Pi, force PortAudio to rescan devices before recording.
+        # PortAudio caches device info at import time. If the ambient monitor
+        # had the ALSA device open then, all devices report 0 input channels
+        # (stale cache). The ambient monitor is paused before we get here
+        # (via WebSocket ambient_control message), so a rescan now will see
+        # the correct device capabilities.
         if IS_PI:
+            sd._terminate()
+            sd._initialize()
             device = 0
-            log.info("Recording: using device index 0 (Pi)")
+            log.info("Recording: PortAudio rescanned, using device index 0 (Pi)")
         else:
             device = _get_sd_device("input")
         _stream_in = sd.InputStream(

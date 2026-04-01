@@ -534,6 +534,15 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
         prev_frame_time = frame_start
         frame_count += 1
 
+        # Start tutorial on first frame (accurate elapsed timing)
+        if state._tutorial_pending:
+            state._tutorial_pending = False
+            state.tutorial_active = True
+            state.tutorial_phase = 1
+            state._tutorial_start = frame_start
+            state._tutorial_phase_start = frame_start
+            log.info("Gesture tutorial: started")
+
         # Poll hardware button (Whisplay single button on Pi)
         if hasattr(backend, '_board') and backend._board is not None:
             _in_menu = (renderer.menu.open or state.pairing_mode or
@@ -864,11 +873,10 @@ async def _main(args: argparse.Namespace) -> None:
             from display.components.onboarding import get_setup_state
             _setup = get_setup_state()
             if not _setup.get("tutorial_completed", False):
-                state.tutorial_active = True
-                state.tutorial_phase = 1
-                state._tutorial_start = time.time()
-                state._tutorial_phase_start = time.time()
-                log.info("Gesture tutorial: starting (first boot)")
+                # Mark tutorial as pending — actual start time is set
+                # when the render loop begins, so elapsed time is accurate
+                state._tutorial_pending = True
+                log.info("Gesture tutorial: queued for first boot")
         except Exception as e:
             log.debug("Tutorial check failed: %s", e)
 
