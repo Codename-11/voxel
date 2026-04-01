@@ -56,41 +56,74 @@ def banner(version: str = "0.1.0", compact: bool = False) -> None:
     console.print()
 
 
-def print_commands() -> None:
+def print_commands(show_all: bool = False) -> None:
     """Print a styled command list (shown when no command is given)."""
     tbl = Table(
         show_header=False, box=None, padding=(0, 2, 0, 4),
         row_styles=["", "dim"],
     )
-    tbl.add_column("cmd", style="bold cyan", min_width=12)
+    tbl.add_column("cmd", style="bold cyan", min_width=14)
     tbl.add_column("desc")
 
-    cmds = [
-        ("doctor",   "🩺  Run system health diagnostics"),
-        ("display-test", "🖥️  Run direct display sanity test"),
-        ("lvgl-test", "🧪  Build and play back a tiny LVGL PoC"),
-        ("lvgl-build", "🔨  Build the LVGL PoC once"),
-        ("lvgl-render", "🖼️  Render LVGL frames without playback"),
-        ("lvgl-play", "🎞️  Play the cached LVGL PoC"),
-        ("lvgl-sync", "📡  Sync rendered LVGL frames to a Pi"),
-        ("lvgl-deploy", "🚀  Render, sync, and play on the Pi"),
-        ("lvgl-dev", "🛠️  Default LVGL dev loop with interactive Pi preview"),
-        ("setup",    "📦  First-time install & configure"),
-        ("configure","🧙  Interactive configuration wizard"),
-        ("build",    "🔨  Build Python deps + React app"),
-        ("update",   "🔄  Pull latest, rebuild, restart"),
-        ("hw",       "🔧  Install Whisplay HAT drivers"),
-        ("start",    "▶️   Start services"),
-        ("stop",     "⏹️   Stop services"),
-        ("restart",  "🔁  Restart services"),
-        ("logs",     "📋  Tail service logs"),
-        ("status",   "📊  Show service & system status"),
-        ("config",   "⚙️   Show / get / set configuration"),
-        ("uninstall","🗑️   Remove services & caches"),
-        ("version",  "🏷️   Show version"),
-    ]
-    for cmd, desc in cmds:
+    # ── Setup & Maintenance ──
+    tbl.add_row("[bold dim]Setup[/]", "")
+    for cmd, desc in [
+        ("setup",     "First-time install & configure"),
+        ("configure", "Interactive configuration wizard"),
+        ("doctor",    "Run system health diagnostics"),
+        ("update",    "Pull latest, rebuild, restart"),
+        ("hw",        "Install Whisplay HAT drivers"),
+    ]:
         tbl.add_row(cmd, desc)
+
+    # ── Services ──
+    tbl.add_row("", "")
+    tbl.add_row("[bold dim]Services[/]", "")
+    for cmd, desc in [
+        ("start",    "Start services"),
+        ("stop",     "Stop services"),
+        ("restart",  "Restart services"),
+        ("logs",     "Tail service logs"),
+        ("status",   "Show service & system status"),
+    ]:
+        tbl.add_row(cmd, desc)
+
+    # ── Configuration ──
+    tbl.add_row("", "")
+    tbl.add_row("[bold dim]Configuration[/]", "")
+    for cmd, desc in [
+        ("config",    "Show / get / set configuration"),
+        ("backup",    "Export, import, or factory reset"),
+        ("uninstall", "Remove services (--nuke for full)"),
+        ("version",   "Show version"),
+    ]:
+        tbl.add_row(cmd, desc)
+
+    # ── Dev Tools ──
+    tbl.add_row("", "")
+    tbl.add_row("[bold dim]Development[/]", "")
+    for cmd, desc in [
+        ("dev-pair",    "Discover & pair with a device"),
+        ("dev-push",    "Sync runtime to Pi + run"),
+        ("dev-logs",    "Tail remote Pi logs"),
+        ("dev-restart", "Restart services on Pi"),
+        ("dev-ssh",     "SSH into paired Pi"),
+    ]:
+        tbl.add_row(cmd, desc)
+
+    # ── Experimental (only with --all) ──
+    if show_all:
+        tbl.add_row("", "")
+        tbl.add_row("[bold dim]Experimental[/]", "")
+        for cmd, desc in [
+            ("display-test", "Direct display sanity test"),
+            ("mcp",          "Start MCP server (SSE :8082)"),
+            ("lvgl-build",   "Build the LVGL PoC"),
+            ("lvgl-render",  "Render LVGL frames"),
+            ("lvgl-deploy",  "Render, sync, play on Pi"),
+            ("lvgl-dev",     "LVGL dev loop"),
+        ]:
+            tbl.add_row(cmd, desc)
 
     console.print(Panel(
         tbl,
@@ -99,7 +132,10 @@ def print_commands() -> None:
         box=box.ROUNDED,
         padding=(1, 1),
     ))
-    console.print("  [dim]Run[/] [cyan]voxel <command> --help[/] [dim]for details[/]")
+    hint = "  [dim]Run[/] [cyan]voxel <command> --help[/] [dim]for details[/]"
+    if not show_all:
+        hint += "\n  [dim]Run[/] [cyan]voxel --all[/] [dim]to see experimental commands[/]"
+    console.print(hint)
     console.print()
 
 

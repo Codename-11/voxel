@@ -1073,6 +1073,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="voxel",
         description="Voxel Relay — setup, manage, and diagnose your pocket AI companion",
     )
+    parser.add_argument("--all", action="store_true", help="Show all commands including experimental")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("doctor", help="Diagnose system health")
@@ -1275,5 +1276,5 @@ def main() -> None:
     else:
         # No command — show branded TUI welcome
         banner(_get_version())
-        print_commands()
+        print_commands(show_all=getattr(args, "all", False))
         sys.exit(0)
