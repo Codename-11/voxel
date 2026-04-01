@@ -4304,20 +4304,34 @@ class _Handler(BaseHTTPRequestHandler):
             # WM8960 detection
             wm8960 = hw.has_wm8960_audio
 
-            # Audio device info
+            # Audio device info (try sounddevice first, then pyaudio)
             audio_devices = []
-            if _pyaudio_available and _pa is not None:
+            try:
+                import sounddevice as _sd
+                for d in _sd.query_devices():
+                    audio_devices.append({
+                        "index": d.get("index", 0),
+                        "name": d.get("name", ""),
+                        "inputs": d.get("max_input_channels", 0),
+                        "outputs": d.get("max_output_channels", 0),
+                    })
+            except ImportError:
                 try:
-                    for i in range(_pa.get_device_count()):
-                        info = _pa.get_device_info_by_index(i)
+                    import pyaudio as _pa_mod
+                    _pa_inst = _pa_mod.PyAudio()
+                    for i in range(_pa_inst.get_device_count()):
+                        info = _pa_inst.get_device_info_by_index(i)
                         audio_devices.append({
                             "index": i,
                             "name": info.get("name", ""),
                             "inputs": info.get("maxInputChannels", 0),
                             "outputs": info.get("maxOutputChannels", 0),
                         })
-                except Exception:
+                    _pa_inst.terminate()
+                except ImportError:
                     pass
+            except Exception:
+                pass
 
             # Display backend
             if _display_state and hasattr(_display_state, "backend_name"):

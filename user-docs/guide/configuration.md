@@ -192,9 +192,18 @@ display:
   idle_hint_delay: 45           # seconds of idle before hint appears on face view
 ```
 
-The gesture tutorial runs once on first boot (3 phases: hold-to-talk, tap-to-switch-view, hold-for-menu). Completion is persisted in `config/.setup-state` so it only shows once. Replay the tutorial from the "Help" item in the settings menu. Set `gesture_tutorial: false` to skip the tutorial entirely.
+The gesture tutorial runs once on first boot (3 phases: hold-to-talk, tap-to-switch-view, hold-for-menu). Completion is persisted in `config/.setup-state` so it only shows once. Replay the tutorial from "Gesture Help" in the settings menu or the web UI. Set `gesture_tutorial: false` to skip the tutorial entirely.
 
 The idle hint fades in on the face view after the configured delay and disappears on any button press. On the first visit to the chat view, a one-time "Hold for settings" hint is shown.
+
+### Pipeline Errors
+
+```yaml
+pipeline:
+  error_display_seconds: 3     # how long error toast shows before returning to IDLE
+```
+
+Pipeline errors (missing API key, recording too short, STT failure, gateway unreachable) display human-readable messages as a red-tinted pill at the bottom of the LCD. Messages are defined in `display/components/error_toast.py`.
 
 ### Power Management
 

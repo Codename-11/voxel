@@ -76,7 +76,7 @@ Single button (Whisplay HAT). All interaction encoded through hold duration -- n
 
 Inside menus: tap = next item, hold > 500ms = select.
 
-On first boot, a gesture tutorial walks through all three interactions. After 45 seconds idle on the face view, a hint appears: "Hold to talk · Tap for more". The settings menu includes a "Help" item to replay the tutorial.
+On first boot, a gesture tutorial walks through all three interactions. After 45 seconds idle on the face view, a hint appears: "Hold to talk · Tap for more". The settings menu includes "Gesture Help" to replay the tutorial, plus "Restart Services" and "Shutdown" items.
 
 ## Features
 
@@ -220,7 +220,7 @@ uv run voxel dev-push --install-service     # set up systemd auto-start
 ### Testing
 
 ```bash
-uv run pytest                     # run all tests
+uv run pytest                     # run all 286 tests
 uv run pytest tests/ -v           # verbose output
 ```
 

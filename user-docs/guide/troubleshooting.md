@@ -126,6 +126,19 @@ voxel hw
 sudo reboot
 ```
 
+If recording fails with PortAudio errors, `core/audio.py` automatically rescans devices (`sd._terminate()` + `sd._initialize()`) and attempts device index 0. The ALSA `dsnoop` capture PCM configuration is auto-repaired by both `core/audio.py` and `voxel hw`.
+
+**Error messages on screen:**
+
+Pipeline errors display as red-tinted pills at the bottom of the LCD:
+
+| Message | Cause | Fix |
+|---------|-------|-----|
+| "No API key" | OpenAI API key not configured | Set `stt.whisper.api_key` in config or `OPENAI_API_KEY` env |
+| "Didn't catch that" | STT failed to transcribe audio | Speak closer to the mic, check internet connection |
+| "Too short" | Recording was too brief | Hold the button longer while speaking |
+| "Can't reach server" | Gateway URL unreachable | Check `gateway.url` config, verify network connectivity |
+
 **STT (speech-to-text) fails:**
 
 - Verify your OpenAI API key is set: `voxel config get stt.whisper.api_key`
@@ -223,3 +236,25 @@ You can also access settings from a browser: scan the QR code shown on the devic
 - Run `voxel dev-pair` first to save SSH credentials
 - Verify the device IP has not changed (DHCP lease may have expired)
 - Test SSH manually: `ssh pi@<device-ip>`
+
+### How do I restart services without rebooting?
+
+From the LCD settings menu, select "Restart Services". Or from the web UI at `http://<device-ip>:8081`, use the "Restart Services" button. From the command line:
+
+```bash
+voxel restart
+```
+
+### How do I test the gateway connection?
+
+The web UI at `http://<device-ip>:8081` has a "Test Connection" button on the gateway settings page. It verifies the gateway URL and token, and dynamically fetches the available agents if successful.
+
+### How do I change the TTS voice?
+
+In the web UI, go to the voice settings section. If using OpenAI TTS, you can select from 9 voices (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer). From the CLI:
+
+```bash
+voxel config set audio.tts_provider openai
+voxel config set tts.openai.voice nova
+voxel restart
+```

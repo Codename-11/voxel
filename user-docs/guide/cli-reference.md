@@ -8,6 +8,8 @@ On a development machine (not on the Pi), run CLI commands through uv:
 uv run voxel <command>
 ```
 
+Running `voxel` with no arguments shows a branded help screen with commands organized into groups: Setup, Services, Configuration, and Development. Experimental commands (LVGL, display-test, MCP) are hidden by default -- use `voxel --all` to show them.
+
 ## Setup and Maintenance
 
 ### `voxel setup`
@@ -62,7 +64,7 @@ voxel build
 
 ### `voxel hw`
 
-Installs or reinstalls Whisplay HAT drivers and applies `/boot/config.txt` tuning (GPU memory, HDMI blanking, swap). Requires a reboot afterward.
+Installs or reinstalls Whisplay HAT drivers and applies `/boot/config.txt` tuning (GPU memory, HDMI blanking, swap). Automatically pipes 'y' to the interactive driver installer and installs kernel headers for Trixie (Debian 13). Also auto-repairs ALSA capture PCM (`dsnoop`) configuration. Requires a reboot afterward.
 
 ```bash
 voxel hw
@@ -227,7 +229,7 @@ voxel display-test
 
 ## LVGL (Experimental)
 
-Native C renderer proof of concept. Pre-renders RGB565 frames on a workstation and plays them back on the Pi's LCD.
+Native C renderer proof of concept. Pre-renders RGB565 frames on a workstation and plays them back on the Pi's LCD. These commands are hidden in the default `voxel` help output -- use `voxel --all` to see them.
 
 ### `voxel lvgl-build`
 

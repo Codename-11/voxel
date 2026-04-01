@@ -182,7 +182,7 @@ display/
   backends/                 # Output backends (spi.py, tkinter.py, pygame.py)
   led.py                    # LEDController — WhisPlay RGB LED patterns
 server.py                   # Python backend (state machine, AI, hardware)
-hw/                         # Hardware abstraction (detect.py, buttons.py, battery.py)
+hw/                         # Hardware abstraction (detect.py, buttons.py, battery.py, WhisPlay.py)
 shared/                     # YAML data (expressions, styles, moods)
 app/                        # React browser UI (dev tool)
 services/                   # Systemd unit files
@@ -213,3 +213,31 @@ uv run server.py
 ```
 
 MCP tools are defined in `mcp/tools.py`. To add a new tool, add an entry to the `TOOLS` list with a name, description, and JSON Schema input, then add a handler case in `handle_tool()`.
+
+## Testing
+
+Run the full test suite (286 tests):
+
+```bash
+uv run pytest
+uv run pytest tests/ -v           # verbose output
+```
+
+Test files:
+
+| File | Coverage |
+|------|----------|
+| `test_mood_pipeline.py` | Mood transitions, battery, lockout, connection, demo |
+| `test_state_lifecycle.py` | DisplayState defaults, transcripts, blink/gaze/breathing |
+| `test_characters.py` | All characters x all moods rendering, tilt, accents |
+| `test_guardian.py` | Guardian screens, lock files, WiFi flag, menu integration |
+| `test_button.py` | Button interaction, hold thresholds, recording state |
+| `test_websocket.py` | WebSocket protocol, message handling, state sync |
+| `test_audio_detect.py` | Audio device detection, ALSA config repair |
+| `test_cli.py` | CLI argument parsing, command dispatch |
+
+A pre-push git hook (`.githooks/pre-push`) validates Python syntax, import checks, and runs the test suite before allowing pushes. Configure it with:
+
+```bash
+git config core.hooksPath .githooks
+```

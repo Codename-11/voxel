@@ -80,11 +80,12 @@ voxel/
 │   │   └── bmo.py               # BMO character (Adventure Time)
 │   ├── components/              # UI component renderers
 │   │   ├── face.py              # Face compositing (eyes, mouth via character)
-│   │   ├── menu.py              # Settings/menu overlay
+│   │   ├── menu.py              # Settings/menu overlay (includes Restart, Shutdown, Gesture Help)
 │   │   ├── status_bar.py        # Battery, WiFi, agent indicators
 │   │   ├── transcript.py        # Chat transcript overlay
-│   │   ├── button_indicator.py  # Four-zone progress ring + flash pills
+│   │   ├── button_indicator.py  # Pulsing cyan ring during recording, view-aware labels
 │   │   ├── shutdown_overlay.py  # Shutdown countdown (3... 2... 1...)
+│   │   ├── error_toast.py       # Pipeline error messages (red pill at bottom of LCD)
 │   │   ├── tutorial.py          # First-boot gesture tutorial overlay (3-phase)
 │   │   ├── idle_hint.py         # Idle hint text ("Hold to talk · Tap for more")
 │   │   ├── qr_overlay.py        # QR code display for config URL
@@ -118,11 +119,12 @@ voxel/
 ├── hw/                          # Hardware abstraction (Pi vs desktop)
 │   ├── detect.py                # Auto-detect Pi vs desktop (IS_PI, probe_hardware)
 │   ├── buttons.py               # GPIO / keyboard mapping
-│   └── battery.py               # PiSugar / mock battery
+│   ├── battery.py               # PiSugar / mock battery
+│   └── WhisPlay.py              # Vendored WhisPlay driver (no longer cloned from GitHub)
 ├── cli/                         # Voxel CLI (`uv run voxel <command>`)
-│   ├── app.py                   # Argument parsing, all commands
+│   ├── app.py                   # Argument parsing, grouped command sections
 │   ├── doctor.py                # System health diagnostics
-│   ├── display.py               # Terminal colors, tables, status icons
+│   ├── display.py               # Terminal colors, tables, status icons, block ASCII logo
 │   ├── dev_push.py              # Sync full runtime to Pi over SSH
 │   └── setup_wizard.py          # Interactive TUI config wizard (gateway, voice, display, MCP, etc.)
 ├── core/                        # AI integration
@@ -158,11 +160,16 @@ voxel/
 ├── .github/workflows/           # CI/CD
 │   ├── ci.yml                   # Lint, import checks, React build
 │   └── build-pi-image.yml       # Pre-built Pi image (on release/manual)
-├── tests/                       # pytest test suite
+├── tests/                       # pytest test suite (286 tests)
 │   ├── test_mood_pipeline.py    # Mood transitions, battery, lockout, connection, demo
 │   ├── test_state_lifecycle.py  # DisplayState defaults, transcripts, blink/gaze/breathing
 │   ├── test_characters.py       # All characters x all moods rendering, tilt, accents
-│   └── test_guardian.py         # Guardian screens, lock files, WiFi flag, menu integration
+│   ├── test_guardian.py         # Guardian screens, lock files, WiFi flag, menu integration
+│   ├── test_button.py           # Button interaction, hold thresholds, recording state
+│   ├── test_websocket.py        # WebSocket protocol, message handling, state sync
+│   ├── test_audio_detect.py     # Audio device detection, ALSA config repair
+│   └── test_cli.py              # CLI argument parsing, command dispatch
+├── .githooks/                   # Git hooks (pre-push validates syntax, imports, tests)
 ├── _legacy/                     # Archived code (not imported by active code)
 │   ├── main.py                  # Old pygame entry point
 │   ├── face/                    # Pygame renderer + sprites
@@ -273,9 +280,9 @@ Once recording starts, the button stays in RECORDING state until release. There 
 
 **Talk mode rules:** Push-to-talk activates when the button is held past 400ms, from the face view only (not from menu or chat views). While LISTENING, a tap stops recording. While THINKING, a tap cancels the pipeline and returns to IDLE. While SPEAKING, a tap cancels playback and returns to IDLE. A 500ms minimum recording guard prevents accidental cancel.
 
-Implementation in `display/service.py` (`_poll_button_unified` -- shared by Pi GPIO and desktop spacebar). Visual feedback in `display/components/button_indicator.py` (four-zone progress ring + flash pills). Shutdown shows a 3s countdown overlay (`display/components/shutdown_overlay.py`) -- any press cancels.
+Implementation in `display/service.py` (`_poll_button_unified` -- shared by Pi GPIO and desktop spacebar). Visual feedback in `display/components/button_indicator.py` (clean pulsing cyan ring during recording, view-aware labels -- "Talk" only on face view, suppressed on chat view). Sleep and shutdown thresholds fire even if the menu was opened during the same hold (menu open no longer resets button state). Shutdown shows a 3s countdown overlay (`display/components/shutdown_overlay.py`) -- any press cancels.
 
-**Discoverability:** On first boot, a 3-phase gesture tutorial overlay (`display/components/tutorial.py`) teaches hold-to-talk, tap-to-switch, and hold-for-menu. After 45s idle on the face view, a subtle hint appears: "Hold to talk · Tap for more" (`display/components/idle_hint.py`). On first visit to the chat view, a one-time hint shows "Hold for settings". The settings menu includes a "Help" item that replays the gesture tutorial. The button indicator labels are view-aware (no "Talk" label on the chat view). Tutorial completion and hint dismissal are persisted in `config/.setup-state`.
+**Discoverability:** On first boot, a 3-phase gesture tutorial overlay (`display/components/tutorial.py`) teaches hold-to-talk, tap-to-switch, and hold-for-menu. After 45s idle on the face view, a subtle hint appears: "Hold to talk · Tap for more" (`display/components/idle_hint.py`). On first visit to the chat view, a one-time hint shows "Hold for settings". The settings menu includes "Gesture Help" (replays the tutorial), "Restart Services", and "Shutdown" items. The button indicator labels are view-aware ("Talk" label on face view only, suppressed on chat view). Tutorial completion and hint dismissal are persisted in `config/.setup-state`.
 
 ## OpenClaw Integration
 
@@ -323,7 +330,7 @@ OpenClaw skill definition at `openclaw/SKILL.md` teaches agents about Voxel's ca
   Hold button >400ms (face view)
   │
   ▼
-LISTENING ──► Record from dual mics (16kHz WAV)
+LISTENING ──► Record from dual mics (16kHz WAV, device index 0)
   │              │
   │         Button release
   │              │
@@ -340,6 +347,10 @@ SPEAKING ──► TTS (edge/openai/11labs) ──► Playback + amplitude
   ▼                                        ▼
 IDLE ◄──────────────── done ◄───────────── done
 ```
+
+**Recording details:** Uses PortAudio device index 0 with a rescan (`sd._terminate()` + `sd._initialize()`) after the ambient monitor pauses. The ambient monitor is paused/resumed via `ambient_control` WebSocket messages exchanged between the backend and display service. ALSA capture PCM (`dsnoop`) config is auto-repaired by `core/audio.py` and `voxel hw` if missing or misconfigured.
+
+**Error toasts:** Pipeline errors (STT failure, missing API key, gateway unreachable, recording too short) display human-readable messages on the LCD as red-tinted pills at the bottom of the screen (`display/components/error_toast.py`). Messages include: "No API key", "Didn't catch that", "Too short", "Can't reach server".
 
 **TTS providers:** Three providers available via `audio.tts_provider` config:
 - **`edge`** (default) — free Microsoft Edge TTS, no API key needed
@@ -401,6 +412,7 @@ MCP tools use the same WebSocket protocol on port 8080. The MCP server translate
 { "type": "text_input", "text": "hello voxel" }
 { "type": "get_chat_history" }
 { "type": "cycle_state" }
+{ "type": "ambient_control", "action": "pause|resume" }
 ```
 
 ## Key Libraries
@@ -434,7 +446,7 @@ MCP tools use the same WebSocket protocol on port 8080. The MCP server translate
 
 `config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio (including `wake_word: null` placeholder), stt (Whisper), tts (OpenAI/edge-tts/ElevenLabs), pipeline (recording/chat limits), display (including `gesture_tutorial`, `idle_hint_enabled`, `idle_hint_delay`), power management, character selection (includes `boot_animation`, `greeting_enabled`, `greeting_prompt`, demo mode settings: `demo_mode`, `demo_cycle_speed`, `demo_include_characters`, `demo_include_styles`), dev mode.
 
-**Web config UI:** The display service runs a web server on port 8081 (`display/config_server.py`). A 6-digit PIN is generated on each boot and shown on the LCD. The device also displays a QR code for quick access from a phone or laptop. Auth can be disabled via `web.auth_enabled: false` in `local.yaml`. Features include an eye favicon/logo, browser-based STT (mic button for voice input), and browser TTS (speaker toggle to read responses aloud).
+**Web config UI:** The display service runs a web server on port 8081 (`display/config_server.py`). A 6-digit PIN is generated on each boot and shown on the LCD. The device also displays a QR code for quick access from a phone or laptop. Auth can be disabled via `web.auth_enabled: false` in `local.yaml`. Features include an eye favicon/logo, browser-based STT (mic button for voice input), browser TTS (speaker toggle to read responses aloud), OpenAI TTS provider with 9 voice selections, help links for API key pages (OpenAI, ElevenLabs, OpenClaw), "Test Connection" button for gateway with dynamic agent fetching, "Restart Services" and "Shutdown" buttons (without full reboot), "Replay Gesture Tutorial" button, MCP auto-start toggle, endpoints with copy buttons, and a quick reference for button gestures in the Help section.
 
 **WiFi onboarding:** On first boot with no known WiFi, the display service starts AP mode ("Voxel-Setup" hotspot at `10.42.0.1`) and serves a config portal. Uses `nmcli` (NetworkManager). See `display/wifi.py`.
 
@@ -442,7 +454,7 @@ Shared expression/style/mood data lives in `shared/*.yaml` — read by both Pyth
 
 ## Voxel CLI
 
-After bootstrap, all Pi management goes through the `voxel` command:
+After bootstrap, all Pi management goes through the `voxel` command. Commands are organized into groups (Setup, Services, Configuration, Development). LVGL and other experimental commands are hidden by default — use `voxel --all` to show them.
 
 ```bash
 # Setup & maintenance
@@ -452,7 +464,7 @@ voxel configure      # Interactive TUI wizard (gateway, voice, display, MCP, web
 voxel doctor         # Full system health diagnostics
 voxel update         # Pull latest, rebuild, restart services
 voxel build          # Just rebuild (Python deps + React app)
-voxel hw             # Whisplay HAT drivers + config.txt tuning
+voxel hw             # Whisplay HAT drivers + config.txt tuning (Trixie/Debian 13 supported)
 
 # Service management
 voxel start          # Start services
@@ -475,24 +487,18 @@ voxel dev-push --logs           # Push and tail remote logs
 voxel dev-push --update         # git pull + uv sync on Pi first
 voxel dev-push --save-ssh       # Save SSH config to local.yaml
 
-# Display testing (on Pi)
+# Experimental (shown with voxel --all)
 voxel display-test              # Direct Whisplay display sanity test
-
-# LVGL PoC (native renderer experiment)
-voxel lvgl-build     # Build the LVGL PoC once
-voxel lvgl-render    # Render LVGL RGB565 frames locally
-voxel lvgl-sync      # Sync rendered LVGL frames to a Pi
-voxel lvgl-play      # Play pre-rendered LVGL frames on the Pi
-voxel lvgl-deploy    # Render, sync, and play in one command
-voxel lvgl-dev       # Opinionated dev loop (render + sync + interactive preview)
-
-# MCP server (AI agent integration)
 voxel mcp                       # Start MCP server (SSE on :8082)
+voxel lvgl-build                # Build the LVGL PoC once
+voxel lvgl-render               # Render LVGL RGB565 frames locally
+voxel lvgl-deploy               # Render, sync, and play in one command
+voxel lvgl-dev                  # Opinionated dev loop (render + sync + interactive preview)
 
 # Other
 voxel version        # Show version
 voxel uninstall      # Remove services + config (keeps repo)
-voxel uninstall --nuke  # Remove everything for clean re-install
+voxel uninstall --nuke  # Remove everything including repo for clean re-install
 ```
 
 ## Setup & Onboarding
@@ -502,7 +508,7 @@ voxel uninstall --nuke  # Remove everything for clean re-install
 curl -sSL https://raw.githubusercontent.com/Codename-11/voxel/main/scripts/setup.sh | bash
 ```
 
-This runs `voxel setup` which includes hardware driver installation (`voxel hw`) and launches an interactive configuration wizard at the end (`voxel configure`). The wizard walks through gateway, voice, display, MCP, webhooks, and power settings. Skip with `--no-configure`. After completion, reboot. The device auto-starts and guides the user through WiFi + config on the LCD.
+This runs `voxel setup` which includes hardware driver installation (`voxel hw`) and launches an interactive configuration wizard at the end (`voxel configure`). The wizard walks through gateway, voice, display, MCP, webhooks, and power settings. Skip with `--no-configure`. After completion, reboot. The device auto-starts and guides the user through WiFi + config on the LCD. Tested end-to-end on Raspberry Pi OS with Trixie (Debian 13). `voxel hw` pipes 'y' to the interactive driver installer and installs kernel headers for Trixie.
 
 **Setup state tracking:** `config/.setup-state` (YAML) tracks: `system_deps`, `drivers_installed`, `build_complete`, `config_created`, `services_installed`, `wifi_configured`, `gateway_configured`. The display service reads this to decide what to show (onboarding screens vs face).
 
@@ -623,7 +629,7 @@ uv run pytest
 uv run pytest tests/ -v
 ```
 
-pytest config is in `pyproject.toml` (`[tool.pytest.ini_options]`): test paths set to `tests/`, 10s timeout per test. Tests cover the mood pipeline (transitions, battery reactions, manual lockout, connection changes, demo mode), display state lifecycle (defaults, transcripts, blink/gaze/breathing, idle prompts), and character rendering (all characters x all moods, tilt cuts, accent colors).
+pytest config is in `pyproject.toml` (`[tool.pytest.ini_options]`): test paths set to `tests/`, 10s timeout per test. 286 tests covering the mood pipeline (transitions, battery reactions, manual lockout, connection changes, demo mode), display state lifecycle (defaults, transcripts, blink/gaze/breathing, idle prompts), character rendering (all characters x all moods, tilt cuts, accent colors), button interaction (hold thresholds, recording state), WebSocket protocol (message handling, state sync), audio device detection (ALSA config repair), and CLI (argument parsing, command dispatch). A pre-push git hook validates syntax, imports, and runs tests before push.
 
 ### Editing shared data:
 
