@@ -1437,10 +1437,14 @@ def _build_html(settings: dict) -> str:
 <!-- Reboot -->
 <details>
   <summary>
-    <span class="section-icon">&#x1f504;</span><span class="section-title" style="color:var(--warning)">Reboot</span>
+    <span class="section-icon">&#x1f504;</span><span class="section-title">Service Control</span>
   </summary>
   <div class="card-body">
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Restart the device. The display will go dark for ~30 seconds.</p>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Restart services to apply config changes without a full reboot (~5 seconds).</p>
+    <button type="button" onclick="restartServices()" class="btn-secondary">Restart Services</button>
+    <div id="restart-status"></div>
+    <hr style="border-color:var(--border);margin:16px 0">
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Full device reboot. Display will go dark for ~30 seconds.</p>
     <button type="button" onclick="rebootDevice()" class="btn-secondary" style="background:color-mix(in srgb, var(--warning) 12%, transparent);color:var(--warning);border-color:color-mix(in srgb, var(--warning) 25%, transparent)">Reboot Device</button>
     <div id="reboot-status"></div>
   </div>
@@ -1597,6 +1601,25 @@ function showStatus(el, cls, msg, autoDismiss) {{
       setTimeout(() => {{ el.style.display = 'none'; }}, 300);
     }}, 4000);
   }}
+}}
+
+/* ── Restart Services ───────────────────────────────────────────── */
+async function restartServices() {{
+  const rs = document.getElementById('restart-status');
+  showStatus(rs, 'ok', 'Restarting services...', false);
+  try {{
+    const r = await fetch('/api/restart-services', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: '{{}}'
+    }});
+    const d = await r.json();
+    if (d.ok) {{
+      showStatus(rs, 'ok', 'Services restarted. Reconnecting...', false);
+      setTimeout(() => {{ location.reload(); }}, 5000);
+    }}
+    else {{ showStatus(rs, 'err', 'Error: ' + (d.error || 'unknown')); }}
+  }} catch(e) {{ showStatus(rs, 'err', e.message); }}
 }}
 
 /* ── Reboot ─────────────────────────────────────────────────────── */
@@ -3509,6 +3532,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._backup_import(body)
             return
 
+        if self.path == "/api/restart-services":
+            self._restart_services(body)
+            return
+
         if self.path == "/api/reboot":
             self._reboot(body)
             return
@@ -3795,6 +3822,35 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
 
         threading.Thread(target=_do_reboot, daemon=True).start()
+
+    def _restart_services(self, body: bytes):
+        """Restart Voxel services without a full reboot."""
+        try:
+            from hw.detect import IS_PI
+        except ImportError:
+            IS_PI = False
+
+        if not IS_PI:
+            log.info("Service restart requested on desktop — ignoring")
+            self._json_response(200, {"ok": True, "message": "Restart skipped (not on Pi)"})
+            return
+
+        log.info("Service restart requested via web UI from %s", self.client_address[0])
+        self._json_response(200, {"ok": True, "message": "Restarting services..."})
+
+        import threading
+
+        def _do_restart():
+            _time.sleep(1)
+            try:
+                subprocess.run(
+                    ["sudo", "systemctl", "restart", "voxel", "voxel-display"],
+                    timeout=15,
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_restart, daemon=True).start()
 
     def _chat_send(self, body: bytes):
         """Handle POST /api/chat — send a message to the AI agent.
