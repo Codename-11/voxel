@@ -1081,7 +1081,7 @@ def _build_html(settings: dict) -> str:
       <input name="gateway.token" type="text" autocomplete="off" data-secret value="{escape(gw.get('token', ''))}" placeholder="Enter token">
       <button type="button" class="pw-toggle" onclick="togglePw(this)" aria-label="Show password">&#128065;</button>
     </div>
-    <div class="hint">Authentication token for the gateway</div>
+    <div class="hint">Authentication token for the gateway. <a href="https://github.com/Codename-11/openclaw" target="_blank" rel="noopener">OpenClaw docs</a></div>
 
     <label>Default Agent</label>
     <select name="gateway.default_agent">
@@ -1101,7 +1101,7 @@ def _build_html(settings: dict) -> str:
       <input name="stt.whisper.api_key" type="text" autocomplete="off" data-secret value="{escape(stt.get('api_key', ''))}" placeholder="sk-...">
       <button type="button" class="pw-toggle" onclick="togglePw(this)" aria-label="Show password">&#128065;</button>
     </div>
-    <div class="hint">Required for voice input</div>
+    <div class="hint">Required for voice input. <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get an API key</a></div>
   </div>
 </details>
 
@@ -1131,14 +1131,14 @@ def _build_html(settings: dict) -> str:
       <option value="sage" {"selected" if openai_tts_cfg.get("voice") == "sage" else ""}>Sage (calm female)</option>
       <option value="shimmer" {"selected" if openai_tts_cfg.get("voice") == "shimmer" else ""}>Shimmer (cheerful female)</option>
     </select>
-    <div class="hint">Uses same API key as STT (Whisper). Falls back to Edge TTS if no key set.</div>
+    <div class="hint">Uses same API key as STT. Falls back to Edge TTS if no key. <a href="https://platform.openai.com/docs/guides/text-to-speech" target="_blank" rel="noopener">Docs</a></div>
 
     <label>ElevenLabs API Key</label>
     <div class="pw-wrap">
       <input name="tts.elevenlabs.api_key" type="text" autocomplete="off" data-secret value="{escape(tts_cfg.get('api_key', ''))}" placeholder="Optional">
       <button type="button" class="pw-toggle" onclick="togglePw(this)" aria-label="Show password">&#128065;</button>
     </div>
-    <div class="hint">Only needed if using ElevenLabs provider</div>
+    <div class="hint">Only needed if using ElevenLabs. <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">Get an API key</a></div>
   </div>
 </details>
 
