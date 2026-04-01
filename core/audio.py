@@ -6,6 +6,7 @@ import io
 import logging
 import threading
 import wave
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -20,9 +21,13 @@ CHUNK = 1024
 FORMAT_WIDTH = 2  # 16-bit
 
 # Pi ALSA device for Whisplay HAT (WM8960)
-# Use named device (reliable across reboots), fallback to card 0
+# Use named device (reliable across reboots), fallback to card 0.
+# plughw: adds ALSA format/rate conversion and often works when hw: doesn't,
+# especially when asound.conf is misconfigured for capture.
 _PI_DEVICE = "hw:wm8960soundcard"
 _PI_DEVICE_FALLBACK = "hw:0,0"
+_PI_DEVICE_PLUG = "plughw:0,0"
+_PI_DEVICE_PLUG_NAMED = "plughw:wm8960soundcard"
 
 _pa = None           # PyAudio instance
 _stream_in = None    # Recording stream
@@ -46,6 +51,12 @@ def init() -> None:
     global _pa, _pyaudio_available, _sounddevice_available
 
     log.info("Audio: initializing (platform=%s)", "Pi" if IS_PI else "desktop")
+
+    # On Pi, ensure ALSA config has capture device definitions.
+    # The Whisplay HAT driver's asound.conf may only define playback,
+    # which causes PortAudio/sounddevice to see 0 input channels.
+    if IS_PI:
+        _ensure_alsa_capture_config()
 
     # Try PyAudio first
     try:
@@ -72,6 +83,10 @@ def init() -> None:
         import sounddevice  # type: ignore  # noqa: F401
         _sounddevice_available = True
         log.info("Audio: sounddevice initialized (%s)", "Pi HAT" if IS_PI else "desktop")
+        if IS_PI:
+            in_dev = _get_sd_device("input")
+            out_dev = _get_sd_device("output")
+            log.info("Audio: sounddevice input=%s, output=%s", in_dev, out_dev)
         return
     except ImportError:
         log.debug("sounddevice not available (not installed)")
@@ -293,14 +308,43 @@ def _sounddevice_record_callback(indata, frames, time, status):
 
 
 def _get_pi_input_device() -> Optional[int]:
-    """Find PyAudio device index for Whisplay HAT input."""
+    """Find PyAudio device index for Whisplay HAT input.
+
+    First scans for a WM8960 device with input channels > 0.
+    If none found (common when asound.conf lacks capture definitions),
+    falls back to any device with 'wm8960' in the name and attempts
+    to use it anyway — PyAudio may succeed where the channel query
+    returned 0 if the ALSA config was repaired after the initial scan.
+    Also tries device index 0 as last resort.
+    """
     try:
         import pyaudio  # type: ignore
+        wm8960_index = None
         for i in range(_pa.get_device_count()):
             info = _pa.get_device_info_by_index(i)
-            if "wm8960" in info["name"].lower() and info["maxInputChannels"] > 0:
+            name_lower = info["name"].lower()
+            if "wm8960" in name_lower and info["maxInputChannels"] > 0:
                 log.debug("Pi input device found: index=%d, name=%s", i, info["name"])
                 return i
+            # Remember WM8960 even with 0 input channels (broken asound.conf)
+            if "wm8960" in name_lower and wm8960_index is None:
+                wm8960_index = i
+
+        # If we found WM8960 but it reported 0 input channels, try it anyway.
+        # After _ensure_alsa_capture_config() runs, the device may work even
+        # though the channel count was cached as 0 during the initial scan.
+        if wm8960_index is not None:
+            log.info("Pi input: WM8960 found at index %d with 0 reported input channels "
+                     "(asound.conf may have been repaired) — using it anyway", wm8960_index)
+            return wm8960_index
+
+        # Try device 0 as absolute fallback
+        if _pa.get_device_count() > 0:
+            info0 = _pa.get_device_info_by_index(0)
+            if info0["maxInputChannels"] > 0:
+                log.info("Pi input: using device 0 (%s) as fallback", info0["name"])
+                return 0
+
         log.warning("No WM8960 input device found among %d devices", _pa.get_device_count())
     except Exception as e:
         log.debug("Error scanning Pi input devices: %s", e)
@@ -336,33 +380,173 @@ def _device_name(index: Optional[int]) -> str:
 def _get_sd_device(direction: str = "input") -> Optional[str]:
     """Find the sounddevice device string for the WM8960 on Pi.
 
-    Tries the named ALSA device first, then scans available devices
-    for 'wm8960', and falls back to the generic hw:0,0.
+    PortAudio relies on ALSA config to discover device capabilities.
+    The Whisplay HAT driver installs an asound.conf that may not define
+    capture devices, causing PortAudio to report max_input_channels=0
+    even though the hardware supports recording (arecord -l shows it).
+
+    Strategy for input devices:
+    1. Try named ALSA device (hw:wm8960soundcard)
+    2. Scan query_devices() for WM8960 with matching channels
+    3. Try plughw: variants (adds ALSA format conversion, bypasses
+       broken asound.conf default device definitions)
+    4. Fall back to hw:0,0
+
+    For output, the standard flow usually works since asound.conf
+    typically defines playback correctly.
     """
     if not IS_PI:
         return None
     try:
         import sounddevice as sd  # type: ignore
-        # Try named device first
+        check_fn = sd.check_input_parameters if direction == "input" else sd.check_output_parameters
+
+        # 1. Try named device
         try:
-            sd.check_input_parameters(device=_PI_DEVICE) if direction == "input" else \
-                sd.check_output_parameters(device=_PI_DEVICE)
-            log.debug("sounddevice: using named device %s", _PI_DEVICE)
+            check_fn(device=_PI_DEVICE, channels=CHANNELS, samplerate=SAMPLE_RATE)
+            log.debug("sounddevice: using named device %s for %s", _PI_DEVICE, direction)
             return _PI_DEVICE
         except Exception:
             pass
-        # Scan for wm8960 in device list
+
+        # 2. Scan for wm8960 in device list with matching channels
         for dev in sd.query_devices():
             max_ch = dev.get(f"max_{direction}_channels", 0)
             if max_ch > 0 and "wm8960" in dev["name"].lower():
-                log.debug("sounddevice: found WM8960 device: %s", dev["name"])
+                log.debug("sounddevice: found WM8960 device: %s (%s ch=%d)",
+                          dev["name"], direction, max_ch)
                 return dev["name"]
-        # Fallback
-        log.debug("sounddevice: WM8960 not found by name, using fallback %s", _PI_DEVICE_FALLBACK)
+
+        # 3. Try plughw: variants — these bypass asound.conf device
+        #    definitions and talk to the hardware through ALSA's plug
+        #    layer, which adds automatic format/rate/channel conversion.
+        #    This is the key fix for the Whisplay HAT where asound.conf
+        #    defines playback devices (dmix/softvol) but not capture
+        #    devices (dsnoop), causing PortAudio to see 0 input channels.
+        for plug_dev in (_PI_DEVICE_PLUG_NAMED, _PI_DEVICE_PLUG):
+            try:
+                check_fn(device=plug_dev, channels=CHANNELS, samplerate=SAMPLE_RATE)
+                log.info("sounddevice: using plughw device %s for %s "
+                         "(asound.conf may be missing capture definition)",
+                         plug_dev, direction)
+                return plug_dev
+            except Exception:
+                pass
+
+        # 4. Try device index 0 directly (bypasses ALSA name resolution)
+        try:
+            check_fn(device=0, channels=CHANNELS, samplerate=SAMPLE_RATE)
+            log.info("sounddevice: using device index 0 for %s", direction)
+            return 0
+        except Exception:
+            pass
+
+        # 5. Last resort
+        log.warning("sounddevice: no working %s device found, using fallback %s",
+                     direction, _PI_DEVICE_FALLBACK)
         return _PI_DEVICE_FALLBACK
     except Exception as e:
         log.debug("sounddevice device scan failed: %s", e)
         return _PI_DEVICE_FALLBACK
+
+
+def _ensure_alsa_capture_config() -> None:
+    """Ensure ALSA config includes capture device definitions for WM8960.
+
+    The Whisplay HAT driver installer drops an /etc/asound.conf that
+    typically defines playback devices (dmix, softvol) but may omit
+    capture devices (dsnoop). When capture is missing, PortAudio
+    (used by both PyAudio and sounddevice) reports max_input_channels=0
+    for the WM8960 — even though `arecord -l` shows the hardware.
+
+    This function checks whether the existing asound.conf has a
+    capture/dsnoop definition for the WM8960. If not, it appends one.
+    This only runs on Pi at audio init time.
+    """
+    asound_conf = Path("/etc/asound.conf")
+
+    try:
+        content = asound_conf.read_text() if asound_conf.exists() else ""
+    except PermissionError:
+        log.debug("Cannot read /etc/asound.conf — skipping capture config check")
+        return
+
+    # Check if capture is already defined — look for dsnoop, dmic, or
+    # a pcm.capture definition that references the WM8960
+    content_lower = content.lower()
+    has_capture = any(marker in content_lower for marker in [
+        "pcm.dsnoop",
+        "pcm.dmic",
+        "pcm.capture",
+        "type dsnoop",
+        "# voxel capture",
+    ])
+
+    if has_capture:
+        log.debug("ALSA config already has capture definition")
+        return
+
+    # No capture definition found — check if the WM8960 card exists
+    # before writing config for it
+    try:
+        proc_cards = Path("/proc/asound/cards").read_text().lower()
+        if "wm8960" not in proc_cards:
+            log.debug("WM8960 not in /proc/asound/cards — skipping ALSA capture config")
+            return
+    except Exception:
+        return
+
+    # Append a dsnoop capture definition that exposes the WM8960 mics
+    # to PortAudio. dsnoop allows multiple readers on the same hw device.
+    capture_config = """
+# voxel capture — WM8960 microphone access for PortAudio/sounddevice
+# Added by Voxel because the Whisplay driver's asound.conf may omit capture.
+pcm.dsnoop {
+    type dsnoop
+    ipc_key 2048
+    slave {
+        pcm "hw:0,0"
+        channels 2
+        rate 16000
+    }
+}
+
+# Default capture device — ensures PortAudio sees an input device
+pcm.dsnooppl {
+    type plug
+    slave.pcm "dsnoop"
+}
+
+# Make default capture point to the WM8960 dsnoop
+pcm.!default {
+    type asym
+    playback.pcm {
+        type plug
+        slave.pcm "dmix"
+    }
+    capture.pcm {
+        type plug
+        slave.pcm "dsnoop"
+    }
+}
+"""
+
+    try:
+        import subprocess
+        # Use tee with sudo to write — the service may not run as root
+        result = subprocess.run(
+            ["sudo", "tee", "-a", "/etc/asound.conf"],
+            input=capture_config,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            log.info("ALSA: appended capture (dsnoop) config to /etc/asound.conf")
+        else:
+            log.warning("ALSA: failed to append capture config: %s", result.stderr.strip())
+    except Exception as e:
+        log.warning("ALSA: could not update asound.conf: %s", e)
 
 
 def cleanup() -> None:

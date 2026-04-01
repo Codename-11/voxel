@@ -73,6 +73,7 @@ MENU_ITEMS = [
     ("battery", "%", "Battery"),
     ("update", "^", "Update"),
     ("about", "i", "About"),
+    ("help", "?", "Gesture Help"),
     ("reboot", "!", "Reboot"),
     ("back", "<", "Back"),
 ]
@@ -135,6 +136,7 @@ class MenuState:
         self._select_flash_idx: int = -1
         self._select_flash_time: float = 0.0
         self._reboot_confirmed: bool = False
+        self._help_triggered: bool = False
         self._wifi_setup_triggered: bool = False
         self._pending_value: int | None = None  # for brightness/volume preset cycling
         # Queued config changes to persist (consumed by the render loop)
@@ -236,6 +238,9 @@ class MenuState:
             self._select_flash_time = time.time()
             item_id = MENU_ITEMS[self.cursor][0]
             if item_id == "back":
+                self.open = False
+            elif item_id == "help":
+                self._help_triggered = True
                 self.open = False
             else:
                 self.sub_screen = item_id

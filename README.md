@@ -76,6 +76,8 @@ Single button (Whisplay HAT). All interaction encoded through hold duration -- n
 
 Inside menus: tap = next item, hold > 500ms = select.
 
+On first boot, a gesture tutorial walks through all three interactions. After 45 seconds idle on the face view, a hint appears: "Hold to talk · Tap for more". The settings menu includes a "Help" item to replay the tutorial.
+
 ## Features
 
 - **Animated face** on 240x280 IPS LCD -- 16 mood states, 3 visual styles, smooth transitions

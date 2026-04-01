@@ -363,6 +363,59 @@ def cmd_hw(args: argparse.Namespace) -> int:
                 pass
         ok("Audio levels configured (effective after reboot if drivers were just installed)")
 
+    # ALSA capture config — Whisplay's asound.conf may only define playback (dmix/softvol)
+    # but not capture (dsnoop), which causes PortAudio/sounddevice to see 0 input channels.
+    asound_conf = Path("/etc/asound.conf")
+    if asound_conf.exists():
+        asound_content = asound_conf.read_text().lower()
+        has_capture = any(m in asound_content for m in ["pcm.dsnoop", "type dsnoop", "pcm.capture", "pcm.dmic"])
+        if has_capture:
+            ok("ALSA capture (dsnoop) device already configured in asound.conf")
+        else:
+            info("Adding ALSA capture (dsnoop) device to asound.conf...")
+            info("  (Whisplay's default asound.conf may omit mic/capture definitions)")
+            capture_block = r"""
+# voxel capture — WM8960 microphone access for PortAudio/sounddevice
+# The Whisplay driver's asound.conf defines playback (dmix/softvol)
+# but may omit capture. Without this, sounddevice sees 0 input channels.
+pcm.dsnoop {
+    type dsnoop
+    ipc_key 2048
+    slave {
+        pcm "hw:0,0"
+        channels 2
+        rate 16000
+    }
+}
+
+pcm.dsnooppl {
+    type plug
+    slave.pcm "dsnoop"
+}
+
+pcm.!default {
+    type asym
+    playback.pcm {
+        type plug
+        slave.pcm "dmix"
+    }
+    capture.pcm {
+        type plug
+        slave.pcm "dsnoop"
+    }
+}
+"""
+            result = subprocess.run(
+                ["sudo", "tee", "-a", "/etc/asound.conf"],
+                input=capture_block, capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                ok("ALSA capture config appended to /etc/asound.conf")
+            else:
+                warn(f"Failed to update asound.conf: {result.stderr.strip()}")
+    else:
+        info("No /etc/asound.conf found (audio driver may not be installed yet)")
+
     # Boot splash (C program for instant LCD image at boot)
     section("Boot Splash")
     splash_dir = VOXEL_DIR / "native" / "boot_splash"

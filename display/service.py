@@ -653,6 +653,15 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
             else:
                 log.info("Reboot requested on desktop — ignoring")
 
+        # Check menu help trigger — re-launch gesture tutorial
+        if renderer.menu._help_triggered:
+            renderer.menu._help_triggered = False
+            state.tutorial_active = True
+            state.tutorial_phase = 1
+            state._tutorial_start = time.time()
+            state._tutorial_phase_start = time.time()
+            log.info("Gesture tutorial: re-triggered from menu Help")
+
         # Persist menu config changes (agent, character, brightness, volume, accent)
         if renderer.menu._pending_config is not None:
             _cfg_update = renderer.menu._pending_config
@@ -840,6 +849,21 @@ async def _main(args: argparse.Namespace) -> None:
     else:
         log.info("Boot animation: disabled by config")
 
+    # Gesture tutorial — show on first boot if enabled and not yet completed
+    _tutorial_enabled = _boot_cfg.get("character", {}).get("gesture_tutorial", True) if _boot_cfg else True
+    if _tutorial_enabled:
+        try:
+            from display.components.onboarding import get_setup_state
+            _setup = get_setup_state()
+            if not _setup.get("tutorial_completed", False):
+                state.tutorial_active = True
+                state.tutorial_phase = 1
+                state._tutorial_start = time.time()
+                state._tutorial_phase_start = time.time()
+                log.info("Gesture tutorial: starting (first boot)")
+        except Exception as e:
+            log.debug("Tutorial check failed: %s", e)
+
     # Check WiFi and start AP mode if not connected (Pi only)
     if IS_PI:
         try:
@@ -1020,6 +1044,18 @@ async def _main(args: argparse.Namespace) -> None:
             state.shutdown_confirm = False
             state._shutdown_at = 0.0
             log.info("Shutdown cancelled (button press)")
+            return
+
+        # Gesture tutorial: any button press dismisses and consumes the event
+        if state.tutorial_active:
+            state.tutorial_active = False
+            state.tutorial_phase = 0
+            log.info("Gesture tutorial: dismissed (button press)")
+            try:
+                from display.components.onboarding import save_setup_flag
+                save_setup_flag("tutorial_completed", True)
+            except Exception:
+                pass
             return
 
         # Pairing request: tap = approve (show PIN), menu_select = deny

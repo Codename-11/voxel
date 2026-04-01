@@ -79,6 +79,8 @@ After reboot, the Voxel display service starts automatically.
 - If your Pi connected to WiFi during setup, the animated face appears on the LCD.
 - If no WiFi is available, the device enters AP mode and shows a WiFi setup screen. See [WiFi Setup](/guide/wifi-setup) for details.
 
+On first boot, a short gesture tutorial walks you through the three main interactions: hold the button to talk, tap to switch views, and hold from the chat view to open settings. The tutorial only shows once -- you can replay it later from the "Help" item in the settings menu.
+
 ## 5. Verify
 
 SSH back in and check system health:

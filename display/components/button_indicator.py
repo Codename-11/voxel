@@ -188,7 +188,12 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
         )
 
     # ── Label below the ring — shows current zone ──
+    # View-aware: on face view "Talk" shows in the 0.4-1s zone.
+    # On chat view, nothing fires in that zone (hold-to-talk is face-only),
+    # so we suppress the label until "Menu" at 1s to avoid confusion.
     font = get_font(16)
+    label = ""
+    color = CYAN
     if progress >= ZONE_SLEEP:
         t3 = min((progress - ZONE_SLEEP) / (1.0 - ZONE_SLEEP), 1.0)
         if t3 > 0.8:
@@ -201,13 +206,16 @@ def draw_button_indicator(draw: ImageDraw.ImageDraw, state: DisplayState) -> Non
         label = "Menu"
         color = CYAN_BRIGHT
     else:
-        # 0.4-1s: recording zone
-        label = "Talk"
-        color = GREEN_BRIGHT
+        # 0.4-1s zone: "Talk" only on face view, suppress on chat view
+        if state.view == "face":
+            label = "Talk"
+            color = GREEN_BRIGHT
+        # else: no label (chat view, nothing fires in this zone)
 
-    color = _scale_color(color, ring_alpha)
-    tw = text_width(font, label)
-    draw.text((ARC_CX - tw // 2, ARC_CY + ARC_R + 5), label, fill=color, font=font)
+    if label:
+        color = _scale_color(color, ring_alpha)
+        tw = text_width(font, label)
+        draw.text((ARC_CX - tw // 2, ARC_CY + ARC_R + 5), label, fill=color, font=font)
 
 
 def _draw_zone_tick(draw: ImageDraw.ImageDraw, frac: float, alpha: float = 1.0) -> None:

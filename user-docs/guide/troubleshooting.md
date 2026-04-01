@@ -203,6 +203,14 @@ WRAPPER
 sudo chmod +x /usr/local/bin/voxel
 ```
 
+### How do I access settings?
+
+From the face view, tap the button to switch to the chat view. Then hold the button for more than 1 second to open the settings menu. Inside the menu, tap to move between items and hold to select.
+
+If you are unsure about gestures, open the settings menu and select "Help" to replay the gesture tutorial that ran on first boot.
+
+You can also access settings from a browser: scan the QR code shown on the device LCD, or navigate to `http://<device-ip>:8081` and enter the 6-digit PIN.
+
 ### `dev-pair` cannot find the device
 
 - Ensure the device and your workstation are on the same network

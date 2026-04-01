@@ -120,6 +120,11 @@ character:
   boot_animation: true        # play wake-up eye animation on startup
   greeting_enabled: true      # request a greeting from the gateway agent on startup
   greeting_prompt: "You just woke up. Give a very brief greeting (under 10 words) appropriate for {time_of_day}. Be in character."
+  gesture_tutorial: true       # show three-phase gesture tutorial on first boot
+  idle_hint_enabled: true      # show "Hold to talk / Tap for more" hint after idle
+  idle_hint_max_shows: 5       # max times to show idle hint (persisted)
+  chat_hint_enabled: true      # show "Hold for settings" hint on chat view entry
+  chat_hint_max_shows: 3       # max times to show chat hint (persisted)
   demo_mode: false           # auto-cycle moods/characters/styles for showcase
   demo_cycle_speed: 5        # seconds per mood in demo mode
   demo_include_characters: true  # cycle through characters too

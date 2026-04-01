@@ -16,6 +16,7 @@ Items for Claude to pick up. Checked items are done but kept for context.
 ## UI / UX
 
 - [x] **WiFi recovery screen** — Implemented in `display/guardian.py`. Guardian shows WiFi setup screen (AP SSID, password, PIN, QR code, config server URL) when no WiFi is detected at boot. Also accessible from the LCD settings menu via "WiFi Setup" option.
+- [x] **Button UX discoverability** — Decision: keep current button model (face view: hold>400ms=talk, tap=switch; chat view: hold>1s=menu, tap=switch). Added discoverability layer: first-boot gesture tutorial (3-phase), idle hint after 45s on face view ("Hold to talk · Tap for more"), chat entry hint on first visit ("Hold for settings"), Help menu item to replay tutorial, view-aware button indicator labels. New components: `display/components/tutorial.py`, `display/components/idle_hint.py`. Config keys: `display.gesture_tutorial`, `display.idle_hint_enabled`, `display.idle_hint_delay`.
 - [ ] **USB gadget mode** — enable `dtoverlay=dwc2` in `voxel hw` setup so USB recovery always works
 - [ ] **Thinking cancel animation** — tap-to-cancel during THINKING implemented but needs a visual spinner/indicator showing "processing" that's clearly cancellable
 - [ ] **npm run dev** — experimental React app, expected to have full capability with flags to disable features. Config handles naturally otherwise.

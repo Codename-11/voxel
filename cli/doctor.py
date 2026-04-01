@@ -272,9 +272,54 @@ def run() -> int:
     # Audio device
     if is_pi:
         if probe.has_wm8960_audio:
-            ok("Audio: WM8960 codec detected")
+            ok("Audio: WM8960 codec detected (arecord)")
         else:
             warn("Audio: WM8960 not found - Whisplay drivers may not be installed")
+
+        # Check ALSA capture config
+        asound_conf = Path("/etc/asound.conf")
+        if asound_conf.exists():
+            try:
+                asound_text = asound_conf.read_text().lower()
+                has_capture = any(m in asound_text for m in ["type dsnoop", "pcm.dsnoop", "pcm.capture"])
+                if has_capture:
+                    ok("ALSA: asound.conf has capture (dsnoop) definition")
+                else:
+                    warn("ALSA: asound.conf missing capture/dsnoop definition — mic may not work")
+                    warn("  Fix: run 'voxel hw' or restart display service (auto-repairs)")
+            except Exception:
+                info("ALSA: could not read /etc/asound.conf")
+        else:
+            info("ALSA: no /etc/asound.conf")
+
+        # Check if PortAudio can see input devices
+        try:
+            import sounddevice as sd  # type: ignore
+            devices = sd.query_devices()
+            input_devs = [d for d in devices if d.get("max_input_channels", 0) > 0]
+            if input_devs:
+                ok(f"Audio: {len(input_devs)} input device(s) visible to PortAudio")
+            else:
+                warn("Audio: 0 input devices visible to PortAudio — capture will fail")
+                warn("  All devices report max_input_channels=0")
+                warn("  Fix: run 'voxel hw' to add ALSA capture config, then reboot")
+        except ImportError:
+            try:
+                import pyaudio  # type: ignore
+                pa = pyaudio.PyAudio()
+                input_count = sum(1 for i in range(pa.get_device_count())
+                                  if pa.get_device_info_by_index(i)["maxInputChannels"] > 0)
+                pa.terminate()
+                if input_count > 0:
+                    ok(f"Audio: {input_count} input device(s) via PyAudio")
+                else:
+                    warn("Audio: 0 input devices via PyAudio — capture will fail")
+            except ImportError:
+                warn("Audio: no backend (install pyaudio or sounddevice)")
+            except Exception:
+                warn("Audio: PyAudio error")
+        except Exception:
+            warn("Audio: sounddevice error")
     else:
         # Desktop: check for any audio
         try:

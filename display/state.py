@@ -113,6 +113,19 @@ class DisplayState:
     greeting_text: str = ""
     greeting_time: float = 0.0  # timestamp when greeting was set
 
+    # Gesture tutorial
+    tutorial_active: bool = False
+    tutorial_phase: int = 0  # 0=inactive, 1=hold-to-talk, 2=tap-to-chat, 3=hold-for-menu
+    _tutorial_start: float = 0.0
+    _tutorial_phase_start: float = 0.0
+
+    # Idle button hint (face view)
+    _idle_hint_alpha: float = 0.0
+
+    # Chat entry hint
+    _chat_hint_alpha: float = 0.0
+    _chat_hint_start: float = 0.0
+
     # Frame timing (set each frame by the render loop)
     time: float = 0.0
     dt: float = 0.0

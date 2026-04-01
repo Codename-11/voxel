@@ -35,6 +35,10 @@ from display.components.shutdown_overlay import draw_shutdown_overlay
 from display.components.qr_overlay import draw_setup_screen
 from display.components.wifi_setup import draw_wifi_setup
 from display.components.onboarding import needs_onboarding, draw_configure_screen
+from display.components.tutorial import update_tutorial, draw_tutorial
+from display.components.idle_hint import (
+    IdleButtonHint, draw_idle_hint, ChatEntryHint, draw_chat_hint,
+)
 from display.config_server import PREFERRED_PORT
 from display.idle import IdlePersonality, IdlePrompt
 from display.emoji_reactions import draw_emoji_reaction
@@ -130,6 +134,19 @@ class PILRenderer:
             interval=char_cfg.get("idle_prompt_interval", 90),
         )
 
+        # Button discoverability hints (from config)
+        self._idle_hint = IdleButtonHint(
+            enabled=char_cfg.get("idle_hint_enabled", True),
+            max_shows=char_cfg.get("idle_hint_max_shows", 5),
+        )
+        self._chat_hint = ChatEntryHint(
+            enabled=char_cfg.get("chat_hint_enabled", True),
+            max_shows=char_cfg.get("chat_hint_max_shows", 3),
+        )
+        self._tutorial_fade = OverlayFade(
+            duration=0.15, enabled=transitions_enabled,
+        )
+
         # Demo mode controller
         self._demo = DemoController(
             cycle_speed=char_cfg.get("demo_cycle_speed", 5),
@@ -223,6 +240,13 @@ class PILRenderer:
 
         # Idle prompt indicator ("?" hint)
         self._idle_prompt.update(state, now)
+
+        # Button discoverability hints
+        self._idle_hint.update(state, now)
+        self._chat_hint.update(state, now)
+
+        # Gesture tutorial phase advancement
+        update_tutorial(state, now)
 
         # Update mood transition if mood changed
         if state.mood != self._current_mood:
@@ -367,6 +391,18 @@ class PILRenderer:
         # Button hold indicator (overlays on any view)
         draw_button_indicator(draw, state)
 
+        # ── Gesture tutorial overlay with fade-in ──
+        tutorial_alpha = self._tutorial_fade.update(state.tutorial_active, now)
+        if state.tutorial_active and tutorial_alpha > 0:
+            tutorial_img = img.copy()
+            tutorial_draw = ImageDraw.Draw(tutorial_img)
+            draw_tutorial(tutorial_draw, state, now)
+            if tutorial_alpha < 1.0:
+                img = Image.blend(img, tutorial_img, alpha=tutorial_alpha)
+            else:
+                img = tutorial_img
+            draw = ImageDraw.Draw(img)
+
         # ── Shutdown confirmation overlay with fade-in ──
         shutdown_alpha = self._shutdown_fade.update(state.shutdown_confirm, now)
         if state.shutdown_confirm and shutdown_alpha > 0:
@@ -413,6 +449,9 @@ class PILRenderer:
 
         if view == "chat":
             draw_chat(draw, state)
+            # Chat entry hint ("Hold for settings")
+            if state._chat_hint_alpha > 0.01:
+                draw_chat_hint(draw, state._chat_hint_alpha, _accent)
         else:
             character = get_character(state.character)
             character._accent = _accent
@@ -466,6 +505,10 @@ class PILRenderer:
                 # confusing overlay when a specific mood is active.
                 if state.idle_prompt_visible and state.mood == "neutral":
                     self._draw_idle_prompt(draw, state)
+
+            # Idle button hint ("Hold to talk / Tap for more")
+            if state._idle_hint_alpha > 0.01:
+                draw_idle_hint(draw, state._idle_hint_alpha, _accent)
 
             # Gateway greeting overlay (fade-in, hold, fade-out)
             if state.greeting_text and state.greeting_time > 0:

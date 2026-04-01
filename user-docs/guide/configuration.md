@@ -183,6 +183,19 @@ character:
   greeting_prompt: "You just woke up. Give a very brief greeting..."
 ```
 
+### UX / Discoverability
+
+```yaml
+display:
+  gesture_tutorial: true        # show 3-phase gesture tutorial on first boot
+  idle_hint_enabled: true       # show "Hold to talk · Tap for more" after idle timeout
+  idle_hint_delay: 45           # seconds of idle before hint appears on face view
+```
+
+The gesture tutorial runs once on first boot (3 phases: hold-to-talk, tap-to-switch-view, hold-for-menu). Completion is persisted in `config/.setup-state` so it only shows once. Replay the tutorial from the "Help" item in the settings menu. Set `gesture_tutorial: false` to skip the tutorial entirely.
+
+The idle hint fades in on the face view after the configured delay and disappears on any button press. On the first visit to the chat view, a one-time "Hold for settings" hint is shown.
+
 ### Power Management
 
 ```yaml

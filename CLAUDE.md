@@ -85,6 +85,8 @@ voxel/
 │   │   ├── transcript.py        # Chat transcript overlay
 │   │   ├── button_indicator.py  # Four-zone progress ring + flash pills
 │   │   ├── shutdown_overlay.py  # Shutdown countdown (3... 2... 1...)
+│   │   ├── tutorial.py          # First-boot gesture tutorial overlay (3-phase)
+│   │   ├── idle_hint.py         # Idle hint text ("Hold to talk · Tap for more")
 │   │   ├── qr_overlay.py        # QR code display for config URL
 │   │   └── wifi_setup.py        # WiFi AP setup UI
 │   ├── backends/                # Output backends (pluggable)
@@ -273,6 +275,8 @@ Once recording starts, the button stays in RECORDING state until release. There 
 
 Implementation in `display/service.py` (`_poll_button_unified` -- shared by Pi GPIO and desktop spacebar). Visual feedback in `display/components/button_indicator.py` (four-zone progress ring + flash pills). Shutdown shows a 3s countdown overlay (`display/components/shutdown_overlay.py`) -- any press cancels.
 
+**Discoverability:** On first boot, a 3-phase gesture tutorial overlay (`display/components/tutorial.py`) teaches hold-to-talk, tap-to-switch, and hold-for-menu. After 45s idle on the face view, a subtle hint appears: "Hold to talk · Tap for more" (`display/components/idle_hint.py`). On first visit to the chat view, a one-time hint shows "Hold for settings". The settings menu includes a "Help" item that replays the gesture tutorial. The button indicator labels are view-aware (no "Talk" label on the chat view). Tutorial completion and hint dismissal are persisted in `config/.setup-state`.
+
 ## OpenClaw Integration
 
 `core/gateway.py` — Uses the gateway's `/v1/chat/completions` endpoint with **SSE streaming** (falls back to non-streaming if the gateway returns empty or errors).
@@ -428,7 +432,7 @@ MCP tools use the same WebSocket protocol on port 8080. The MCP server translate
 
 ## Configuration
 
-`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio (including `wake_word: null` placeholder), stt (Whisper), tts (OpenAI/edge-tts/ElevenLabs), pipeline (recording/chat limits), display, power management, character selection (includes `boot_animation`, `greeting_enabled`, `greeting_prompt`, demo mode settings: `demo_mode`, `demo_cycle_speed`, `demo_include_characters`, `demo_include_styles`), dev mode.
+`config/default.yaml` defines all settings. User overrides in `config/local.yaml` (gitignored). Key sections: gateway (URL/token/default agent), agents (6 defined with voice assignments), audio (including `wake_word: null` placeholder), stt (Whisper), tts (OpenAI/edge-tts/ElevenLabs), pipeline (recording/chat limits), display (including `gesture_tutorial`, `idle_hint_enabled`, `idle_hint_delay`), power management, character selection (includes `boot_animation`, `greeting_enabled`, `greeting_prompt`, demo mode settings: `demo_mode`, `demo_cycle_speed`, `demo_include_characters`, `demo_include_styles`), dev mode.
 
 **Web config UI:** The display service runs a web server on port 8081 (`display/config_server.py`). A 6-digit PIN is generated on each boot and shown on the LCD. The device also displays a QR code for quick access from a phone or laptop. Auth can be disabled via `web.auth_enabled: false` in `local.yaml`. Features include an eye favicon/logo, browser-based STT (mic button for voice input), and browser TTS (speaker toggle to read responses aloud).
 
@@ -646,7 +650,7 @@ Activity indicators are coordinated across screen, LED, and state:
 | Activity | Screen | LED |
 |----------|--------|-----|
 | Ambient hearing | Pulsing mic dot (bottom-right) | Cyan flash on spike |
-| Listening (talk) | Pulse ring + "Talk" label | Solid cyan |
+| Listening (talk) | Pulse ring + "Talk" label (face view only) | Solid cyan |
 | Speaking | Waveform pill | Green blink |
 | Button held | Progress ring with zones | White solid |
 
