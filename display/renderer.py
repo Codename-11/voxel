@@ -42,6 +42,7 @@ from display.components.idle_hint import (
 from display.config_server import PREFERRED_PORT
 from display.idle import IdlePersonality, IdlePrompt
 from display.emoji_reactions import draw_emoji_reaction
+from display.components.error_toast import draw_error_toast
 
 log = logging.getLogger("voxel.display.renderer")
 
@@ -513,6 +514,9 @@ class PILRenderer:
             # Gateway greeting overlay (fade-in, hold, fade-out)
             if state.greeting_text and state.greeting_time > 0:
                 self._draw_greeting(draw, state, now)
+
+            # Error toast — pipeline error message pill
+            draw_error_toast(draw, state, now)
 
             # Peek bubble — shows latest message on top of everything
             draw_peek_bubble(draw, img, state, now)

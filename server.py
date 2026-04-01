@@ -63,6 +63,7 @@ _ui_state = {
     "displayMode": _setting("display.mode", "auto"),
     "inputMode": _setting("input.mode", "auto"),
     "agents": settings.get("agents", []),
+    "error_message": "",  # pipeline error text for display toast
 }
 
 _clients: set[ServerConnection] = set()
@@ -259,12 +260,37 @@ def _init_audio() -> None:
             log.warning(f"Audio init failed: {e}")
 
 
+def _friendly_error(msg: str) -> str:
+    """Map raw pipeline error messages to concise, user-friendly text."""
+    lower = msg.lower()
+    if "api key" in lower or "api_key" in lower:
+        return "No API key configured"
+    if "couldn't hear" in lower or "could not hear" in lower:
+        return "Didn't catch that -- try again"
+    if "too short" in lower:
+        return "Too short -- hold longer"
+    if "gateway not configured" in lower:
+        return "Gateway not set up"
+    if "no response" in lower:
+        return "No response from agent"
+    if "connection" in lower or "connect" in lower or "unreachable" in lower:
+        return "Can't reach server"
+    if "timeout" in lower or "timed out" in lower:
+        return "Request timed out"
+    # Generic fallback — truncate to 40 chars
+    if len(msg) > 40:
+        return msg[:37] + "..."
+    return msg
+
+
 async def _pipeline_error(msg: str) -> None:
     """Transition to ERROR, broadcast, recover to IDLE after delay."""
     log.error(f"Pipeline error: {msg}")
+    _ui_state["error_message"] = _friendly_error(msg)
     sm.to_error(msg)
     await emit_transcript("system", msg, status="error")
     await asyncio.sleep(ERROR_SECONDS)
+    _ui_state["error_message"] = ""
     sm.to_idle()
 
 

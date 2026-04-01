@@ -127,6 +127,10 @@ class DisplayState:
     _chat_hint_alpha: float = 0.0
     _chat_hint_start: float = 0.0
 
+    # Error toast (brief message shown on pipeline errors)
+    error_toast: str = ""            # error message text
+    _error_toast_until: float = 0.0  # timestamp when toast expires
+
     # Frame timing (set each frame by the render loop)
     time: float = 0.0
     dt: float = 0.0

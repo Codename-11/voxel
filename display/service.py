@@ -410,6 +410,12 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
                             state.battery = msg.get("battery", state.battery)
                             state.agent = msg.get("agent", state.agent)
 
+                            # Error toast from pipeline errors
+                            error_msg = msg.get("error_message", "")
+                            if error_msg:
+                                from display.components.error_toast import trigger_error_toast
+                                trigger_error_toast(state, error_msg)
+
                         elif msg_type == "transcript":
                             role = msg.get("role", "")
                             text = msg.get("text", "")
@@ -1048,6 +1054,11 @@ async def _main(args: argparse.Namespace) -> None:
     #         "cancel_recording", "menu_open", "menu_next", "menu_select",
     #         "menu_timeout", "sleep", "shutdown"
     def _on_button(btn: str) -> None:
+        # Clear error toast on any button press
+        if state.error_toast:
+            from display.components.error_toast import clear_error_toast
+            clear_error_toast(state)
+
         # Any button event during sleep wakes the device
         if state.state == "SLEEPING" and btn not in ("sleep", "shutdown"):
             state.state = "IDLE"
