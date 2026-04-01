@@ -74,7 +74,9 @@ MENU_ITEMS = [
     ("update", "^", "Update"),
     ("about", "i", "About"),
     ("help", "?", "Gesture Help"),
+    ("restart", "~", "Restart Services"),
     ("reboot", "!", "Reboot"),
+    ("shutdown", "X", "Shutdown"),
     ("back", "<", "Back"),
 ]
 
@@ -137,6 +139,8 @@ class MenuState:
         self._select_flash_time: float = 0.0
         self._reboot_confirmed: bool = False
         self._help_triggered: bool = False
+        self._restart_triggered: bool = False
+        self._shutdown_triggered: bool = False
         self._wifi_setup_triggered: bool = False
         self._pending_value: int | None = None  # for brightness/volume preset cycling
         # Queued config changes to persist (consumed by the render loop)
@@ -241,6 +245,12 @@ class MenuState:
                 self.open = False
             elif item_id == "help":
                 self._help_triggered = True
+                self.open = False
+            elif item_id == "restart":
+                self._restart_triggered = True
+                self.open = False
+            elif item_id == "shutdown":
+                self._shutdown_triggered = True
                 self.open = False
             else:
                 self.sub_screen = item_id

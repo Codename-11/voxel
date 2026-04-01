@@ -242,13 +242,12 @@ def _poll_button_unified(pressed: bool, state: DisplayState,
                 events.append("start_recording")
                 _emit_button_event("start_recording", state)
             elif hold_time >= MENU_OPEN_THRESHOLD and not _btn_fired_menu:
-                # Non-face view or non-idle: open menu at 1s threshold
+                # Non-face view or non-idle: open menu at 1s threshold.
+                # Don't reset — let the hold continue so sleep (5s) and
+                # shutdown (10s) thresholds can still fire while holding.
                 _btn_fired_menu = True
                 events.append("menu_open")
                 _emit_button_event("long_press", state)
-                state.button_pressed = False
-                state.button_hold = 0.0
-                _btn_reset()
         return events
 
     # ── RECORDING state (button held, mic is recording) ──
@@ -684,6 +683,25 @@ async def _render_loop(state: DisplayState, renderer: PILRenderer,
                     log.error(f"Reboot command failed: {e}")
             else:
                 log.info("Reboot requested on desktop — ignoring")
+
+        # Check menu restart trigger
+        if renderer.menu._restart_triggered:
+            renderer.menu._restart_triggered = False
+            if IS_PI:
+                log.info("Service restart requested via menu")
+                try:
+                    _subprocess.Popen(["sudo", "systemctl", "restart", "voxel", "voxel-display"])
+                except Exception as e:
+                    log.error(f"Service restart failed: {e}")
+            else:
+                log.info("Service restart requested on desktop — ignoring")
+
+        # Check menu shutdown trigger
+        if renderer.menu._shutdown_triggered:
+            renderer.menu._shutdown_triggered = False
+            state.shutdown_confirm = True
+            state._shutdown_at = time.time() + 3.0
+            log.info("Shutdown initiated from menu — 3s countdown")
 
         # Check menu help trigger — re-launch gesture tutorial
         if renderer.menu._help_triggered:
