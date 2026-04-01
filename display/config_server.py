@@ -1461,6 +1461,10 @@ def _build_html(settings: dict) -> str:
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Full device reboot. Display will go dark for ~30 seconds.</p>
     <button type="button" onclick="rebootDevice()" class="btn-secondary" style="background:color-mix(in srgb, var(--warning) 12%, transparent);color:var(--warning);border-color:color-mix(in srgb, var(--warning) 25%, transparent)">Reboot Device</button>
     <div id="reboot-status"></div>
+    <hr style="border-color:var(--border);margin:16px 0">
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Power off the device completely.</p>
+    <button type="button" onclick="shutdownDevice()" class="btn-secondary" style="background:color-mix(in srgb, var(--danger) 12%, transparent);color:var(--danger);border-color:color-mix(in srgb, var(--danger) 25%, transparent)">Shutdown</button>
+    <div id="shutdown-status"></div>
   </div>
 </details>
 
@@ -1717,6 +1721,23 @@ async function rebootDevice() {{
     }});
     const d = await r.json();
     if (d.ok) {{ showStatus(rs, 'ok', 'Reboot command sent. Device will restart shortly.', false); }}
+    else {{ showStatus(rs, 'err', 'Error: ' + (d.error || 'unknown')); }}
+  }} catch(e) {{ showStatus(rs, 'err', e.message); }}
+}}
+
+/* ── Shutdown ──────────────────────────────────────────────────────── */
+async function shutdownDevice() {{
+  if (!confirm('Shut down the device? You will need physical access to turn it back on.')) return;
+  const rs = document.getElementById('shutdown-status');
+  showStatus(rs, 'ok', 'Shutting down...', false);
+  try {{
+    const r = await fetch('/api/shutdown', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: '{{}}'
+    }});
+    const d = await r.json();
+    if (d.ok) {{ showStatus(rs, 'ok', 'Shutdown command sent. Device will power off.', false); }}
     else {{ showStatus(rs, 'err', 'Error: ' + (d.error || 'unknown')); }}
   }} catch(e) {{ showStatus(rs, 'err', e.message); }}
 }}
@@ -3679,6 +3700,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._reboot(body)
             return
 
+        if self.path == "/api/shutdown":
+            self._shutdown(body)
+            return
+
         if self.path == "/api/factory-reset":
             self._factory_reset(body)
             return
@@ -3962,6 +3987,32 @@ class _Handler(BaseHTTPRequestHandler):
 
         threading.Thread(target=_do_reboot, daemon=True).start()
 
+    def _shutdown(self, body: bytes):
+        """Shutdown the device (Pi only — no-op on desktop)."""
+        try:
+            from hw.detect import IS_PI
+        except ImportError:
+            IS_PI = False
+
+        if not IS_PI:
+            log.info("Shutdown requested on desktop — ignoring")
+            self._json_response(200, {"ok": True, "message": "Shutdown skipped (not on Pi)"})
+            return
+
+        log.warning("Shutdown requested via web UI from %s", self.client_address[0])
+        self._json_response(200, {"ok": True, "message": "Shutting down..."})
+
+        import threading
+
+        def _do_shutdown():
+            _time.sleep(1)
+            try:
+                subprocess.run(["sudo", "shutdown", "-h", "now"], timeout=5)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_shutdown, daemon=True).start()
+
     def _gateway_test(self, body: bytes):
         """Test gateway connection and optionally fetch agents."""
         try:
@@ -4233,18 +4284,22 @@ class _Handler(BaseHTTPRequestHandler):
         """Handle GET /api/diagnostics/system — return system health info."""
         try:
             from hw.detect import IS_PI, probe_hardware
-            from core.audio import _pyaudio_available, _sounddevice_available, _pa
 
             settings = _load_settings()
             hw = probe_hardware()
 
-            # Audio backend
-            if _pyaudio_available:
-                audio_backend = "pyaudio"
-            elif _sounddevice_available:
+            # Audio backend — check importability rather than init flags,
+            # since audio.init() runs in the backend process, not here
+            audio_backend = "none"
+            try:
+                import sounddevice  # noqa: F401
                 audio_backend = "sounddevice"
-            else:
-                audio_backend = "none"
+            except ImportError:
+                try:
+                    import pyaudio  # noqa: F401
+                    audio_backend = "pyaudio"
+                except ImportError:
+                    pass
 
             # WM8960 detection
             wm8960 = hw.has_wm8960_audio
