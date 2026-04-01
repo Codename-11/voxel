@@ -430,6 +430,14 @@ async def _ws_client(state: DisplayState, url: str, stop: asyncio.Event) -> None
                                 state.greeting_time = time.time()
                                 log.info("Gateway greeting: %s", text[:60])
 
+                        elif msg_type == "ambient_control":
+                            action = msg.get("action")
+                            from display.ambient import _active_monitor
+                            if action == "pause" and _active_monitor:
+                                _active_monitor.pause()
+                            elif action == "resume" and _active_monitor:
+                                _active_monitor.resume()
+
                         elif msg_type == "tool_call":
                             name = msg.get("name", "")
                             status = msg.get("status", "running")

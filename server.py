@@ -355,6 +355,11 @@ async def run_voice_pipeline() -> None:
 
     try:
         # ── LISTENING: record mic ────────────────────────────────
+        # Pause the display service's ambient monitor to release the mic
+        # (ALSA only allows one consumer on hw: devices)
+        await broadcast({"type": "ambient_control", "action": "pause"})
+        await asyncio.sleep(0.3)  # let ALSA release
+
         log.info("Voice pipeline: LISTENING — recording from mic")
         t_record_start = time.perf_counter()
         audio.start_recording()
@@ -367,6 +372,8 @@ async def run_voice_pipeline() -> None:
             log.warning("Voice pipeline: max recording time reached (%ds)", max_secs)
 
         wav_bytes = await asyncio.to_thread(audio.stop_recording)
+        # Resume ambient monitor now that mic is free
+        await broadcast({"type": "ambient_control", "action": "resume"})
         t_record_ms = (time.perf_counter() - t_record_start) * 1000
         log.info("Voice pipeline: recording complete — %d bytes in %.0fms", len(wav_bytes), t_record_ms)
 
@@ -541,12 +548,14 @@ async def run_voice_pipeline() -> None:
             stop_playback()
         except Exception:
             pass
+        await broadcast({"type": "ambient_control", "action": "resume"})
         sm.to_idle()
     except Exception as e:
         total_ms = (time.perf_counter() - pipeline_start) * 1000
         log.exception("Voice pipeline: unhandled error after %.0fms", total_ms)
         _ui_state["speaking"] = False
         _ui_state["amplitude"] = 0.0
+        await broadcast({"type": "ambient_control", "action": "resume"})
         await _pipeline_error(str(e)[:60])
 
 
