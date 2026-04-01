@@ -355,10 +355,11 @@ async def run_voice_pipeline() -> None:
 
     try:
         # ── LISTENING: record mic ────────────────────────────────
-        # Pause the display service's ambient monitor to release the mic
-        # (ALSA only allows one consumer on hw: devices)
+        # Pause the display service's ambient monitor to release the mic.
+        # With dsnoop/capture PCM this isn't strictly needed, but avoids
+        # contention on hw: devices and reduces noise in recordings.
         await broadcast({"type": "ambient_control", "action": "pause"})
-        await asyncio.sleep(0.3)  # let ALSA release
+        await asyncio.sleep(0.5)  # let ALSA release the device
 
         log.info("Voice pipeline: LISTENING — recording from mic")
         t_record_start = time.perf_counter()

@@ -28,6 +28,10 @@ _PI_DEVICE = "hw:wm8960soundcard"
 _PI_DEVICE_FALLBACK = "hw:0,0"
 _PI_DEVICE_PLUG = "plughw:0,0"
 _PI_DEVICE_PLUG_NAMED = "plughw:wm8960soundcard"
+# ALSA PCM names from asound.conf (Whisplay driver)
+# These use dsnoop for shared capture access
+_PI_CAPTURE_PCM = "capture"       # plug → dsnoop (from asound.conf)
+_PI_PLAYBACK_PCM = "playback"     # plug → dmix (from asound.conf)
 
 _pa = None           # PyAudio instance
 _stream_in = None    # Recording stream
@@ -127,7 +131,23 @@ def start_recording() -> None:
 
     elif _sounddevice_available:
         import sounddevice as sd  # type: ignore
-        device = _get_sd_device("input")
+        # On Pi, try the ALSA "capture" PCM (dsnoop-based, supports shared access)
+        # before falling back to the device detection chain. This avoids
+        # PortAudio's cached device list which may be stale.
+        device = None
+        if IS_PI:
+            for try_dev in (_PI_CAPTURE_PCM, _PI_DEVICE_PLUG, _PI_DEVICE_PLUG_NAMED):
+                try:
+                    test = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS,
+                                          dtype="int16", blocksize=CHUNK, device=try_dev)
+                    test.close()
+                    device = try_dev
+                    log.info("Recording: using ALSA PCM '%s'", device)
+                    break
+                except Exception:
+                    continue
+        if device is None:
+            device = _get_sd_device("input")
         _stream_in = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,

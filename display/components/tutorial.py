@@ -1,9 +1,9 @@
 """Gesture tutorial overlay — three-phase animated guide for single-button UX.
 
-Phase 1 (0-2.5s): "Hold to talk"      — animated button circle with growing ring arc
-Phase 2 (2.5-5s): "Tap to switch"     — button with tap bounce animation
-Phase 3 (5-7.5s): "Hold for settings" — ring growing to menu threshold
-Auto-dismiss at 8s, any button press dismisses immediately.
+Phase 1 (0-4s):  "Hold to talk"      — animated button circle with growing ring arc
+Phase 2 (4-8s):  "Tap to switch"     — button with tap bounce animation
+Phase 3 (8-12s): "Hold for settings" — ring growing to menu threshold
+Auto-dismiss at 13s, any button press dismisses immediately.
 
 Dark semi-transparent background, accent color highlights.
 """
@@ -30,12 +30,12 @@ WHITE = (200, 200, 220)
 # ── Timing ──────────────────────────────────────────────────────────────────
 
 PHASE_1_START = 0.0
-PHASE_1_END = 2.5
-PHASE_2_START = 2.5
-PHASE_2_END = 5.0
-PHASE_3_START = 5.0
-PHASE_3_END = 7.5
-TOTAL_DURATION = 8.0
+PHASE_1_END = 4.0
+PHASE_2_START = 4.0
+PHASE_2_END = 8.0
+PHASE_3_START = 8.0
+PHASE_3_END = 12.0
+TOTAL_DURATION = 13.0
 
 # ── Layout ──────────────────────────────────────────────────────────────────
 
