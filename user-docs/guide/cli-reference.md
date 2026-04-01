@@ -289,8 +289,10 @@ voxel version
 
 ### `voxel uninstall`
 
-Removes systemd services and caches. Does not delete the repository or config files.
+Removes systemd services, CLI wrappers, boot splash, setup state, and local config. Keeps the repo and system packages for easy re-setup.
 
 ```bash
-voxel uninstall
+voxel uninstall          # Remove services + config (keeps repo)
+voxel uninstall --nuke   # Remove everything including the repo
+voxel uninstall -y       # Skip confirmation prompt
 ```

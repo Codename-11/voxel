@@ -487,7 +487,8 @@ voxel mcp                       # Start MCP server (SSE on :8082)
 
 # Other
 voxel version        # Show version
-voxel uninstall      # Remove services + caches
+voxel uninstall      # Remove services + config (keeps repo)
+voxel uninstall --nuke  # Remove everything for clean re-install
 ```
 
 ## Setup & Onboarding
